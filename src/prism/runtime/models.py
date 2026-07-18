@@ -45,6 +45,8 @@ class Candidate:
     practical_return: str
     boundary: str
     operator: str | None = None
+    operator_family: str | None = None
+    rift_distance: str | None = None
 
     @staticmethod
     def from_dict(data: dict) -> Candidate:
@@ -56,6 +58,8 @@ class Candidate:
             practical_return=data["practical_return"],
             boundary=data["boundary"],
             operator=data.get("operator"),
+            operator_family=data.get("operator_family"),
+            rift_distance=data.get("rift_distance"),
         )
 
 
@@ -129,6 +133,7 @@ class TraceMetadata:
     trace_schema_version: str = "1"
     run_id: str = ""
     mode: str = "normal"
+    profile: str = "practical"
     generator_prompt_version: str = ""
     judge_prompt_version: str = ""
     generator_model: str = ""
@@ -151,6 +156,7 @@ class TraceMetadata:
             "trace_schema_version": self.trace_schema_version,
             "run_id": self.run_id,
             "mode": self.mode,
+            "profile": self.profile,
             "generator_prompt_version": self.generator_prompt_version,
             "judge_prompt_version": self.judge_prompt_version,
             "generator_model": self.generator_model,

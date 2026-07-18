@@ -62,6 +62,7 @@ def main(argv: list[str] | None = None) -> int:
     run_p.add_argument("--task", required=True,
                        help="Task description for generation")
     run_p.add_argument("--mode", choices=("normal", "360"), default="normal")
+    run_p.add_argument("--profile", choices=("practical", "rift"), default="practical")
     run_p.add_argument("--trajectory", default=None,
                        help="Path to trajectory.md")
     run_p.add_argument("--context-mode", choices=("trajectory", "full"),
@@ -116,6 +117,7 @@ def main(argv: list[str] | None = None) -> int:
     sess_run.add_argument("--task", required=True, help="Task description")
     sess_run.add_argument("--mode", choices=("normal", "360"),
                           default="normal")
+    sess_run.add_argument("--profile", choices=("practical", "rift"), default="practical")
 
     sess_update = sess_sub.add_parser("update",
                                       help="Update current document in session")
@@ -255,6 +257,7 @@ def _cmd_run(args) -> int:
         document=document,
         task=args.task,
         mode=args.mode,
+        profile=args.profile,
         trajectory=trajectory,
         context_mode=args.context_mode,
         trace_level=args.trace_level,
@@ -367,6 +370,7 @@ def _cmd_session_run(args) -> int:
         document=document,
         task=args.task,
         mode=args.mode,
+        profile=args.profile,
         trajectory=trajectory or None,
         session_dir=args.session_dir,
         output_dir=output_dir,

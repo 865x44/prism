@@ -39,6 +39,7 @@ def _normalize_v0_metadata(meta: dict) -> TraceMetadata:
         trace_schema_version="0",  # legacy
         run_id=meta.get("run_id", ""),
         mode=meta.get("mode", "normal"),
+        profile=meta.get("profile", "practical"),
         generator_prompt_version=meta.get("generator_prompt_version", ""),
         judge_prompt_version=meta.get("judge_prompt_version", ""),
         generator_model=meta.get("generator_model", ""),
@@ -164,6 +165,7 @@ def read_trace_metadata(trace_dir: Path) -> TraceMetadata:
             trace_schema_version="1",
             run_id=meta.get("run_id", ""),
             mode=meta.get("mode", "normal"),
+            profile=meta.get("profile", "practical"),
             generator_prompt_version=meta.get("generator_prompt_version", ""),
             judge_prompt_version=meta.get("judge_prompt_version", ""),
             generator_model=meta.get("generator_model", ""),

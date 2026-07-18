@@ -123,6 +123,7 @@ def run(
     document: str,
     task: str,
     mode: str = "normal",
+    profile: str = "practical",
     trajectory: str | None = None,
     context_mode: str = "trajectory",
     trace_level: str = "compact",
@@ -137,6 +138,7 @@ def run(
         document: The input text to analyze.
         task: What to find — "найти сильные направления для развития" etc.
         mode: "normal" or "360".
+        profile: "practical" or "rift".
         trajectory: Optional accumulated trajectory text.
         context_mode: "trajectory" or "full".
         trace_level: "compact" or "full".
@@ -178,8 +180,11 @@ def run(
                 # otherwise we proceed without.
 
     # ---------- generate ----------
+    gen_prompt_version = f"360-rift-v0" if mode == "360" and profile == "rift" else \
+                         f"generator-rift-v0" if profile == "rift" else \
+                         f"360-v1" if mode == "360" else "generator-v1"
     gen_prompt = build_generator_prompt(
-        document, task, effective_trajectory, mode,
+        document, task, effective_trajectory, mode, profile,
     )
     candidates, gen_status, gen_raw, repair_prompt = \
         generate_with_repair(gen_prompt, run_dir)
@@ -225,10 +230,12 @@ def run(
             "note": "generator returned zero candidates",
         }
     else:
+        judge_prompt_version = "judge-rift-v0" if profile == "rift" else "judge-v1"
         judge_prompt = build_judge_prompt(
             document, task,
             json.dumps(candidates_list, indent=2, ensure_ascii=False),
             effective_trajectory,
+            profile,
         )
         judge_data, judge_status, judge_raw, j_repair = judge_with_repair(
             judge_prompt, run_dir,
@@ -305,6 +312,7 @@ def run(
         "input_path": "(inline document)" if session_dir else "(direct)",
         "task": task,
         "mode": mode,
+        "profile": profile,
         "context_mode": context_mode,
         "trace_level": trace_level,
     }
@@ -321,10 +329,9 @@ def run(
         trace_schema_version="1",
         run_id=run_id,
         mode=mode,
-        generator_prompt_version=(
-            "360-v1" if mode == "360" else "generator-v1"
-        ),
-        judge_prompt_version="judge-v1",
+        profile=profile,
+        generator_prompt_version=gen_prompt_version,
+        judge_prompt_version=judge_prompt_version if 'judge_prompt_version' in locals() else "judge-v1",
         generator_model=generator_model,
         judge_model=judge_model,
         judge_family_fallback=True,
