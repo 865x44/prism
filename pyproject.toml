@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "prism"
+version = "0.1.0"
+description = "Prism — усилитель мышления: находит 2–3 неочевидных, но рабочих угла для текста (Beerlight Runtime v1, standalone)"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+]
+
+[project.scripts]
+prism = "prism.runtime.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-dir]
+"" = "src"
+
+[tool.setuptools.package-data]
+"prism.slice" = ["prompts/*.md"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
