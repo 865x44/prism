@@ -1,15 +1,15 @@
-"""Beerlight Runtime v1 — productized runtime wrapping the validated slice.
+"""Prism Runtime v1 — productized runtime wrapping the validated slice.
 
 Public API:
-    import beerlight.runtime
-    result = beerlight.runtime.run(document=..., task=..., mode="normal")
+    import prism.runtime
+    result = prism.runtime.run(document=..., task=..., mode="normal")
 
 CLI entrypoint:
-    python -m beerlight.runtime run <input_file> --task "<task>"
-    python -m beerlight.runtime run-json request.json
-    python -m beerlight.runtime inspect <run_id>
-    python -m beerlight.runtime session create <input_file>
-    python -m beerlight.runtime trajectory show <session_path>
+    python -m prism.runtime run <input_file> --task "<task>"
+    python -m prism.runtime run-json request.json
+    python -m prism.runtime inspect <run_id>
+    python -m prism.runtime session create <input_file>
+    python -m prism.runtime trajectory show <session_path>
 """
 
 from .service import run

@@ -1,4 +1,4 @@
-"""Tests for Beerlight Runtime — session layer.
+"""Tests for Prism Runtime — session layer.
 
 Deterministic tests only. No LLM calls.
 """

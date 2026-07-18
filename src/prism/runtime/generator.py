@@ -1,4 +1,4 @@
-"""Generator wrapper for Beerlight Runtime.
+"""Generator wrapper for Prism Runtime.
 
 Thin wrapper over the validated slice generator.
 Builds prompts using slice prompt templates, calls LLM via the shared provider,

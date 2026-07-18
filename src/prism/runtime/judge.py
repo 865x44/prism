@@ -1,4 +1,4 @@
-"""Judge wrapper for Beerlight Runtime.
+"""Judge wrapper for Prism Runtime.
 
 Thin wrapper over the validated slice judge.
 Builds judge prompts, calls LLM, and validates output.

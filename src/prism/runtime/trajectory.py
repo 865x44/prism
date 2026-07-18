@@ -1,9 +1,9 @@
-"""Trajectory as a first-class artifact for Beerlight Runtime.
+"""Trajectory as a first-class artifact for Prism Runtime.
 
 Trajectory is both prompt compression and a durable decision-development record.
 
 Template:
-    # Beerlight trajectory
+    # Prism trajectory
     ## Original task
     ...
     ## Directions already explored
@@ -40,7 +40,7 @@ from typing import Any
 
 from .models import TrajectoryEntry
 
-TRAJECTORY_TEMPLATE = """# Beerlight trajectory
+TRAJECTORY_TEMPLATE = """# Prism trajectory
 
 ## Original task
 {task}

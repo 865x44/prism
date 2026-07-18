@@ -1,4 +1,4 @@
-"""Data models for Beerlight Runtime.
+"""Data models for Prism Runtime.
 
 These are the public types used throughout the runtime layer.
 They wrap/adapt the validated slice internals without rewriting them.

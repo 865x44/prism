@@ -1,4 +1,4 @@
-"""JSON request/response contracts for Beerlight Runtime.
+"""JSON request/response contracts for Prism Runtime.
 
 External Contract v0:
     Input: JSON request file with document, task, mode, etc.
@@ -22,11 +22,12 @@ class ExitCode(enum.IntEnum):
     JUDGE_FAILED = 4
     TRACE_WRITE_FAILED = 5
     INTERNAL_ERROR = 6
+    DEGRADED = 7
 
 
 @dataclass
 class RunRequest:
-    """Machine-readable request for a Beerlight run.
+    """Machine-readable request for a Prism run.
 
     JSON schema:
         {
@@ -77,7 +78,7 @@ class RunRequest:
 
 @dataclass
 class RunResponse:
-    """Machine-readable response from a Beerlight run.
+    """Machine-readable response from a Prism run.
 
     JSON schema:
         {

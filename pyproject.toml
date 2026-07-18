@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "prism"
 version = "0.1.0"
-description = "Prism — усилитель мышления: находит 2–3 неочевидных, но рабочих угла для текста (Beerlight Runtime v1, standalone)"
+description = "Prism — усилитель мышления: находит 2–3 неочевидных, но рабочих угла для текста (Prism Runtime v1, standalone)"
 requires-python = ">=3.11"
 dependencies = []
 

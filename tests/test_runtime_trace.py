@@ -1,4 +1,4 @@
-"""Tests for Beerlight Runtime — trace schema v1 and legacy v0 reading.
+"""Tests for Prism Runtime — trace schema v1 and legacy v0 reading.
 
 Deterministic tests only. No LLM calls.
 """

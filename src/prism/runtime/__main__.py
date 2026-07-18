@@ -1,4 +1,4 @@
-"""Entry point for ``python -m beerlight.runtime``."""
+"""Entry point for ``python -m prism.runtime``."""
 from .cli import main as cli_main
 
 if __name__ == "__main__":

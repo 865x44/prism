@@ -1,4 +1,4 @@
-"""Validation layer for Beerlight Runtime.
+"""Validation layer for Prism Runtime.
 
 Reuses the validated slice validation logic (extract_json, validate_candidates,
 validate_judge) plus adds runtime-level validations.
@@ -34,7 +34,7 @@ def validate_run_args(
     task: str | None,
     mode: str,
 ) -> list[str]:
-    """Validate the arguments to beerlight.run()."""
+    """Validate the arguments to prism.runtime.run()."""
     errors: list[str] = []
     if not document:
         errors.append("document is required")

@@ -1,8 +1,8 @@
-"""Public Runtime API for Beerlight.
+"""Public Runtime API for Prism.
 
 Provides:
-    beerlight.runtime.run(document=..., task=..., mode="normal", ...)
-    beerlight.runtime.run_json(request: RunRequest) -> RunResponse
+    prism.runtime.run(document=..., task=..., mode="normal", ...)
+    prism.runtime.run_json(request: RunRequest) -> RunResponse
 
 Orchestrates: input reading → generate → judge → resolve → trace → session.
 All core logic delegates to the validated slice (wrap over move).
@@ -129,9 +129,9 @@ def run(
     trailer: str | None = None,
     privacy: str = "private",
     session_dir: str | None = None,
-    output_dir: str = "beerlight-runs",
+    output_dir: str = "prism-runs",
 ) -> RunResponse:
-    """Run Beerlight on a document.
+    """Run Prism on a document.
 
     Args:
         document: The input text to analyze.
@@ -248,24 +248,25 @@ def run(
         total_chars += judge_chars
 
         if judge_data is None or judge_status == "error":
-            return _build_error_response(
-                run_id, output_dir, run_dir,
-                generator_model, judge_model, mode,
-                "judge_failed",
-                warnings,
-            )
+            warnings.append("Judge failed after bounded repair. Returning degraded status with original generator pool.")
+            judge_dict = {
+                "overall_decision": "degraded",
+                "cards": [],
+                "judgments": [],
+                "note": "judge failed to parse or crashed"
+            }
+        else:
+            judge_dict = {
+                "overall_decision": judge_data.overall_decision,
+                "cards": [c.__dict__ for c in judge_data.cards],
+                "judgments": [j.__dict__ for j in judge_data.judgments],
+            }
+            if judge_data.abstention_source:
+                judge_dict["abstention_source"] = judge_data.abstention_source
+            if judge_data.trajectory_update:
+                judge_dict["trajectory_update"] = judge_data.trajectory_update
 
-        judge_dict = {
-            "overall_decision": judge_data.overall_decision,
-            "cards": [c.__dict__ for c in judge_data.cards],
-            "judgments": [j.__dict__ for j in judge_data.judgments],
-        }
-        if judge_data.abstention_source:
-            judge_dict["abstention_source"] = judge_data.abstention_source
-        if judge_data.trajectory_update:
-            judge_dict["trajectory_update"] = judge_data.trajectory_update
-
-        traj_update = judge_data.trajectory_update or {}
+            traj_update = judge_data.trajectory_update or {}
         if judge_repair_prompt:
             gen_repair_prompt = gen_repair_prompt  # keep existing gen repair if any
 
@@ -277,6 +278,10 @@ def run(
         status = "no_useful_output"
         cards_out: list[dict] = []
         abstention_source = abstention_source or "judge"
+    elif overall == "degraded":
+        status = "degraded"
+        cards_out: list[dict] = []
+        abstention_source = None
     else:
         status = "ok"
         raw_cards = judge_dict.get("cards", [])
@@ -417,7 +422,7 @@ def run(
 
 
 def run_json(request: RunRequest) -> RunResponse:
-    """Execute a Beerlight run from a machine-readable RunRequest.
+    """Execute a Prism run from a machine-readable RunRequest.
 
     Implements External Contract v0: deterministic exit codes,
     no interactive prompts, machine-readable errors.
@@ -464,7 +469,7 @@ def run_json(request: RunRequest) -> RunResponse:
         trajectory=trajectory,
         context_mode=request.context_mode,
         trace_level=request.trace_level,
-        output_dir=request.output_dir or "beerlight-runs",
+        output_dir=request.output_dir or "prism-runs",
     )
 
 
@@ -505,6 +510,8 @@ def run_json_file(request_path: str) -> tuple[RunResponse, ExitCode]:
         return resp, ExitCode.INTERNAL_ERROR
     elif resp.status == "no_useful_output":
         return resp, ExitCode.OK
+    elif resp.status == "degraded":
+        return resp, ExitCode.DEGRADED
     else:
         return resp, ExitCode.OK
 

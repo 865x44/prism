@@ -68,10 +68,8 @@ def test_opencode_default_model(clean_env):
     assert provider.get_generator_model() == "opencode-go/deepseek-v4-pro"
 
 
-def test_model_env_override_and_legacy_fallback(clean_env):
+def test_model_env_override(clean_env):
     clean_env.setenv("PRISM_API_KEY", "sk-test")
-    clean_env.setenv("BEERLIGHT_SLICE_GENERATOR_MODEL", "legacy-model")
-    assert provider.get_generator_model() == "legacy-model"
     clean_env.setenv("PRISM_GENERATOR_MODEL", "new-model")
     assert provider.get_generator_model() == "new-model"
 

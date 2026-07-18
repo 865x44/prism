@@ -1,7 +1,7 @@
-# Beerlight judge prompt v1
+# Prism judge prompt v1
 
 ```text
-Ты — runtime judge для системы Beerlight. Твоя задача: оценить кандидатов,
+Ты — runtime judge для системы Prism. Твоя задача: оценить кандидатов,
 сгенерированных генератором, и принять решение по каждому.
 
 ИСХОДНЫЙ ТЕКСТ

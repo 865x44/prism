@@ -1,0 +1,11 @@
+[
+  {
+    "id": "c1",
+    "title": "Review work became the product",
+    "core_shift": "The tool does not remove writing work. It moves the scarce work from drafting to deciding what can be trusted.",
+    "source_basis": ["The source claims faster production while repeatedly adding review and approval stages."],
+    "practical_return": "Measure reviewer time and correction rate separately from raw generation speed.",
+    "boundary": "This does not establish that the tool reduces total output quality.",
+    "operator": "renaming"
+  }
+]

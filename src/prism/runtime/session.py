@@ -1,4 +1,4 @@
-"""Session layer for Beerlight Runtime.
+"""Session layer for Prism Runtime.
 
 Session layout:
     session/

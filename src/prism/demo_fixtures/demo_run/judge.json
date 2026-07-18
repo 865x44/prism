@@ -1,0 +1,22 @@
+{
+  "overall_decision": "useful_output",
+  "cards": [
+    {
+      "title": "Review work became the product",
+      "shift": "The tool does not remove writing work. It moves the scarce work from drafting to deciding what can be trusted.",
+      "basis": "The source claims faster production while repeatedly adding review and approval stages.",
+      "action": "Measure reviewer time and correction rate separately from raw generation speed.",
+      "boundary": "This does not establish that the tool reduces total output quality."
+    }
+  ],
+  "judgments": [
+    {
+      "candidate_id": "c1",
+      "action": "keep",
+      "novelty": "real",
+      "fidelity": "grounded",
+      "failure_tags": [],
+      "reason": "Clear, grounded reframing of the bottleneck."
+    }
+  ]
+}
