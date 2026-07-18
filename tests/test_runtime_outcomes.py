@@ -1,4 +1,4 @@
-"""Tests for Beerlight Runtime — outcomes derived from events.
+"""Tests for Prism Runtime — outcomes derived from events.
 
 Deterministic tests only. No LLM calls.
 

@@ -14,9 +14,9 @@ Config via env:
                                  (fallback: OPENAI_API_KEY)
   PRISM_BASE_URL                 default: https://api.openai.com/v1
   PRISM_GENERATOR_MODEL          generator model (fallback:
-                                 BEERLIGHT_SLICE_GENERATOR_MODEL)
+                                 PRISM_GENERATOR_MODEL)
   PRISM_JUDGE_MODEL              judge model (fallback:
-                                 BEERLIGHT_SLICE_JUDGE_MODEL)
+                                 PRISM_JUDGE_MODEL)
 
 Model defaults depend on the resolved transport:
   http     → gpt-4o-mini
@@ -72,7 +72,6 @@ def _default_model() -> str:
 def get_generator_model() -> str:
     return (
         os.environ.get("PRISM_GENERATOR_MODEL")
-        or os.environ.get("BEERLIGHT_SLICE_GENERATOR_MODEL")
         or _default_model()
     )
 
@@ -80,7 +79,6 @@ def get_generator_model() -> str:
 def get_judge_model() -> str:
     return (
         os.environ.get("PRISM_JUDGE_MODEL")
-        or os.environ.get("BEERLIGHT_SLICE_JUDGE_MODEL")
         or _default_model()
     )
 
@@ -89,7 +87,8 @@ def _call_opencode(prompt: str, model: str) -> str:
     """Single call to opencode CLI. Returns stdout on success."""
     try:
         result = subprocess.run(
-            ["opencode", "run", "--model", model, prompt],
+            ["opencode", "run", "--model", model],
+            input=prompt,
             capture_output=True,
             text=True,
             timeout=CALL_TIMEOUT,

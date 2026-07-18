@@ -1,4 +1,4 @@
-"""Tests for Beerlight Runtime — outcome events (append-only semantics).
+"""Tests for Prism Runtime — outcome events (append-only semantics).
 
 Deterministic tests only. No LLM calls.
 

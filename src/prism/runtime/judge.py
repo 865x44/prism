@@ -1,4 +1,4 @@
-"""Judge wrapper for Beerlight Runtime.
+"""Judge wrapper for Prism Runtime.
 
 Thin wrapper over the validated slice judge.
 Builds judge prompts, calls LLM, and validates output.
@@ -29,9 +29,11 @@ def build_judge_prompt(
     task: str,
     candidates_json: str,
     trajectory: str | None,
+    profile: str = "practical",
 ) -> str:
     """Build the judge prompt using validated slice template."""
-    template = load_prompt("judge-v1.md")
+    template_name = "judge-rift-v0.md" if profile == "rift" else "judge-v1.md"
+    template = load_prompt(template_name)
     result = template.replace("{source}", source)
     result = result.replace("{task}", task)
     result = result.replace(

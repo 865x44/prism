@@ -1,10 +1,10 @@
-"""Inspectability layer for Beerlight Runtime.
+"""Inspectability layer for Prism Runtime.
  
 Provides inspection of run traces:
-    beerlight inspect <run_id>
-    beerlight inspect <run_id> --show-pool
-    beerlight inspect <run_id> --show-judge
-    beerlight inspect <run_id> --show-errors
+    prism inspect <run_id>
+    prism inspect <run_id> --show-pool
+    prism inspect <run_id> --show-judge
+    prism inspect <run_id> --show-errors
 
 The user must be able to recover:
     - all candidates
@@ -182,7 +182,7 @@ def format_inspect_output(result: InspectResult) -> str:
     hidden by cap / Candidate Pool / Dropped.
     """
     lines = []
-    lines.append(f"=== Beerlight Run Inspection ===")
+    lines.append(f"=== Prism Run Inspection ===")
     lines.append(f"Run ID:       {result.run_id}")
     lines.append(f"Trace dir:    {result.trace_dir}")
     lines.append(f"Schema:       {result.schema_version}")

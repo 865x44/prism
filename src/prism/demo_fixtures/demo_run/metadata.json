@@ -1,0 +1,23 @@
+{
+  "trace_schema_version": "1",
+  "run_id": "prism-demo-1",
+  "mode": "normal",
+  "generator_prompt_version": "generator-v1",
+  "judge_prompt_version": "judge-v1",
+  "generator_model": "demo-generator",
+  "judge_model": "demo-judge",
+  "judge_family_fallback": true,
+  "created_at": "2026-01-01T00:00:00+00:00",
+  "status": "ok",
+  "privacy": "shareable",
+  "trace_level": "compact",
+  "token_usage_estimate": 420,
+  "token_usage_breakdown": {
+    "generator": 300,
+    "judge": 120
+  },
+  "duration_sec": 4.2,
+  "retry_count": 0,
+  "input_hash": "dummy_hash",
+  "warnings": []
+}

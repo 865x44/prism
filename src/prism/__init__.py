@@ -1,1 +1,1 @@
-"""Prism — Beerlight Runtime v1, standalone thinking amplifier."""
+"""Prism — Prism Runtime v1, standalone thinking amplifier."""

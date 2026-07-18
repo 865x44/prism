@@ -1,4 +1,4 @@
-"""LLM transport for Beerlight Runtime.
+"""LLM transport for Prism Runtime.
 
 Thin wrapper over the validated slice provider.
 Re-exports the slice transport — same model, same timeout, same retry.

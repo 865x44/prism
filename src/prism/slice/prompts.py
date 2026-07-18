@@ -1,4 +1,4 @@
-"""Prompt template loading for Prism (Beerlight Runtime v1).
+"""Prompt template loading for Prism (Prism Runtime v1).
 
 Prompt files live in the `prompts/` directory next to this module and
 contain a ```text fenced block with {placeholders}.

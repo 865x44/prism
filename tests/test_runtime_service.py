@@ -1,4 +1,4 @@
-"""Tests for Beerlight Runtime — service layer with fake transport.
+"""Tests for Prism Runtime — service layer with fake transport.
 
 Deterministic tests. No LLM calls — uses fake call_llm via monkeypatch.
 
@@ -333,8 +333,8 @@ def test_run_generator_repair_retry(tmp_path, monkeypatch):
 
 # --- graceful degradation: judge fails ---
 
-def test_run_judge_failure_returns_error(tmp_path, monkeypatch):
-    """When judge fails after repair, result is error."""
+def test_run_judge_failure_returns_degraded(tmp_path, monkeypatch):
+    """When judge fails after repair, result is degraded."""
     def fake_call_llm(prompt: str, model: str) -> str:
         if "Твой предыдущий ответ не был валидным" in prompt:
             return "still invalid }}}}"
@@ -355,8 +355,7 @@ def test_run_judge_failure_returns_error(tmp_path, monkeypatch):
         output_dir=str(tmp_path / "runs"),
     )
 
-    assert resp.status == "error"
-    assert resp.error is not None
+    assert resp.status == "degraded"
 
 
 # --- JSON API ---

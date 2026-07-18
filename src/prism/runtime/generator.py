@@ -1,4 +1,4 @@
-"""Generator wrapper for Beerlight Runtime.
+"""Generator wrapper for Prism Runtime.
 
 Thin wrapper over the validated slice generator.
 Builds prompts using slice prompt templates, calls LLM via the shared provider,
@@ -31,10 +31,12 @@ def build_generator_prompt(
     task: str,
     trajectory: str | None,
     mode: str,
+    profile: str = "practical",
 ) -> str:
     """Build the generator prompt using validated slice templates."""
     if mode == "360":
-        template = load_prompt("360-v1.md")
+        template_name = "360-rift-v0.md" if profile == "rift" else "360-v1.md"
+        template = load_prompt(template_name)
         prompt = template.replace("{source}", source)
         prompt = prompt.replace("{task}", task)
         prompt = prompt.replace(
@@ -42,6 +44,64 @@ def build_generator_prompt(
             trajectory or "(траектория отсутствует)",
         )
         prompt = prompt.replace("{context}", "")
+        if profile == "rift":
+            json_instruction = (
+                "\n\n---\n\n"
+                "ФОРМАТ ОТВЕТА: Верни ТОЛЬКО валидный JSON-массив из 4-6 "
+                "кандидатов. Не используй markdown-обёртки. Каждый кандидат — "
+                "объект:\n"
+                '{"id": "c1", "title": "...", "core_shift": "...", '
+                '"source_basis": ["..."], "practical_return": "...", '
+                '"boundary": "...", "operator": "...", '
+                '"operator_family": "...", "rift_distance": "near|far|extreme"}\n\n'
+                "id — c1, c2, ...; source_basis — массив строк с опорой на "
+                "текст; operator — название операции.\n\n"
+                "Если сильных кандидатов меньше 4 — верни меньше. "
+                "Не заполняй квоту слабыми идеями."
+            )
+        else:
+            json_instruction = (
+                "\n\n---\n\n"
+                "ФОРМАТ ОТВЕТА: Верни ТОЛЬКО валидный JSON-массив из 4-6 "
+                "кандидатов. Не используй markdown-обёртки. Каждый кандидат — "
+                "объект:\n"
+                '{"id": "c1", "title": "...", "core_shift": "...", '
+                '"source_basis": ["..."], "practical_return": "...", '
+                '"boundary": "...", "operator": "..."}\n\n'
+                "id — c1, c2, ...; source_basis — массив строк с опорой на "
+                "текст; operator — название операции или «смешанный».\n\n"
+                "Если сильных кандидатов меньше 4 — верни меньше. "
+                "Не заполняй квоту слабыми идеями."
+            )
+        return prompt + json_instruction
+
+    # normal mode
+    template_name = "generator-rift-v0.md" if profile == "rift" else "generator-v1.md"
+    template = load_prompt(template_name)
+    prompt = template.replace("{source}", source)
+    prompt = prompt.replace("{task}", task)
+    prompt = prompt.replace("{context}", "")
+    if trajectory:
+        prompt += (
+            f"\n\nТРАЕКТОРИЯ (уже исследованные направления)\n{trajectory}"
+        )
+
+    if profile == "rift":
+        json_instruction = (
+            "\n\n---\n\n"
+            "ФОРМАТ ОТВЕТА: Верни ТОЛЬКО валидный JSON-массив из 4-6 "
+            "кандидатов. Не используй markdown-обёртки. Каждый кандидат — "
+            "объект:\n"
+            '{"id": "c1", "title": "...", "core_shift": "...", '
+            '"source_basis": ["..."], "practical_return": "...", '
+            '"boundary": "...", "operator": "...", '
+            '"operator_family": "...", "rift_distance": "near|far|extreme"}\n\n'
+            "id — c1, c2, ...; source_basis — массив строк с опорой на "
+            "текст; operator — название операции.\n\n"
+            "Если сильных кандидатов меньше 4 — верни меньше. "
+            "Не заполняй квоту слабыми идеями."
+        )
+    else:
         json_instruction = (
             "\n\n---\n\n"
             "ФОРМАТ ОТВЕТА: Верни ТОЛЬКО валидный JSON-массив из 4-6 "
@@ -55,31 +115,6 @@ def build_generator_prompt(
             "Если сильных кандидатов меньше 4 — верни меньше. "
             "Не заполняй квоту слабыми идеями."
         )
-        return prompt + json_instruction
-
-    # normal mode
-    template = load_prompt("generator-v1.md")
-    prompt = template.replace("{source}", source)
-    prompt = prompt.replace("{task}", task)
-    prompt = prompt.replace("{context}", "")
-    if trajectory:
-        prompt += (
-            f"\n\nТРАЕКТОРИЯ (уже исследованные направления)\n{trajectory}"
-        )
-
-    json_instruction = (
-        "\n\n---\n\n"
-        "ФОРМАТ ОТВЕТА: Верни ТОЛЬКО валидный JSON-массив из 4-6 "
-        "кандидатов. Не используй markdown-обёртки. Каждый кандидат — "
-        "объект:\n"
-        '{"id": "c1", "title": "...", "core_shift": "...", '
-        '"source_basis": ["..."], "practical_return": "...", '
-        '"boundary": "...", "operator": "..."}\n\n'
-        "id — c1, c2, ...; source_basis — массив строк с опорой на "
-        "текст; operator — название операции или «смешанный».\n\n"
-        "Если сильных кандидатов меньше 4 — верни меньше. "
-        "Не заполняй квоту слабыми идеями."
-    )
     return prompt + json_instruction
 
 

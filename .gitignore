@@ -1,8 +1,31 @@
 .venv/
+venv/
 __pycache__/
+*.py[cod]
 *.egg-info/
 .pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
 build/
 dist/
-beerlight-runs/
+
+# Local secrets and environment overrides
+.env
+.env.*
+!.env.example
+
+# Prism runtime artifacts
 prism-runs/
+prism-sessions/
+
+# Legacy Beerlight artifact paths retained for compatibility
+beerlight-runs/
+beerlight-sessions/
+
+# Local editor and OS noise
+.DS_Store
+.idea/
+.vscode/

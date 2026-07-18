@@ -1,4 +1,4 @@
-"""Outcome events — append-only semantics for Beerlight Runtime.
+"""Outcome events — append-only semantics for Prism Runtime.
 
 Every user action that changes a candidate's state is recorded as an event
 in session/events.jsonl. Events are append-only and immutable — no edits

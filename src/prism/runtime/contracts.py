@@ -1,4 +1,4 @@
-"""JSON request/response contracts for Beerlight Runtime.
+"""JSON request/response contracts for Prism Runtime.
 
 External Contract v0:
     Input: JSON request file with document, task, mode, etc.
@@ -22,17 +22,19 @@ class ExitCode(enum.IntEnum):
     JUDGE_FAILED = 4
     TRACE_WRITE_FAILED = 5
     INTERNAL_ERROR = 6
+    DEGRADED = 7
 
 
 @dataclass
 class RunRequest:
-    """Machine-readable request for a Beerlight run.
+    """Machine-readable request for a Prism run.
 
     JSON schema:
         {
           "input_path": "...",
           "task": "...",
           "mode": "normal",
+          "profile": "practical",
           "trajectory_path": null,
           "context_mode": "trajectory",
           "trace_level": "compact",
@@ -42,6 +44,7 @@ class RunRequest:
     input_path: str
     task: str
     mode: str = "normal"       # normal or 360
+    profile: str = "practical" # practical or rift
     trajectory_path: str | None = None
     context_mode: str = "trajectory"  # trajectory or full
     trace_level: str = "compact"      # compact or full
@@ -56,6 +59,8 @@ class RunRequest:
             errors.append("task is required")
         if self.mode not in ("normal", "360"):
             errors.append(f"invalid mode: {self.mode}")
+        if self.profile not in ("practical", "rift"):
+            errors.append(f"invalid profile: {self.profile}")
         if self.context_mode not in ("trajectory", "full"):
             errors.append(f"invalid context_mode: {self.context_mode}")
         if self.trace_level not in ("compact", "full"):
@@ -68,6 +73,7 @@ class RunRequest:
             input_path=data.get("input_path", ""),
             task=data.get("task", ""),
             mode=data.get("mode", "normal"),
+            profile=data.get("profile", "practical"),
             trajectory_path=data.get("trajectory_path"),
             context_mode=data.get("context_mode", "trajectory"),
             trace_level=data.get("trace_level", "compact"),
@@ -77,7 +83,7 @@ class RunRequest:
 
 @dataclass
 class RunResponse:
-    """Machine-readable response from a Beerlight run.
+    """Machine-readable response from a Prism run.
 
     JSON schema:
         {

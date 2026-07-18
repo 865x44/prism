@@ -1,10 +1,12 @@
-"""CLI for Beerlight Runtime v1.
+"""CLI for Prism Runtime v1.
  
-Entrypoint: python -m beerlight.runtime
+Entrypoint: python -m prism.runtime
  
 Commands:
     run <input_file> --task "<task>" [options]     Direct document run
     run-json <request.json>                        JSON external invocation
+    doctor [--smoke]                               Run diagnostic checks
+    demo                                           Run a recorded, key-free demo
     inspect <run_id> [--show-pool] [--show-judge] [--show-errors]
                [--calibrate]
     session create <input_file> [session_dir]      Create a new session
@@ -17,7 +19,7 @@ Commands:
     trajectory apply <session_dir> [--dry-run]
     handoff <session_dir> --output <dir> [--yes] [--include-traces]
  
-No console script (Amendment 2) — use `python -m beerlight.runtime`.
+
 """
 from __future__ import annotations
 
@@ -50,16 +52,17 @@ from .inspect import inspect_run, format_inspect_output, calibration_report
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="prism",
-        description="Beerlight Runtime v1 — productized angle-finder.",
+        description="Prism Runtime v1 — productized angle-finder.",
     )
     sub = parser.add_subparsers(dest="command")
 
     # --- run ---
-    run_p = sub.add_parser("run", help="Run Beerlight on an input file")
+    run_p = sub.add_parser("run", help="Run Prism on an input file")
     run_p.add_argument("input_file", help="Path to the input text file")
     run_p.add_argument("--task", required=True,
                        help="Task description for generation")
     run_p.add_argument("--mode", choices=("normal", "360"), default="normal")
+    run_p.add_argument("--profile", choices=("practical", "rift"), default="practical")
     run_p.add_argument("--trajectory", default=None,
                        help="Path to trajectory.md")
     run_p.add_argument("--context-mode", choices=("trajectory", "full"),
@@ -70,13 +73,21 @@ def main(argv: list[str] | None = None) -> int:
                        default="private")
     run_p.add_argument("--session", dest="session_dir", default=None,
                        help="Session directory for persistence")
-    run_p.add_argument("--output-dir", default="beerlight-runs",
+    run_p.add_argument("--output-dir", default="prism-runs",
                        help="Output directory for traces")
 
     # --- run-json ---
     json_p = sub.add_parser("run-json",
-                            help="Run Beerlight from a JSON request file")
+                            help="Run Prism from a JSON request file")
     json_p.add_argument("request_file", help="Path to JSON request file")
+
+    # --- doctor ---
+    doc_p = sub.add_parser("doctor", help="Run diagnostic checks")
+    doc_p.add_argument("--smoke", action="store_true",
+                       help="Run a minimal LLM call to verify transport")
+
+    # --- demo ---
+    demo_p = sub.add_parser("demo", help="Run a recorded, key-free demo")
 
     # --- inspect ---
     insp_p = sub.add_parser("inspect", help="Inspect a run trace")
@@ -106,6 +117,7 @@ def main(argv: list[str] | None = None) -> int:
     sess_run.add_argument("--task", required=True, help="Task description")
     sess_run.add_argument("--mode", choices=("normal", "360"),
                           default="normal")
+    sess_run.add_argument("--profile", choices=("practical", "rift"), default="practical")
 
     sess_update = sess_sub.add_parser("update",
                                       help="Update current document in session")
@@ -166,6 +178,14 @@ def main(argv: list[str] | None = None) -> int:
 
     elif args.command == "run-json":
         return _cmd_run_json(args)
+
+    elif args.command == "doctor":
+        from .doctor import run_doctor
+        return run_doctor(smoke=args.smoke)
+
+    elif args.command == "demo":
+        from .demo import run_demo
+        return run_demo()
 
     elif args.command == "inspect":
         return _cmd_inspect(args)
@@ -237,6 +257,7 @@ def _cmd_run(args) -> int:
         document=document,
         task=args.task,
         mode=args.mode,
+        profile=args.profile,
         trajectory=trajectory,
         context_mode=args.context_mode,
         trace_level=args.trace_level,
@@ -252,6 +273,10 @@ def _cmd_run(args) -> int:
     if resp.status == "error":
         print(f"Error: {resp.error}", file=sys.stderr)
         return ExitCode.GENERATOR_FAILED
+
+    if resp.status == "degraded":
+        print(f"Warning: Judge failed. Run is degraded. Trace: {resp.trace_dir}", file=sys.stderr)
+        return ExitCode.DEGRADED
 
     if resp.status == "no_useful_output":
         print("(no useful output)", file=sys.stderr)
@@ -309,7 +334,7 @@ def _cmd_session_create(args) -> int:
     session_dir = args.session_dir
     if not session_dir:
         import uuid
-        session_dir = f"beerlight-sessions/{uuid.uuid4().hex[:12]}"
+        session_dir = f"prism-sessions/{uuid.uuid4().hex[:12]}"
 
     try:
         meta = create_session(args.input_file, session_dir)
@@ -345,6 +370,7 @@ def _cmd_session_run(args) -> int:
         document=document,
         task=args.task,
         mode=args.mode,
+        profile=args.profile,
         trajectory=trajectory or None,
         session_dir=args.session_dir,
         output_dir=output_dir,

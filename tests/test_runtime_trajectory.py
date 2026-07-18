@@ -1,4 +1,4 @@
-"""Tests for Beerlight Runtime — trajectory as a first-class artifact.
+"""Tests for Prism Runtime — trajectory as a first-class artifact.
 
 Deterministic tests only. No LLM calls.
 """

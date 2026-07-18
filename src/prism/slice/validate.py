@@ -1,4 +1,4 @@
-"""JSON extraction and schema validation for Beerlight slice.
+"""JSON extraction and schema validation for Prism slice.
 
 Handles:
 - Extraction of JSON from LLM output (fenced blocks, raw spans)

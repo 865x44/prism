@@ -1,4 +1,4 @@
-"""Tests for Beerlight Runtime — contracts, inspect, models, and invariant checks.
+"""Tests for Prism Runtime — contracts, inspect, models, and invariant checks.
 
 Deterministic tests only. No LLM calls.
 """
