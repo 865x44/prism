@@ -1,0 +1,63 @@
+{
+  "schema_version": "beerlight-demo-rc-e3-anchors-v1",
+  "fixture_id": "E3",
+  "status": "PROVISIONAL_FIXTURE_ANCHORS",
+  "visibility": {
+    "subject": "INVISIBLE",
+    "test": "VISIBLE",
+    "evaluator": "VISIBLE"
+  },
+  "purpose": "Fixture-local lower bound for the reconciled E3 setup. It is not a global territory or card quota and it does not alter the E1-E12 bodies.",
+  "known_supported_territories": [
+    {
+      "territory_id": "T01_HOME_CARE_CAPACITY",
+      "label": "home-care availability as a discharge dependency",
+      "source_excerpt": "решение о выписке часто зависит от наличия ухода дома"
+    },
+    {
+      "territory_id": "T02_FAMILY_INFORMATION_ASYMMETRY",
+      "label": "late information reaching relatives",
+      "source_excerpt": "родственники получают информацию поздно"
+    },
+    {
+      "territory_id": "T03_MEDICATION_HANDOFF_LATENCY",
+      "label": "late pharmacy awareness of medication changes",
+      "source_excerpt": "аптека иногда узнаёт об изменении лекарств после пациента"
+    },
+    {
+      "territory_id": "T04_CONFLICTING_SUCCESS_FUNCTIONS",
+      "label": "conflicting hospital and social-work outcome measures",
+      "source_excerpt": "больница измеряет успех скоростью освобождения койки"
+    },
+    {
+      "territory_id": "T05_EXTERNAL_SERVICE_ACCESS_BOUNDARY",
+      "label": "external care services lack internal-data access",
+      "source_excerpt": "внешние службы не имеют доступа ко всем внутренним данным"
+    },
+    {
+      "territory_id": "T06_ACCOUNTABILITY_ALLOCATION",
+      "label": "unclear allocation of responsibility for an error",
+      "source_excerpt": "ответственность за ошибку распределена неясно"
+    },
+    {
+      "territory_id": "T07_HOUSEHOLD_CONSTRAINT_HETEROGENEITY",
+      "label": "different household constraints for the same diagnosis",
+      "source_excerpt": "пациенты с одинаковым диагнозом имеют очень разные бытовые ограничения"
+    },
+    {
+      "territory_id": "T08_INFORMAL_COORDINATION_CHANNELS",
+      "label": "coordination outside formal system channels",
+      "source_excerpt": "часть coordination work сейчас происходит по телефону и в личных сообщениях"
+    },
+    {
+      "territory_id": "T09_CROSS_COUNTRY_OPERATION",
+      "label": "multi-country operating variation",
+      "source_excerpt": "проект должен работать в нескольких странах"
+    },
+    {
+      "territory_id": "T10_PILOT_SCOPE_TRANSFERABILITY",
+      "label": "single-department pilot scope and transferability",
+      "source_excerpt": "пилот планируют начать с одного отделения"
+    }
+  ]
+}

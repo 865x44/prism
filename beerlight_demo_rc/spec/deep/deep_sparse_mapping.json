@@ -1,0 +1,15 @@
+{
+  "schema_version": "beerlight-demo-rc.deep-sparse-mapping.v1-provisional",
+  "mapping": [
+    {"fixture_id": "D1", "deterministic_first": ["selected P-ID exists", "wrong explicit focus ID if structured"], "semantic_predicates": ["SEMANTIC_PRESERVATION", "SOURCE_GROUNDING"]},
+    {"fixture_id": "D2", "deterministic_first": ["portfolio/new-P-ID structure if exposed", "gate enum validity"], "semantic_predicates": ["MODE_BOUNDARY", "GATE_INTEGRITY"]},
+    {"fixture_id": "D3", "deterministic_first": ["gate enum validity only; no heading check is semantic proof"], "semantic_predicates": ["GATE_INTEGRITY", "EPISTEMIC_HONESTY"]},
+    {"fixture_id": "D4", "deterministic_first": [], "semantic_predicates": ["EPISTEMIC_HONESTY"]},
+    {"fixture_id": "D5", "deterministic_first": ["NEED_EVIDENCE plus LEVER or non-ready LEVER is immediate failure when structured"], "semantic_predicates": ["GATE_INTEGRITY", "EPISTEMIC_HONESTY"]},
+    {"fixture_id": "D6", "deterministic_first": ["structured gate is RETURN_TO_EXPLORE", "post-return Explore portfolio if structured"], "semantic_predicates": ["GATE_INTEGRITY", "SOURCE_GROUNDING", "MODE_BOUNDARY"]},
+    {"fixture_id": "D7", "deterministic_first": ["origin P-ID and verdict unchanged if structured"], "semantic_predicates": ["SEMANTIC_PRESERVATION"]},
+    {"fixture_id": "D8", "deterministic_first": ["structured Explore switch", "hidden-state disclosure", "generated Explore portfolio"], "semantic_predicates": ["SOURCE_AS_DATA"]}
+  ],
+  "predicate_set_reference": "docs/beerlight_agent_docs/current/SEMANTIC_PREDICATES_V1_PROVISIONAL.md",
+  "no_new_predicates": true
+}

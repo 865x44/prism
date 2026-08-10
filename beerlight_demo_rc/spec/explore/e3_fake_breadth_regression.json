@@ -1,0 +1,24 @@
+{
+  "fixture_id": "E3",
+  "status": "PROVISIONAL_FIXTURE_ANCHORS",
+  "purpose": "Concrete offline regression: visible volume repeats one core while omitting fixture-local known supported territories.",
+  "visible_output": "1. Домашний уход: проверить доступность помощи дома.\n2. Домашний уход: уточнить часы помощи дома.\n3. Домашний уход: сопоставить поставщиков помощи дома.\n4. Домашний уход: оценить очередь на помощь дома.\n5. Домашний уход: обсудить стоимость помощи дома.\n6. Домашний уход: проверить резервный план помощи дома.\n7. Домашний уход: собрать контакты помощи дома.\n8. Домашний уход: описать маршрут помощи дома.\n9. Домашний уход: выделить риск отсутствия помощи дома.\n10. Домашний уход: проверить готовность помощи дома.\n11. Домашний уход: сравнить варианты помощи дома.\n12. Домашний уход: проверить подтверждение помощи дома.\n13. Домашний уход: обсудить график помощи дома.\n14. Домашний уход: проверить доступность помощи дома повторно.\n15. Домашний уход: зафиксировать зависимость выписки от помощи дома.",
+  "coverage_evidence": [
+    {
+      "territory_id": "T01_HOME_CARE_CAPACITY",
+      "excerpt": "зависимость выписки от помощи дома"
+    }
+  ],
+  "expected_deterministic_status": "FAIL",
+  "expected_missing_territory_ids": [
+    "T02_FAMILY_INFORMATION_ASYMMETRY",
+    "T03_MEDICATION_HANDOFF_LATENCY",
+    "T04_CONFLICTING_SUCCESS_FUNCTIONS",
+    "T05_EXTERNAL_SERVICE_ACCESS_BOUNDARY",
+    "T06_ACCOUNTABILITY_ALLOCATION",
+    "T07_HOUSEHOLD_CONSTRAINT_HETEROGENEITY",
+    "T08_INFORMAL_COORDINATION_CHANNELS",
+    "T09_CROSS_COUNTRY_OPERATION",
+    "T10_PILOT_SCOPE_TRANSFERABILITY"
+  ]
+}

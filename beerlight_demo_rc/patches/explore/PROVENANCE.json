@@ -1,0 +1,10 @@
+{
+  "subject_separation": "This bundle targets ACTUAL_CUSTOM_GPT_SURFACE only as a ready-to-apply artifact. The isolated local reference prompt is LOCAL_DEMO_RC_REFERENCE_SUBJECT. No equivalence is asserted.",
+  "capture_record": "prism-runs/beerlight-demo-rc-p1-ws2a-20260810-01/capture/explore/capture-record.json",
+  "capture_kind": "PACK_SPECIMEN_FALLBACK",
+  "source_inputs": {
+    "docs/beerlight_agent_docs/current/CONTRACT_DECISIONS_PROVISIONAL.md": "6042aac9e0db464fafda0e4cfe59a09ecf5f681d47eb9dcde9375a606e78a553",
+    "docs/beerlight_agent_docs/current/EXPLORE_ACCEPTANCE_V1_PROVISIONAL_RECONCILED.md": "90d82fb8c741f23b4dfa2855fd811adeeb6b962bce745da06b6d1537b61964a2",
+    "docs/beerlight_agent_docs/sources/EXPLORE_CURRENT_SOURCE_FROM_PRIOR_HANDOFF.txt": "6d5aae6b87cf68fc566afedfe8a2dd5bbeba622d31956bdd4237201a4b86a0c2"
+  }
+}
