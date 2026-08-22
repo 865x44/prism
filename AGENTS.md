@@ -16,6 +16,8 @@
 
 ## Failure Capture (FLS Candidates)
 
+FROZEN LEGACY COPY — intentionally not synced to workflow FLS v1. Workflow closure commit 9690d5098c43de8d9677c263861f8353bbcc7e44 (2026-08-22) is canonical; future semantics live in /home/alx/projects/workflow/contracts/failure-capture.md and .ai/analysis/fls-v1-closure-2026-08-22.md. No parity is asserted; do not evolve this copy independently.
+
 When a genuine workflow failure or recurring papercut is observed, follow
 `contracts/failure-capture.md` and include an `FLS_CANDIDATE` block in the
 final report.
