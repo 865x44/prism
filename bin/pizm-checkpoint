@@ -45,7 +45,6 @@ _LEVER_REQUIRED_FIELDS = (
     "stop_condition",
     "remaining_assumptions",
 )
-_VALID_TERMINAL_STATES = {"MODEL_READY", "NEED_EVIDENCE", "RETURN_TO_EXPLORE"}
 
 _RUN_ID_RE = re.compile(r"[a-z0-9-]+\Z")
 _P_ID_RE = re.compile(r"P[1-9][0-9]*\Z")
@@ -141,20 +140,6 @@ def _validate_deep(data: dict) -> None:
     dev = data.get("development")
     if not isinstance(dev, dict) or len(dev) == 0:
         raise ValueError("development must be a non-empty object")
-
-def _validate_terminal_state(data: dict, expect_terminal_state: str) -> None:
-    if expect_terminal_state not in _VALID_TERMINAL_STATES:
-        raise ValueError(
-            f"invalid expect_terminal_state: {expect_terminal_state!r}. "
-            f"Must be one of {sorted(_VALID_TERMINAL_STATES)} or 'off'"
-        )
-    ts = data.get("terminal_state")
-    if ts is None:
-        raise ValueError(f"expected terminal_state {expect_terminal_state!r}, but none found in artifact")
-    if ts not in _VALID_TERMINAL_STATES:
-        raise ValueError(f"invalid terminal_state {ts!r}. Must be one of {sorted(_VALID_TERMINAL_STATES)}")
-    if ts != expect_terminal_state:
-        raise ValueError(f"expected terminal_state {expect_terminal_state!r}, got {ts!r}")
 
 
 def _validate_lever_design(data: dict, raw_bytes_len: int = 0) -> None:
@@ -295,7 +280,6 @@ def _read_contract(skill_root: Path, stage: str) -> str:
 def freeze(
     stage: str, run_id: str, input_path: str,
     project_root: Path, skill_root: Path,
-    expect_terminal_state: str = "off",
 ) -> int:
     # Validate run-id early
     try:
@@ -321,8 +305,6 @@ def freeze(
             _validate_explore(data, len(raw))
         elif stage == "deep":
             _validate_deep(data)
-            if expect_terminal_state != "off":
-                _validate_terminal_state(data, expect_terminal_state)
         elif stage == "lever-design":
             _validate_lever_design(data, len(raw))
         elif stage == "lever-review":
@@ -451,11 +433,6 @@ def main() -> int:
         required=True,
         choices=["explore", "deep", "lever-design", "lever-review"],
     )
-    fp.add_argument(
-        "--expect-terminal-state",
-        default="off",
-        help="Validate terminal_state in review artifact (MODEL_READY|NEED_EVIDENCE|RETURN_TO_EXPLORE|off)",
-    )
     fp.add_argument("--run-id", required=True)
     fp.add_argument("--input", required=True, dest="input_path")
     fp.add_argument("--project-root", default=".")
@@ -473,7 +450,6 @@ def main() -> int:
             input_path=args.input_path,
             project_root=Path(args.project_root).resolve(),
             skill_root=Path(args.skill_root).resolve(),
-            expect_terminal_state=args.expect_terminal_state,
         )
     return 1
 

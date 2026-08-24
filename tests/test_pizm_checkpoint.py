@@ -1089,35 +1089,3 @@ def test_lever_design_duplicate_id(workspace):
     )
     assert result.returncode != 0
     assert "duplicate" in result.stderr
-
-
-def test_expect_terminal_state_flag(workspace):
-    project, skill = workspace
-    data = valid_deep()
-    data["terminal_state"] = "MODEL_READY"
-    inp = write_json(project / "dev_terminal.json", data)
-
-    # 1. Matching terminal state succeeds
-    res_ok = run_ck(
-        "freeze", "--stage", "deep", "--run-id", "ts-ok",
-        "--input", inp, "--project-root", str(project), "--skill-root", str(skill),
-        "--expect-terminal-state", "MODEL_READY",
-    )
-    assert res_ok.returncode == 0, res_ok.stderr
-
-    # 2. Mismatching terminal state fails
-    res_bad = run_ck(
-        "freeze", "--stage", "deep", "--run-id", "ts-bad",
-        "--input", inp, "--project-root", str(project), "--skill-root", str(skill),
-        "--expect-terminal-state", "NEED_EVIDENCE",
-    )
-    assert res_bad.returncode != 0
-    assert "expected terminal_state 'NEED_EVIDENCE'" in res_bad.stderr
-
-    # 3. Invalid expect-terminal-state option fails
-    res_invalid = run_ck(
-        "freeze", "--stage", "deep", "--run-id", "ts-inv",
-        "--input", inp, "--project-root", str(project), "--skill-root", str(skill),
-        "--expect-terminal-state", "NOT_A_STATE",
-    )
-    assert res_invalid.returncode != 0
