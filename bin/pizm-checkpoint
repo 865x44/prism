@@ -1,0 +1,308 @@
+#!/usr/bin/env python3
+"""
+pizm-checkpoint: Minimal freeze primitive for Prism same-host staged reasoning.
+
+Stdlib-only CLI that materializes blind seam checkpoints without provider calls,
+session mapping, or selection logic. Enforces immutability and hash verification.
+"""
+import argparse
+import hashlib
+import json
+import os
+import re
+import sys
+import tempfile
+from datetime import datetime, timezone
+from pathlib import Path
+
+# Hidden contract mapping (never printed before verified freeze, never named in errors)
+_CONTRACT_MAP = {
+    "explore": "references/explore-selector.md",
+    "deep": "references/deep-reviewer.md",
+}
+
+_SCHEMA_VERSIONS = {
+    "explore": "pizm-candidates-v1",
+    "deep": "pizm-development-v1",
+}
+
+_RUN_ID_RE = re.compile(r"[a-z0-9-]+\Z")
+_P_ID_RE = re.compile(r"P[1-9][0-9]*\Z")
+
+
+def _die(msg: str, code: int = 1) -> int:
+    print(f"ERROR: {msg}", file=sys.stderr)
+    return code
+
+
+def _cleanup_stage(run_dir: Path, stage: str) -> None:
+    """Remove all stage-scoped outputs on any post-write failure."""
+    prefix = "candidates" if stage == "explore" else "development"
+    for suffix in (".json", ".sha256", ".meta.json"):
+        p = run_dir / (prefix + suffix)
+        try:
+            p.unlink()
+        except FileNotFoundError:
+            pass
+
+
+def _validate_run_id(run_id: str) -> None:
+    if not isinstance(run_id, str) or not _RUN_ID_RE.fullmatch(run_id):
+        raise ValueError("run-id must be lowercase alphanumeric with hyphens")
+
+
+def _validate_explore(data: dict) -> None:
+    if not isinstance(data, dict):
+        raise ValueError("root must be a JSON object")
+    if data.get("schema_version") != _SCHEMA_VERSIONS["explore"]:
+        raise ValueError(f"schema_version must be {_SCHEMA_VERSIONS['explore']!r}")
+    if data.get("stage") != "explore":
+        raise ValueError("stage field must be 'explore'")
+    if data.get("mode") not in ("NORMAL", "360", "RIFT"):
+        raise ValueError("mode must be NORMAL|360|RIFT")
+    candidates = data.get("candidates")
+    if not isinstance(candidates, list) or len(candidates) == 0:
+        raise ValueError("candidates must be a non-empty list")
+    seen = set()
+    for i, c in enumerate(candidates):
+        if not isinstance(c, dict):
+            raise ValueError(f"candidates[{i}] must be an object")
+        cid = c.get("candidate_id")
+        if not isinstance(cid, str) or not cid:
+            raise ValueError(f"candidates[{i}].candidate_id must be non-empty string")
+        if cid in seen:
+            raise ValueError(f"duplicate candidate_id: {cid!r}")
+        seen.add(cid)
+
+
+def _validate_deep(data: dict) -> None:
+    if not isinstance(data, dict):
+        raise ValueError("root must be a JSON object")
+    if data.get("schema_version") != _SCHEMA_VERSIONS["deep"]:
+        raise ValueError(f"schema_version must be {_SCHEMA_VERSIONS['deep']!r}")
+    if data.get("stage") != "deep":
+        raise ValueError("stage field must be 'deep'")
+    p_ids = data.get("selected_p_ids")
+    if not isinstance(p_ids, list) or len(p_ids) == 0:
+        raise ValueError("selected_p_ids must be a non-empty list")
+    seen = set()
+    for pid in p_ids:
+        if not isinstance(pid, str) or not (_P_ID_RE.fullmatch(pid) or pid == "DIRECT_SEED"):
+            raise ValueError(f"selected_p_ids entries must match P[1-9][0-9]* or be 'DIRECT_SEED', got {pid!r}")
+        if pid in seen:
+            raise ValueError(f"duplicate selected_p_id: {pid!r}")
+        seen.add(pid)
+    dev = data.get("development")
+    if not isinstance(dev, dict) or len(dev) == 0:
+        raise ValueError("development must be a non-empty object")
+
+
+def _sha256_hex(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def _durable_exclusive_write(target: Path, data: bytes) -> None:
+    """Write data to target with durable exclusive creation.
+
+    Flow: mkstemp in target dir → fdopen write → flush → fsync →
+    os.link(tmp, target) [fails if target exists] → unlink tmp →
+    fsync parent dir.
+
+    Raises OSError on any failure; cleans up temp file.
+    """
+    fd = None
+    tmp_path = None
+    try:
+        fd, tmp_path = tempfile.mkstemp(dir=target.parent, prefix=".tmp-ckpt-")
+        fh = os.fdopen(fd, "wb")
+        fd = None  # fdopen owns the fd now
+        try:
+            written = 0
+            while written < len(data):
+                n = fh.write(data[written:])
+                if n == 0:
+                    raise OSError("short write: filesystem returned 0 bytes written")
+                written += n
+            fh.flush()
+            os.fsync(fh.fileno())
+        finally:
+            fh.close()
+        # Exclusive publish: link fails if target exists (concurrent-safe)
+        os.link(tmp_path, target)
+        os.unlink(tmp_path)
+        tmp_path = None
+        # Fsync parent directory for durability
+        parent_fd = os.open(str(target.parent), os.O_RDONLY)
+        try:
+            os.fsync(parent_fd)
+        finally:
+            os.close(parent_fd)
+    except BaseException:
+        # Clean up temp file on any failure
+        if fd is not None:
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+        if tmp_path is not None:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+        raise
+
+
+def _read_contract(skill_root: Path, stage: str) -> str:
+    """Read hidden contract. Raises OSError on failure. Never names path in error."""
+    contract_rel = _CONTRACT_MAP[stage]
+    contract_path = skill_root / contract_rel
+    with open(contract_path, "r", encoding="utf-8") as f:
+        return f.read()
+
+
+def freeze(
+    stage: str, run_id: str, input_path: str,
+    project_root: Path, skill_root: Path,
+) -> int:
+    # Validate run-id early
+    try:
+        _validate_run_id(run_id)
+    except ValueError as e:
+        return _die(str(e))
+
+    # Read and parse input
+    try:
+        with open(input_path, "rb") as f:
+            raw = f.read()
+    except OSError:
+        return _die("cannot read input file")
+
+    try:
+        data = json.loads(raw)
+    except (json.JSONDecodeError, ValueError):
+        return _die("input is not valid JSON")
+
+    # Validate schema
+    try:
+        if stage == "explore":
+            _validate_explore(data)
+        elif stage == "deep":
+            _validate_deep(data)
+        else:
+            return _die(f"unknown stage: {stage!r}")
+    except ValueError as e:
+        return _die(f"schema validation failed: {e}")
+
+    # Determine stage-scoped file names
+    prefix = "candidates" if stage == "explore" else "development"
+    artifact_name = prefix + ".json"
+    sha_name = prefix + ".sha256"
+    meta_name = prefix + ".meta.json"
+
+    # Create run directory
+    run_dir = project_root / ".ai" / "pizm" / f"run-{run_id}"
+    run_dir.mkdir(parents=True, exist_ok=True)
+
+    artifact_path = run_dir / artifact_name
+    sha_path = run_dir / sha_name
+    meta_path = run_dir / meta_name
+
+    # Compute hash
+    computed_hash = _sha256_hex(raw)
+
+    # Write artifact (exclusive, durable)
+    try:
+        _durable_exclusive_write(artifact_path, raw)
+    except FileExistsError:
+        return _die("frozen artifact already exists, refusing overwrite")
+    except OSError as e:
+        return _die(f"failed to write artifact: {e}")
+
+    # Write sha256 sidecar (plain hex)
+    try:
+        _durable_exclusive_write(sha_path, computed_hash.encode("utf-8"))
+    except FileExistsError:
+        _cleanup_stage(run_dir, stage)
+        return _die("frozen sha256 already exists, refusing overwrite")
+    except OSError as e:
+        _cleanup_stage(run_dir, stage)
+        return _die(f"failed to write sha256: {e}")
+
+    # Write stage-scoped metadata
+    meta = {
+        "sha256": computed_hash,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "run_id": run_id,
+        "stage": stage,
+        "schema_version": _SCHEMA_VERSIONS[stage],
+    }
+    try:
+        _durable_exclusive_write(
+            meta_path, json.dumps(meta, indent=2).encode("utf-8")
+        )
+    except FileExistsError:
+        _cleanup_stage(run_dir, stage)
+        return _die("frozen metadata already exists, refusing overwrite")
+    except OSError as e:
+        _cleanup_stage(run_dir, stage)
+        return _die(f"failed to write metadata: {e}")
+
+    # Read back and verify hash
+    try:
+        readback = artifact_path.read_bytes()
+    except OSError as e:
+        _cleanup_stage(run_dir, stage)
+        return _die(f"failed to read back artifact: {e}")
+
+    if _sha256_hex(readback) != computed_hash:
+        _cleanup_stage(run_dir, stage)
+        return _die("hash mismatch after write")
+
+    # Read contract AFTER hash-confirmed freeze
+    try:
+        contract_text = _read_contract(skill_root, stage)
+    except OSError:
+        _cleanup_stage(run_dir, stage)
+        return _die("cannot read next-stage contract")
+
+    # All verified — emit success output
+    print(f"FREEZE_OK {computed_hash}")
+    print(f"ARTIFACT {artifact_path}")
+    print(f"SHA256 {sha_path}")
+    print(f"META {meta_path}")
+    print("\n--- NEXT CONTRACT ---")
+    print(contract_text)
+    return 0
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(
+        description="Freeze checkpoint for Prism staged reasoning"
+    )
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    fp = sub.add_parser("freeze", help="Freeze artifact checkpoint")
+    fp.add_argument("--stage", required=True, choices=["explore", "deep"])
+    fp.add_argument("--run-id", required=True)
+    fp.add_argument("--input", required=True, dest="input_path")
+    fp.add_argument("--project-root", default=".")
+    fp.add_argument(
+        "--skill-root",
+        default=os.path.expanduser("~/.config/opencode/skills/pizm"),
+    )
+
+    args = parser.parse_args()
+
+    if args.command == "freeze":
+        return freeze(
+            stage=args.stage,
+            run_id=args.run_id,
+            input_path=args.input_path,
+            project_root=Path(args.project_root).resolve(),
+            skill_root=Path(args.skill_root).resolve(),
+        )
+    return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

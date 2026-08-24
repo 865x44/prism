@@ -1,0 +1,429 @@
+#!/usr/bin/env python3
+"""
+pizm-session-bundle: Archive Prism same-host staged reasoning sessions.
+
+Stdlib-only CLI that bundles frozen stage artifacts, inputs, transcripts,
+and manifest into a self-contained directory for cold-path replay/re-judge.
+No provider calls, session discovery, or evaluator logic.
+"""
+import argparse
+import hashlib
+import json
+import os
+import random
+import re
+import shutil
+import string
+import sys
+import tempfile
+from datetime import datetime, timezone
+from pathlib import Path
+
+_SCHEMA_VERSION = "pizm-session-bundle-v1"
+
+_STAGE_LABEL_RE = re.compile(
+    r"(?:pass-[0-9]{2}-(?:normal|rift|360)|deep-P[1-9][0-9]*|deep-DIRECT_SEED)\Z"
+)
+
+_EXPLORE_REQUIRED = {"candidates.json", "candidates.sha256", "selection.json"}
+_DEEP_REQUIRED = {"development.json", "development.sha256", "review.json"}
+
+
+
+def _die(msg: str, code: int = 1) -> int:
+    print(f"ERROR: {msg}", file=sys.stderr)
+    return code
+
+
+def _sha256_hex(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def _sha256_file(path: Path) -> str:
+    return _sha256_hex(path.read_bytes())
+
+
+def _generate_slug() -> str:
+    """UTC timestamp + random suffix: 20260824t123456z-ab3f"""
+    ts = datetime.now(timezone.utc).strftime("%Y%m%dt%H%M%Sz")
+    suffix = "".join(random.choices(string.ascii_lowercase + string.digits, k=4))
+    return f"{ts}-{suffix}"
+
+def _validate_slug(slug: str) -> None:
+    if not re.fullmatch(r"[a-z0-9-]+", slug):
+        raise ValueError("slug must be lowercase alphanumeric with hyphens")
+
+
+def _classify_stage(label: str) -> str:
+    """Return 'explore' for pass-NN-* labels, 'deep' for deep-* labels."""
+    if label.startswith("pass-"):
+        return "explore"
+    elif label.startswith("deep-"):
+        return "deep"
+    raise ValueError(f"cannot classify stage label: {label!r}")
+
+
+def _verify_sha_sidecar(run_dir: Path, artifact_name: str, sha_name: str) -> None:
+    """Verify artifact hash matches sidecar. Raises ValueError on mismatch."""
+    artifact_path = run_dir / artifact_name
+    sha_path = run_dir / sha_name
+    if not artifact_path.exists():
+        raise ValueError(f"missing artifact: {artifact_name}")
+    if not sha_path.exists():
+        raise ValueError(f"missing sha sidecar: {sha_name}")
+    expected = sha_path.read_text(encoding="utf-8").strip()
+    actual = _sha256_file(artifact_path)
+    if actual != expected:
+        raise ValueError(
+            f"hash mismatch for {artifact_name}: expected {expected[:16]}..., got {actual[:16]}..."
+        )
+
+
+def _compute_skill_hash(skill_root: Path) -> str:
+    """Compute aggregate hash of installed Pizm skill files.
+
+    Hashes sorted relative paths: SKILL.md, references/*.md, agents/*.yaml.
+    Never includes hidden contents.
+    """
+    h = hashlib.sha256()
+    rel_paths = []
+
+    # SKILL.md
+    skill_md = skill_root / "SKILL.md"
+    if skill_md.exists():
+        rel_paths.append("SKILL.md")
+
+    # references/*.md
+    refs_dir = skill_root / "references"
+    if refs_dir.is_dir():
+        for f in sorted(refs_dir.glob("*.md")):
+            rel_paths.append(f"references/{f.name}")
+
+    # agents/*.yaml
+    agents_dir = skill_root / "agents"
+    if agents_dir.is_dir():
+        for f in sorted(agents_dir.glob("*.yaml")):
+            rel_paths.append(f"agents/{f.name}")
+
+    # Sort and hash: each entry is "relpath\0content"
+    for rp in sorted(rel_paths):
+        full = skill_root / rp
+        h.update(rp.encode("utf-8"))
+        h.update(b"\x00")
+        h.update(full.read_bytes())
+        h.update(b"\x00")
+
+    return h.hexdigest()
+
+
+def _copy_file(src: Path, dst: Path) -> str:
+    """Copy file, return sha256 of content."""
+    data = src.read_bytes()
+    dst.write_bytes(data)
+    return _sha256_hex(data)
+
+
+def create_bundle(
+    output_root: str,
+    slug: str,
+    skill_root: str,
+    inputs: list,
+    transcript: str,
+    stages: list,
+    harness: str,
+    model: str,
+    repo_commit: str,
+    evidence_kind: str,
+) -> int:
+    # Validate slug
+    try:
+        _validate_slug(slug)
+    except ValueError as e:
+        return _die(str(e))
+
+    # Parse stage args: label=run_dir pairs
+    stage_specs = []
+    for s in (stages or []):
+        if "=" not in s:
+            return _die(f"invalid --stage format (expected label=run-dir): {s!r}")
+        label, run_dir_str = s.split("=", 1)
+        if not _STAGE_LABEL_RE.fullmatch(label):
+            return _die(
+                f"invalid stage label: {label!r}. "
+                f"Expected pass-NN-normal|rift|360 or deep-Pn|deep-DIRECT_SEED"
+            )
+        run_dir = Path(run_dir_str)
+        if not run_dir.is_dir():
+            return _die(f"stage run directory does not exist: {run_dir}")
+        stage_type = _classify_stage(label)
+        stage_specs.append((label, run_dir, stage_type))
+
+    # Output directory
+    out_root = Path(output_root)
+    try:
+        out_root.mkdir(parents=True, exist_ok=True)
+    except OSError as e:
+        return _die(f"cannot create output root: {e}")
+    if not out_root.is_dir():
+        return _die(f"output root is not a directory: {out_root}")
+    bundle_dir = out_root / f"session-{slug}"
+    if bundle_dir.exists():
+        return _die(f"output directory already exists: {bundle_dir}")
+
+    # Reject duplicate stage labels
+    seen_labels = set()
+    for label, _, _ in stage_specs:
+        if label in seen_labels:
+            return _die(f"duplicate stage label: {label!r}")
+        seen_labels.add(label)
+    # Validate skill root
+    skill_path = Path(skill_root)
+    if not skill_path.is_dir():
+        return _die(f"skill root does not exist: {skill_root}")
+
+    # Validate inputs
+    input_paths = []
+    seen_basenames = set()
+    for inp in (inputs or []):
+        p = Path(inp)
+        if p.is_dir():
+            return _die(f"input is a directory (refused): {p}")
+        if not p.is_file():
+            return _die(f"input file does not exist: {p}")
+        bn = p.name
+        if bn in seen_basenames:
+            return _die(f"input basename collision: {bn!r}")
+        seen_basenames.add(bn)
+        input_paths.append(p)
+
+    # Validate transcript
+    transcript_path = None
+    if transcript:
+        transcript_path = Path(transcript)
+        if not transcript_path.is_file():
+            return _die(f"transcript file does not exist: {transcript_path}")
+
+    # Verify all stage sources before creating anything
+    for label, run_dir, stage_type in stage_specs:
+        required = _EXPLORE_REQUIRED if stage_type == "explore" else _DEEP_REQUIRED
+        for fname in required:
+            if not (run_dir / fname).exists():
+                return _die(f"stage {label}: missing required file {fname} in {run_dir}")
+        # Verify sha sidecars
+        if stage_type == "explore":
+            try:
+                _verify_sha_sidecar(run_dir, "candidates.json", "candidates.sha256")
+            except ValueError as e:
+                return _die(f"stage {label}: {e}")
+        else:
+            try:
+                _verify_sha_sidecar(run_dir, "development.json", "development.sha256")
+            except ValueError as e:
+                return _die(f"stage {label}: {e}")
+
+    # --- All validation passed, create bundle atomically ---
+    temp_dir = None
+    final_path = out_root / f"session-{slug}"
+    reserved_final = False
+    try:
+        # Create temporary directory for atomic publish
+        temp_dir = tempfile.mkdtemp(prefix=".pizm-bundle-", dir=str(out_root))
+        bundle_dir = Path(temp_dir)
+        
+        # Create subdirectories
+        (bundle_dir / "inputs").mkdir()
+        
+        manifest = {
+            "schema_version": _SCHEMA_VERSION,
+            "identity_scope": "archive_only",
+            "created_utc": datetime.now(timezone.utc).isoformat(),
+            "evidence_kind": evidence_kind,
+            "slug": slug,
+            "skill_hash": _compute_skill_hash(skill_path),
+        }
+
+        if harness:
+            manifest["harness"] = harness
+        if model:
+            manifest["model"] = model
+        if repo_commit:
+            manifest["repo_commit"] = repo_commit
+
+        # Copy stages
+        stage_labels = []
+        artifacts = {}  # relative path -> sha256
+
+        for label, run_dir, stage_type in stage_specs:
+            stage_dir = bundle_dir / label
+            stage_dir.mkdir()
+            stage_labels.append(label)
+
+            required = _EXPLORE_REQUIRED if stage_type == "explore" else _DEEP_REQUIRED
+            # Copy required files
+            for fname in sorted(required):
+                src = run_dir / fname
+                dst = stage_dir / fname
+                sha = _copy_file(src, dst)
+                artifacts[f"{label}/{fname}"] = sha
+
+            # Copy optional meta JSON if present
+            meta_name = (
+                "candidates.meta.json"
+                if stage_type == "explore"
+                else "development.meta.json"
+            )
+            meta_src = run_dir / meta_name
+            if meta_src.exists():
+                dst = stage_dir / meta_name
+                sha = _copy_file(meta_src, dst)
+                artifacts[f"{label}/{meta_name}"] = sha
+
+        manifest["stages"] = stage_labels
+
+        # Copy inputs
+        input_records = []
+        for p in input_paths:
+            dst = bundle_dir / "inputs" / p.name
+            sha = _copy_file(p, dst)
+            input_records.append({"filename": p.name, "sha256": sha})
+            artifacts[f"inputs/{p.name}"] = sha
+
+        manifest["inputs"] = input_records
+
+        # Transcript
+        if transcript_path:
+            tx_dir = bundle_dir / "transcript"
+            tx_dir.mkdir()
+            dst = tx_dir / transcript_path.name
+            sha = _copy_file(transcript_path, dst)
+            manifest["transcript"] = {
+                "status": "present",
+                "path": f"transcript/{transcript_path.name}",
+                "sha256": sha,
+            }
+            artifacts[f"transcript/{transcript_path.name}"] = sha
+        else:
+            manifest["transcript"] = {
+                "status": "FOLLOW_UP_CANDIDATE",
+                "problem": "transcript not supplied",
+                "evidence": "offline fixture/caller supplied no transcript; no session discovery attempted",
+                "why": "utility accepts only an explicit --transcript path and intentionally does not inspect host sessions",
+                "minimal_next_experiment": "supply --transcript with OMP session JSONL path",
+            }
+
+        # Artifacts manifest (ordered)
+        manifest["artifacts"] = artifacts
+
+        # Write manifest atomically
+        manifest_path = bundle_dir / "manifest.json"
+        manifest_tmp = manifest_path.with_suffix(".tmp")
+        manifest_tmp.write_text(
+            json.dumps(manifest, indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
+        manifest_tmp.replace(manifest_path)
+
+        # Reserve the final name exclusively, then atomically replace the empty
+        # reservation with the completed temp directory. A concurrent creator
+        # cannot publish or be deleted by this invocation.
+        final_path.mkdir()
+        reserved_final = True
+        os.replace(bundle_dir, final_path)
+        reserved_final = False
+        temp_dir = None
+
+        print(f"BUNDLE_OK {final_path}")
+        print(f"STAGES {len(stage_labels)}")
+        print(f"ARTIFACTS {len(artifacts)}")
+        print(f"INPUTS {len(input_records)}")
+        return 0
+        
+    except FileExistsError:
+        if temp_dir and Path(temp_dir).exists():
+            shutil.rmtree(temp_dir, ignore_errors=True)
+        if reserved_final:
+            try:
+                final_path.rmdir()
+            except OSError:
+                pass
+        return _die(f"output directory already exists: {final_path}")
+    except Exception as e:
+        if temp_dir and Path(temp_dir).exists():
+            shutil.rmtree(temp_dir, ignore_errors=True)
+        if reserved_final:
+            try:
+                final_path.rmdir()
+            except OSError:
+                pass
+        return _die(f"bundle creation failed: {e}")
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(
+        description="Bundle Prism session evidence for cold-path replay"
+    )
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    cp = sub.add_parser("create", help="Create session bundle")
+    cp.add_argument("--output-root", required=True, help="Parent directory for bundle")
+    cp.add_argument(
+        "--slug",
+        default=None,
+        help="Bundle slug (default: UTC timestamp + random suffix)",
+    )
+    cp.add_argument(
+        "--skill-root",
+        required=True,
+        help="Path to installed Pizm skill directory",
+    )
+    cp.add_argument(
+        "--input",
+        action="append",
+        dest="inputs",
+        default=[],
+        help="Input file to copy (repeatable)",
+    )
+    cp.add_argument(
+        "--transcript",
+        default=None,
+        help="Transcript file to copy",
+    )
+    cp.add_argument(
+        "--stage",
+        action="append",
+        dest="stages",
+        default=[],
+        help="Stage spec: label=run-dir (repeatable)",
+    )
+    cp.add_argument("--harness", default=None, help="Harness identifier")
+    cp.add_argument("--model", default=None, help="Model identifier")
+    cp.add_argument("--repo-commit", default=None, help="Repository commit hash")
+    cp.add_argument(
+        "--evidence-kind",
+        default="offline_fixture",
+        choices=["offline_fixture", "live"],
+        help="Evidence classification",
+    )
+
+    args = parser.parse_args()
+
+    if args.command == "create":
+        slug = args.slug if args.slug else _generate_slug()
+        return create_bundle(
+            output_root=args.output_root,
+            slug=slug,
+            skill_root=args.skill_root,
+            inputs=args.inputs,
+            transcript=args.transcript,
+            stages=args.stages,
+            harness=args.harness or "",
+            model=args.model or "",
+            repo_commit=args.repo_commit or "",
+            evidence_kind=args.evidence_kind,
+        )
+
+    return _die(f"unknown command: {args.command}")
+
+
+if __name__ == "__main__":
+    sys.exit(main())
