@@ -19,17 +19,33 @@ from pathlib import Path
 _CONTRACT_MAP = {
     "explore": "references/explore-selector.md",
     "deep": "references/deep-reviewer.md",
+    "lever-design": "references/lever-reviewer.md",
+    "lever-review": None,
 }
 
 _SCHEMA_VERSIONS = {
     "explore": "pizm-candidates-v1",
     "deep": "pizm-development-v1",
+    "lever-design": "pizm-lever-design-v1",
+    "lever-review": "pizm-lever-review-v1",
 }
 
-# Payload safety bounds (R1)
+# Payload safety bounds (R1, R2)
 _EXPLORE_MAX_CANDIDATES = 20
 _EXPLORE_MAX_TOTAL_BYTES = 196608  # 192 KiB
 _EXPLORE_MAX_SINGLE_CANDIDATE_BYTES = 12288  # 12 KiB
+_LEVER_MAX_TOTAL_BYTES = 65536  # 64 KiB
+_LEVER_REQUIRED_FIELDS = (
+    "lever_id",
+    "intervention_or_test_point",
+    "model_link",
+    "minimum_bounded_move",
+    "expected_observation_or_response",
+    "disconfirming_signal",
+    "stop_condition",
+    "remaining_assumptions",
+)
+_VALID_TERMINAL_STATES = {"MODEL_READY", "NEED_EVIDENCE", "RETURN_TO_EXPLORE"}
 
 _RUN_ID_RE = re.compile(r"[a-z0-9-]+\Z")
 _P_ID_RE = re.compile(r"P[1-9][0-9]*\Z")
@@ -41,14 +57,22 @@ def _die(msg: str, code: int = 1) -> int:
 
 def _cleanup_stage(run_dir: Path, stage: str) -> None:
     """Remove all stage-scoped outputs on any post-write failure."""
-    prefix = "candidates" if stage == "explore" else "development"
+    if stage == "explore":
+        prefix = "candidates"
+    elif stage == "deep":
+        prefix = "development"
+    elif stage == "lever-design":
+        prefix = "design"
+    elif stage == "lever-review":
+        prefix = "review"
+    else:
+        prefix = stage
     for suffix in (".json", ".sha256", ".meta.json"):
         p = run_dir / (prefix + suffix)
         try:
             p.unlink()
         except FileNotFoundError:
             pass
-
 
 def _validate_run_id(run_id: str) -> None:
     if not isinstance(run_id, str) or not _RUN_ID_RE.fullmatch(run_id):
@@ -118,6 +142,92 @@ def _validate_deep(data: dict) -> None:
     if not isinstance(dev, dict) or len(dev) == 0:
         raise ValueError("development must be a non-empty object")
 
+def _validate_terminal_state(data: dict, expect_terminal_state: str) -> None:
+    if expect_terminal_state not in _VALID_TERMINAL_STATES:
+        raise ValueError(
+            f"invalid expect_terminal_state: {expect_terminal_state!r}. "
+            f"Must be one of {sorted(_VALID_TERMINAL_STATES)} or 'off'"
+        )
+    ts = data.get("terminal_state")
+    if ts is None:
+        raise ValueError(f"expected terminal_state {expect_terminal_state!r}, but none found in artifact")
+    if ts not in _VALID_TERMINAL_STATES:
+        raise ValueError(f"invalid terminal_state {ts!r}. Must be one of {sorted(_VALID_TERMINAL_STATES)}")
+    if ts != expect_terminal_state:
+        raise ValueError(f"expected terminal_state {expect_terminal_state!r}, got {ts!r}")
+
+
+def _validate_lever_design(data: dict, raw_bytes_len: int = 0) -> None:
+    if not isinstance(data, dict):
+        raise ValueError("root must be a JSON object")
+    if data.get("schema_version") != _SCHEMA_VERSIONS["lever-design"]:
+        raise ValueError(f"schema_version must be {_SCHEMA_VERSIONS['lever-design']!r}")
+    if data.get("stage") != "lever":
+        raise ValueError("stage field must be 'lever'")
+
+    if raw_bytes_len > _LEVER_MAX_TOTAL_BYTES:
+        raise ValueError(
+            f"PAYLOAD_TOO_LARGE: lever design artifact size {raw_bytes_len} bytes "
+            f"exceeds maximum {_LEVER_MAX_TOTAL_BYTES} bytes (64 KiB)"
+        )
+
+    levers = data.get("levers")
+    if not isinstance(levers, list) or not (1 <= len(levers) <= 3):
+        raise ValueError("levers must be a list of 1..3 items")
+
+    seen = set()
+    for i, l in enumerate(levers):
+        if not isinstance(l, dict):
+            raise ValueError(f"levers[{i}] must be an object")
+        lid = l.get("lever_id")
+        if not isinstance(lid, str) or not lid.strip():
+            raise ValueError(f"levers[{i}].lever_id must be non-empty string")
+        if lid in seen:
+            raise ValueError(f"duplicate lever_id: {lid!r}")
+        seen.add(lid)
+        for field in _LEVER_REQUIRED_FIELDS:
+            val = l.get(field)
+            if not isinstance(val, str) or not val.strip():
+                raise ValueError(f"levers[{i}].{field} must be non-empty string")
+        if "adaptation_or_countermove" in l:
+            ac = l.get("adaptation_or_countermove")
+            if not isinstance(ac, str):
+                raise ValueError(f"levers[{i}].adaptation_or_countermove must be a string")
+
+
+def _validate_lever_review(data: dict, raw_bytes_len: int = 0) -> None:
+    if not isinstance(data, dict):
+        raise ValueError("root must be a JSON object")
+    if data.get("schema_version") != _SCHEMA_VERSIONS["lever-review"]:
+        raise ValueError(f"schema_version must be {_SCHEMA_VERSIONS['lever-review']!r}")
+    if data.get("stage") != "lever":
+        raise ValueError("stage field must be 'lever'")
+
+    if raw_bytes_len > _LEVER_MAX_TOTAL_BYTES:
+        raise ValueError(
+            f"PAYLOAD_TOO_LARGE: lever review artifact size {raw_bytes_len} bytes "
+            f"exceeds maximum {_LEVER_MAX_TOTAL_BYTES} bytes (64 KiB)"
+        )
+
+    frozen_hash = data.get("frozen_hash")
+    if not isinstance(frozen_hash, str) or not frozen_hash.strip():
+        raise ValueError("frozen_hash must be non-empty string")
+
+    outcome = data.get("outcome")
+    if outcome not in ("LEVER", "NO_DEFENSIBLE_LEVER"):
+        raise ValueError(f"outcome must be LEVER or NO_DEFENSIBLE_LEVER, got {outcome!r}")
+
+    verdicts = data.get("verdicts")
+    if verdicts is not None:
+        if not isinstance(verdicts, list):
+            raise ValueError("verdicts must be a list")
+        for i, v in enumerate(verdicts):
+            if not isinstance(v, dict):
+                raise ValueError(f"verdicts[{i}] must be an object")
+            if "lever_id" in v and not isinstance(v["lever_id"], str):
+                raise ValueError(f"verdicts[{i}].lever_id must be a string")
+            if "verdict" in v and v["verdict"] not in ("ACCEPT", "REJECT"):
+                raise ValueError(f"verdicts[{i}].verdict must be ACCEPT or REJECT, got {v['verdict']!r}")
 
 def _sha256_hex(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
@@ -185,6 +295,7 @@ def _read_contract(skill_root: Path, stage: str) -> str:
 def freeze(
     stage: str, run_id: str, input_path: str,
     project_root: Path, skill_root: Path,
+    expect_terminal_state: str = "off",
 ) -> int:
     # Validate run-id early
     try:
@@ -210,6 +321,12 @@ def freeze(
             _validate_explore(data, len(raw))
         elif stage == "deep":
             _validate_deep(data)
+            if expect_terminal_state != "off":
+                _validate_terminal_state(data, expect_terminal_state)
+        elif stage == "lever-design":
+            _validate_lever_design(data, len(raw))
+        elif stage == "lever-review":
+            _validate_lever_review(data, len(raw))
         else:
             return _die(f"unknown stage: {stage!r}")
     except ValueError as e:
@@ -217,8 +334,19 @@ def freeze(
         if msg.startswith("PAYLOAD_TOO_LARGE"):
             return _die(msg)
         return _die(f"schema validation failed: {e}")
+
     # Determine stage-scoped file names
-    prefix = "candidates" if stage == "explore" else "development"
+    if stage == "explore":
+        prefix = "candidates"
+    elif stage == "deep":
+        prefix = "development"
+    elif stage == "lever-design":
+        prefix = "design"
+    elif stage == "lever-review":
+        prefix = "review"
+    else:
+        prefix = stage
+
     artifact_name = prefix + ".json"
     sha_name = prefix + ".sha256"
     meta_name = prefix + ".meta.json"
@@ -283,21 +411,33 @@ def freeze(
         return _die("hash mismatch after write")
 
     # Read contract AFTER hash-confirmed freeze
-    try:
-        contract_text = _read_contract(skill_root, stage)
-    except OSError:
-        _cleanup_stage(run_dir, stage)
-        return _die("cannot read next-stage contract")
+    contract_text = None
+    if stage == "lever-review":
+        contract_text = None
+    elif stage == "lever-design":
+        # Reveal only reference path/name, never rubric body
+        contract_rel = _CONTRACT_MAP.get(stage)
+        contract_path = skill_root / contract_rel
+        if not contract_path.is_file():
+            _cleanup_stage(run_dir, stage)
+            return _die("cannot find next-stage contract")
+        contract_text = contract_rel
+    else:
+        try:
+            contract_text = _read_contract(skill_root, stage)
+        except OSError:
+            _cleanup_stage(run_dir, stage)
+            return _die("cannot read next-stage contract")
 
     # All verified — emit success output
     print(f"FREEZE_OK {computed_hash}")
     print(f"ARTIFACT {artifact_path}")
     print(f"SHA256 {sha_path}")
     print(f"META {meta_path}")
-    print("\n--- NEXT CONTRACT ---")
-    print(contract_text)
+    if contract_text:
+        print("\n--- NEXT CONTRACT ---")
+        print(contract_text)
     return 0
-
 
 def main() -> int:
     parser = argparse.ArgumentParser(
@@ -306,7 +446,16 @@ def main() -> int:
     sub = parser.add_subparsers(dest="command", required=True)
 
     fp = sub.add_parser("freeze", help="Freeze artifact checkpoint")
-    fp.add_argument("--stage", required=True, choices=["explore", "deep"])
+    fp.add_argument(
+        "--stage",
+        required=True,
+        choices=["explore", "deep", "lever-design", "lever-review"],
+    )
+    fp.add_argument(
+        "--expect-terminal-state",
+        default="off",
+        help="Validate terminal_state in review artifact (MODEL_READY|NEED_EVIDENCE|RETURN_TO_EXPLORE|off)",
+    )
     fp.add_argument("--run-id", required=True)
     fp.add_argument("--input", required=True, dest="input_path")
     fp.add_argument("--project-root", default=".")
@@ -324,6 +473,7 @@ def main() -> int:
             input_path=args.input_path,
             project_root=Path(args.project_root).resolve(),
             skill_root=Path(args.skill_root).resolve(),
+            expect_terminal_state=args.expect_terminal_state,
         )
     return 1
 

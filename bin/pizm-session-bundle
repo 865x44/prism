@@ -22,12 +22,12 @@ from pathlib import Path
 _SCHEMA_VERSION = "pizm-session-bundle-v1"
 
 _STAGE_LABEL_RE = re.compile(
-    r"(?:pass-[0-9]{2}-(?:normal|rift|360)|deep-P[1-9][0-9]*|deep-DIRECT_SEED)\Z"
+    r"(?:pass-[0-9]{2}-(?:normal|rift|360)|(?:deep|lever)-(?:P[1-9][0-9]*|DIRECT_SEED))\Z"
 )
 
 _EXPLORE_REQUIRED = {"candidates.json", "candidates.sha256", "selection.json"}
 _DEEP_REQUIRED = {"development.json", "development.sha256", "review.json"}
-
+_LEVER_REQUIRED = {"design.json", "design.sha256", "review.json"}
 
 
 def _die(msg: str, code: int = 1) -> int:
@@ -55,11 +55,13 @@ def _validate_slug(slug: str) -> None:
 
 
 def _classify_stage(label: str) -> str:
-    """Return 'explore' for pass-NN-* labels, 'deep' for deep-* labels."""
+    """Return 'explore' for pass-NN-* labels, 'deep' for deep-* labels, 'lever' for lever-* labels."""
     if label.startswith("pass-"):
         return "explore"
     elif label.startswith("deep-"):
         return "deep"
+    elif label.startswith("lever-") or "lever" in label:
+        return "lever"
     raise ValueError(f"cannot classify stage label: {label!r}")
 
 
@@ -293,22 +295,55 @@ def create_bundle(
 
     # Verify all stage sources before creating anything
     for label, run_dir, stage_type in stage_specs:
-        required = _EXPLORE_REQUIRED if stage_type == "explore" else _DEEP_REQUIRED
+        if stage_type == "explore":
+            required = _EXPLORE_REQUIRED
+        elif stage_type == "deep":
+            required = _DEEP_REQUIRED
+        elif stage_type == "lever":
+            required = _LEVER_REQUIRED
+        else:
+            return _die(f"stage {label}: unknown stage type {stage_type!r}")
+
         for fname in required:
             if not (run_dir / fname).exists():
                 return _die(f"stage {label}: missing required file {fname} in {run_dir}")
+
         # Verify sha sidecars
         if stage_type == "explore":
             try:
                 _verify_sha_sidecar(run_dir, "candidates.json", "candidates.sha256")
             except ValueError as e:
                 return _die(f"stage {label}: {e}")
-        else:
+        elif stage_type == "deep":
             try:
                 _verify_sha_sidecar(run_dir, "development.json", "development.sha256")
             except ValueError as e:
                 return _die(f"stage {label}: {e}")
+        elif stage_type == "lever":
+            try:
+                _verify_sha_sidecar(run_dir, "design.json", "design.sha256")
+            except ValueError as e:
+                return _die(f"stage {label}: {e}")
+            if (run_dir / "review.sha256").exists():
+                try:
+                    _verify_sha_sidecar(run_dir, "review.json", "review.sha256")
+                except ValueError as e:
+                    return _die(f"stage {label}: {e}")
 
+        # Terminal-state validation: when bundling a review artifact with terminal_state
+        review_path = run_dir / "review.json"
+        if review_path.exists():
+            try:
+                review_data = json.loads(review_path.read_text(encoding="utf-8"))
+                if isinstance(review_data, dict) and "terminal_state" in review_data:
+                    ts = review_data["terminal_state"]
+                    if ts not in ("MODEL_READY", "NEED_EVIDENCE", "RETURN_TO_EXPLORE"):
+                        return _die(
+                            f"stage {label}: invalid terminal_state {ts!r}. "
+                            f"Must be one of MODEL_READY, NEED_EVIDENCE, RETURN_TO_EXPLORE"
+                        )
+            except (json.JSONDecodeError, OSError):
+                pass
     # --- All validation passed, create bundle atomically ---
     temp_dir = None
     final_path = out_root / f"session-{slug}"
@@ -347,7 +382,13 @@ def create_bundle(
             stage_dir.mkdir()
             stage_labels.append(label)
 
-            required = _EXPLORE_REQUIRED if stage_type == "explore" else _DEEP_REQUIRED
+            if stage_type == "explore":
+                required = _EXPLORE_REQUIRED
+            elif stage_type == "deep":
+                required = _DEEP_REQUIRED
+            else:
+                required = _LEVER_REQUIRED
+
             # Copy required files
             for fname in sorted(required):
                 src = run_dir / fname
@@ -355,18 +396,20 @@ def create_bundle(
                 sha = _copy_file(src, dst)
                 artifacts[f"{label}/{fname}"] = sha
 
-            # Copy optional meta JSON if present
-            meta_name = (
-                "candidates.meta.json"
-                if stage_type == "explore"
-                else "development.meta.json"
-            )
-            meta_src = run_dir / meta_name
-            if meta_src.exists():
-                dst = stage_dir / meta_name
-                sha = _copy_file(meta_src, dst)
-                artifacts[f"{label}/{meta_name}"] = sha
+            # Copy optional meta JSON or sidecars if present
+            if stage_type == "explore":
+                meta_names = ("candidates.meta.json",)
+            elif stage_type == "deep":
+                meta_names = ("development.meta.json", "review.sha256", "review.meta.json")
+            else:
+                meta_names = ("design.meta.json", "review.sha256", "review.meta.json")
 
+            for meta_name in meta_names:
+                meta_src = run_dir / meta_name
+                if meta_src.exists():
+                    dst = stage_dir / meta_name
+                    sha = _copy_file(meta_src, dst)
+                    artifacts[f"{label}/{meta_name}"] = sha
             # R1.6: compute and record diagnostics for explore stages
             if stage_type == "explore":
                 cand_file = stage_dir / "candidates.json"

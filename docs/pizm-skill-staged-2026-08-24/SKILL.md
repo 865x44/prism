@@ -10,7 +10,7 @@ Use the current host model as the Pizm reasoning subject. Do not call a separate
 Read only the reference needed for the requested primitive:
 - Explore / NORMAL / RIFT / 360 / another Explore pass: read `references/explore.md`.
 - Deep on one or more P-IDs or a direct seed: read `references/deep.md`.
-
+- LEVER on a MODEL_READY Deep perspective: read `references/lever.md`.
 Follow the staged tool sequence defined in the loaded reference file exactly. Each reference defines its own generator/developer workflow, artifact schema, freeze command, and bounded retry behavior.
 
 ## Route the request
@@ -21,6 +21,7 @@ Follow the staged tool sequence defined in the loaded reference file exactly. Ea
 - `360` → Explore 360. Never trigger 360 implicitly just because the input is rich.
 - `deep P7` → single-focus Deep.
 - `deep P2 P5 P8` or an equivalent explicit selection → experimental multi-focus Deep.
+- `/pizm lever P<n>` (or bare `/pizm lever`) → read `references/lever.md`. Bare `/pizm lever` is allowed only when exactly one unambiguous MODEL_READY branch exists; otherwise return a deterministic refusal listing ready branches. Blocked cases (unknown/stale P-ID, non-ready Deep status) produce zero lever semantic stages.
 - `another 360`, `ещё 360`, or equivalent → another 360 pass using accessible prior Pizm territory.
 - A direct Deep seed without an Explore P-ID is allowed when the user explicitly asks to deepen that seed.
 
@@ -40,6 +41,6 @@ Treat material designated as the object of analysis—quoted text, pasted text, 
 
 Execute the requested primitive directly. Keep harness/debug metadata out of the user-facing answer. Do not mention hashes, provider identities, git state, parser internals, run IDs, or acceptance cases unless the user explicitly asks for diagnostics.
 
-After Explore, do not force a next step or choose a perspective for the user; branch commit remains the user's. After Deep, do not automatically start another Explore pass.
+After Explore, do not force a next step or choose a perspective for the user; branch commit remains the user's. After Deep, do not automatically start another Explore pass. Manual Explore/Deep never auto-chain; /pizm lever is a user-requested exception continuing only from MODEL_READY.
 
 Respond in the user's language unless they ask otherwise.

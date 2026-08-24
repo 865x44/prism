@@ -1037,3 +1037,84 @@ class TestSelectorDiagnostics:
         assert json.loads(diag_file.read_text()) == diag
         assert "pass-01-normal/diagnostics.json" in manifest["artifacts"]
         assert manifest["artifacts"]["pass-01-normal/diagnostics.json"] == _sha256_hex(diag_file.read_bytes())
+
+
+# ---------------------------------------------------------------------------
+# Lever stages and terminal-state validation (R2)
+# ---------------------------------------------------------------------------
+
+
+class TestLeverBundlingAndTerminalState:
+    def test_bundle_lever_stage_success(self, workspace):
+        """Bundle handles lever-P<id> stage with design and review artifacts."""
+        lever_dir = workspace["tmp"] / "run-lever-P1"
+        lever_dir.mkdir()
+        design_data = {
+            "schema_version": "pizm-lever-design-v1",
+            "stage": "lever",
+            "levers": [{"lever_id": "L1", "intervention_or_test_point": "Test point"}],
+        }
+        design_bytes = json.dumps(design_data).encode("utf-8")
+        (lever_dir / "design.json").write_bytes(design_bytes)
+        (lever_dir / "design.sha256").write_text(_sha256_hex(design_bytes))
+
+        review_data = {
+            "schema_version": "pizm-lever-review-v1",
+            "stage": "lever",
+            "frozen_hash": _sha256_hex(design_bytes),
+            "outcome": "LEVER",
+        }
+        review_bytes = json.dumps(review_data).encode("utf-8")
+        (lever_dir / "review.json").write_bytes(review_bytes)
+        (lever_dir / "review.sha256").write_text(_sha256_hex(review_bytes))
+
+        r = run_bundle(
+            "create",
+            "--output-root", str(workspace["output"]),
+            "--slug", "lever-bundle-test",
+            "--skill-root", str(workspace["skill"]),
+            "--stage", f"lever-P1={lever_dir}",
+        )
+        assert r.returncode == 0, r.stderr
+        bundle = workspace["output"] / "session-lever-bundle-test"
+        assert (bundle / "lever-P1" / "design.json").exists()
+        assert (bundle / "lever-P1" / "review.json").exists()
+        manifest = json.loads((bundle / "manifest.json").read_text())
+        assert "lever-P1" in manifest["stages"]
+
+    def test_bundle_validates_terminal_state_valid(self, workspace):
+        """Review artifacts with valid terminal_state (MODEL_READY) bundle without error."""
+        review_data = {
+            "schema_version": "pizm-review-v1",
+            "terminal_state": "MODEL_READY",
+            "stage": "deep",
+        }
+        (workspace["deep"] / "review.json").write_text(json.dumps(review_data))
+
+        r = run_bundle(
+            "create",
+            "--output-root", str(workspace["output"]),
+            "--slug", "ts-valid-test",
+            "--skill-root", str(workspace["skill"]),
+            "--stage", f"deep-P1={workspace['deep']}",
+        )
+        assert r.returncode == 0, r.stderr
+
+    def test_bundle_validates_terminal_state_invalid_fails(self, workspace):
+        """Review artifacts with malformed terminal_state cause bundle error exit 1."""
+        review_data = {
+            "schema_version": "pizm-review-v1",
+            "terminal_state": "INVALID_STATE",
+            "stage": "deep",
+        }
+        (workspace["deep"] / "review.json").write_text(json.dumps(review_data))
+
+        r = run_bundle(
+            "create",
+            "--output-root", str(workspace["output"]),
+            "--slug", "ts-invalid-test",
+            "--skill-root", str(workspace["skill"]),
+            "--stage", f"deep-P1={workspace['deep']}",
+        )
+        assert r.returncode != 0
+        assert "invalid terminal_state 'INVALID_STATE'" in r.stderr

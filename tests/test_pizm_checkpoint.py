@@ -993,3 +993,131 @@ def test_total_artifact_oversized_rejected(workspace):
     assert "NEXT CONTRACT" not in result.stdout
     assert "EXPLORE SELECTOR RUBRIC" not in result.stdout
     assert not (project / ".ai" / "pizm" / "run-total-oversized-test" / "candidates.json").exists()
+
+
+# ── Lever Stages & Terminal State (R2) ──────────────────────────────────
+
+
+def valid_lever_design_data():
+    return {
+        "schema_version": "pizm-lever-design-v1",
+        "stage": "lever",
+        "levers": [
+            {
+                "lever_id": "L1",
+                "intervention_or_test_point": "Rate-limit threshold",
+                "model_link": "Backpressure mechanism",
+                "minimum_bounded_move": "Adjust limit to 100 req/s",
+                "expected_observation_or_response": "Latency drop",
+                "disconfirming_signal": "Error rate spike",
+                "stop_condition": "5xx > 1%",
+                "remaining_assumptions": "Workers healthy",
+            }
+        ],
+    }
+
+
+def test_lever_design_freeze_success(workspace):
+    project, skill = workspace
+    (skill / "references" / "lever-reviewer.md").write_text("# LEVER REVIEWER RUBRIC")
+    inp = write_json(project / "lever_design.json", valid_lever_design_data())
+
+    result = run_ck(
+        "freeze", "--stage", "lever-design", "--run-id", "lever-design-1",
+        "--input", inp, "--project-root", str(project), "--skill-root", str(skill),
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "FREEZE_OK" in result.stdout
+    assert "references/lever-reviewer.md" in result.stdout
+    run_dir = project / ".ai" / "pizm" / "run-lever-design-1"
+    assert (run_dir / "design.json").exists()
+    assert (run_dir / "design.sha256").exists()
+    assert (run_dir / "design.meta.json").exists()
+
+
+def test_lever_review_freeze_success(workspace):
+    project, skill = workspace
+    review_data = {
+        "schema_version": "pizm-lever-review-v1",
+        "stage": "lever",
+        "frozen_hash": "a" * 64,
+        "outcome": "LEVER",
+        "verdicts": [{"lever_id": "L1", "verdict": "ACCEPT", "reason": "Good fit"}],
+    }
+    inp = write_json(project / "lever_review.json", review_data)
+
+    result = run_ck(
+        "freeze", "--stage", "lever-review", "--run-id", "lever-review-1",
+        "--input", inp, "--project-root", str(project), "--skill-root", str(skill),
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "FREEZE_OK" in result.stdout
+    # lever-review has no next contract
+    assert "NEXT CONTRACT" not in result.stdout
+    run_dir = project / ".ai" / "pizm" / "run-lever-review-1"
+    assert (run_dir / "review.json").exists()
+    assert (run_dir / "review.sha256").exists()
+    assert (run_dir / "review.meta.json").exists()
+
+
+def test_lever_design_invalid_count(workspace):
+    project, skill = workspace
+    data = valid_lever_design_data()
+    data["levers"] = []
+    inp = write_json(project / "empty_levers.json", data)
+
+    result = run_ck(
+        "freeze", "--stage", "lever-design", "--run-id", "bad-count-0",
+        "--input", inp, "--project-root", str(project), "--skill-root", str(skill),
+    )
+    assert result.returncode != 0
+    assert "levers" in result.stderr
+
+
+def test_lever_design_duplicate_id(workspace):
+    project, skill = workspace
+    data = valid_lever_design_data()
+    lever_copy = dict(data["levers"][0])
+    data["levers"].append(lever_copy)
+    inp = write_json(project / "dup_levers.json", data)
+
+    result = run_ck(
+        "freeze", "--stage", "lever-design", "--run-id", "dup-lever-id",
+        "--input", inp, "--project-root", str(project), "--skill-root", str(skill),
+    )
+    assert result.returncode != 0
+    assert "duplicate" in result.stderr
+
+
+def test_expect_terminal_state_flag(workspace):
+    project, skill = workspace
+    data = valid_deep()
+    data["terminal_state"] = "MODEL_READY"
+    inp = write_json(project / "dev_terminal.json", data)
+
+    # 1. Matching terminal state succeeds
+    res_ok = run_ck(
+        "freeze", "--stage", "deep", "--run-id", "ts-ok",
+        "--input", inp, "--project-root", str(project), "--skill-root", str(skill),
+        "--expect-terminal-state", "MODEL_READY",
+    )
+    assert res_ok.returncode == 0, res_ok.stderr
+
+    # 2. Mismatching terminal state fails
+    res_bad = run_ck(
+        "freeze", "--stage", "deep", "--run-id", "ts-bad",
+        "--input", inp, "--project-root", str(project), "--skill-root", str(skill),
+        "--expect-terminal-state", "NEED_EVIDENCE",
+    )
+    assert res_bad.returncode != 0
+    assert "expected terminal_state 'NEED_EVIDENCE'" in res_bad.stderr
+
+    # 3. Invalid expect-terminal-state option fails
+    res_invalid = run_ck(
+        "freeze", "--stage", "deep", "--run-id", "ts-inv",
+        "--input", inp, "--project-root", str(project), "--skill-root", str(skill),
+        "--expect-terminal-state", "NOT_A_STATE",
+    )
+    assert res_invalid.returncode != 0
