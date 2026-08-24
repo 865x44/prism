@@ -933,3 +933,107 @@ class TestPermanentSample:
             assert actual == expected, (
                 f"Sidecar hash mismatch for {stage}: expected {expected}, got {actual}"
             )
+
+# ---------------------------------------------------------------------------
+# Selector Diagnostics Tests (R1.6)
+# ---------------------------------------------------------------------------
+
+
+class TestSelectorDiagnostics:
+    """Tests for post-hoc deterministic selector diagnostics."""
+
+    def test_bundle_computes_selector_diagnostics(self, workspace):
+        """Bundle computes diagnostics for explore stage and embeds in manifest."""
+        structured_selection = {
+            "schema_version": "pizm-selection-v1",
+            "stage": "explore",
+            "mode": "NORMAL",
+            "frozen_hash": "a" * 64,
+            "dispositions": [
+                {
+                    "candidate_id": "c1",
+                    "disposition": "KEEP",
+                    "standalone_quality": "strong",
+                    "marginal_contribution": "high",
+                    "reason": "Novel mechanism",
+                },
+                {
+                    "candidate_id": "c2",
+                    "disposition": "BORDERLINE",
+                    "standalone_quality": "borderline",
+                    "marginal_contribution": "medium",
+                    "reason": "Conventional angle",
+                },
+                {
+                    "candidate_id": "c3",
+                    "disposition": "MERGE",
+                    "standalone_quality": "strong",
+                    "marginal_contribution": "medium",
+                    "reason": "Merge into c1",
+                },
+                {
+                    "candidate_id": "c4",
+                    "disposition": "DROP",
+                    "standalone_quality": "weak",
+                    "marginal_contribution": "none",
+                    "reason": "Generic platitude",
+                },
+            ],
+            "kept": ["c1"],
+            "merged": [{"target": "c1", "sources": ["c3"]}],
+            "next_free_p": "P2",
+        }
+        (workspace["explore"] / "selection.json").write_text(
+            json.dumps(structured_selection, indent=2), encoding="utf-8"
+        )
+        candidates = {
+            "schema_version": "pizm-candidates-v1",
+            "stage": "explore",
+            "mode": "NORMAL",
+            "candidates": [
+                {"candidate_id": f"c{i}", "title": f"Idea {i}"}
+                for i in range(1, 5)
+            ],
+        }
+        cand_bytes = json.dumps(candidates, indent=2).encode("utf-8")
+        (workspace["explore"] / "candidates.json").write_bytes(cand_bytes)
+        (workspace["explore"] / "candidates.sha256").write_text(_sha256_hex(cand_bytes))
+
+        r = run_bundle(
+            "create",
+            "--output-root", str(workspace["output"]),
+            "--slug", "diag-test",
+            "--skill-root", str(workspace["skill"]),
+            "--stage", f"pass-01-normal={workspace['explore']}",
+        )
+
+        assert r.returncode == 0, r.stderr
+        bundle = workspace["output"] / "session-diag-test"
+        manifest = json.loads((bundle / "manifest.json").read_text())
+
+        assert "diagnostics" in manifest
+        assert "pass-01-normal" in manifest["diagnostics"]
+        diag = manifest["diagnostics"]["pass-01-normal"]
+
+        assert diag["candidate_count"] == 4
+        assert diag["keep_count"] == 1
+        assert diag["borderline_count"] == 1
+        assert diag["merge_count"] == 1
+        assert diag["drop_count"] == 1
+        assert diag["disposition_distribution"] == {
+            "KEEP": 1,
+            "BORDERLINE": 1,
+            "MERGE": 1,
+            "DROP": 1,
+        }
+        assert diag["duplicate_or_merge_count"] == 1
+        assert diag["serialized_candidates_bytes"] == len(cand_bytes)
+        assert diag["serialized_selection_bytes"] == len(
+            json.dumps(structured_selection, indent=2).encode("utf-8")
+        )
+
+        diag_file = bundle / "pass-01-normal" / "diagnostics.json"
+        assert diag_file.exists()
+        assert json.loads(diag_file.read_text()) == diag
+        assert "pass-01-normal/diagnostics.json" in manifest["artifacts"]
+        assert manifest["artifacts"]["pass-01-normal/diagnostics.json"] == _sha256_hex(diag_file.read_bytes())

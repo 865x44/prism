@@ -462,3 +462,47 @@ class TestPreFreezeProhibitionHygiene:
         lower = explore_text.lower()
         assert "explore-selector" not in lower
         assert "deep-reviewer" not in lower
+
+# ---------------------------------------------------------------------------
+# 15. R1 Explore Breadth Contract & Compact Seed Guidance
+# ---------------------------------------------------------------------------
+
+
+class TestExploreBreadthContract:
+    """Tests for Release R1 breadth contract and compactness rules."""
+
+    def test_candidate_seed_framing(self, explore_text):
+        assert "Candidate = compact search seed, not final Perspective." in explore_text
+
+    def test_broad_search_framing(self, explore_text):
+        assert "Search broadly for materially different structural shifts." in explore_text
+
+    def test_soft_target_12_to_16(self, explore_text):
+        assert re.search(r"aim\s+roughly\s+for\s+12[–-]16\s+candidate\s+seeds", explore_text)
+
+    def test_soft_ceiling_20(self, explore_text):
+        assert re.search(r"Around\s+20\s+is\s+a\s+soft\s+safety\s+ceiling,\s+not\s+a\s+target", explore_text)
+
+    def test_no_padding_rule(self, explore_text):
+        assert "Never pad to hit a number." in explore_text
+
+    def test_preserve_underdeveloped_seeds(self, explore_text):
+        assert "Preserve promising underdeveloped seeds for the selector." in explore_text
+
+    def test_no_optimizing_toward_hidden_rubric(self, explore_text):
+        assert "Do not optimize toward the hidden selector rubric." in explore_text
+
+    def test_suppressive_self_filtering_absent(self, explore_text):
+        # Must not contain old self-filtering phrasing
+        assert "Find several strong" not in explore_text
+        assert "Usually a small set is enough" not in explore_text
+        assert "A smaller map of genuinely independent territories is better" not in explore_text
+
+    def test_compact_seed_guidance_present(self, explore_text):
+        assert "Compact Seed Guidance" in explore_text
+        assert re.search(r"1\.0[–-]1\.5\s*KiB", explore_text)
+        assert "one semantic core and one load-bearing structural shift" in explore_text
+        assert "presentation-ready essays" in explore_text
+
+    def test_skill_manual_mode_invariant(self, skill_text):
+        assert "branch commit remains the user's" in skill_text

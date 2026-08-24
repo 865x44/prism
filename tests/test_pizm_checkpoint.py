@@ -896,3 +896,100 @@ def test_checkpoint_from_unrelated_cwd(tmp_path):
 
     # Verify nothing landed in the unrelated cwd
     assert not (unrelated_cwd / ".ai").exists()
+
+# ── Payload Safety Bounds (R1) ──────────────────────────────────────────
+
+
+def test_candidate_count_up_to_20_accepted(workspace):
+    """Candidate pool of up to 20 candidates must be accepted."""
+    project, skill = workspace
+    data = valid_explore()
+    data["candidates"] = [
+        {"candidate_id": f"c{i}", "title": f"Idea {i}", "content": f"description {i}"}
+        for i in range(1, 21)
+    ]
+    inp = write_json(project / "cand20.json", data)
+
+    result = run_ck(
+        "freeze", "--stage", "explore", "--run-id", "pool-20-test",
+        "--input", inp, "--project-root", str(project), "--skill-root", str(skill),
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "FREEZE_OK" in result.stdout
+    assert "NEXT CONTRACT" in result.stdout
+
+
+def test_candidate_count_21_rejected_payload_too_large(workspace):
+    """Candidate pool of 21 must be rejected with PAYLOAD_TOO_LARGE and fail closed."""
+    project, skill = workspace
+    data = valid_explore()
+    data["candidates"] = [
+        {"candidate_id": f"c{i}", "title": f"Idea {i}", "content": f"description {i}"}
+        for i in range(1, 22)
+    ]
+    inp = write_json(project / "cand21.json", data)
+
+    result = run_ck(
+        "freeze", "--stage", "explore", "--run-id", "pool-21-test",
+        "--input", inp, "--project-root", str(project), "--skill-root", str(skill),
+    )
+
+    assert result.returncode != 0
+    assert "PAYLOAD_TOO_LARGE" in result.stderr
+    assert "candidate count" in result.stderr
+    # Fail-closed: contract NOT printed, stage artifacts NOT written
+    assert "NEXT CONTRACT" not in result.stdout
+    assert "EXPLORE SELECTOR RUBRIC" not in result.stdout
+    assert not (project / ".ai" / "pizm" / "run-pool-21-test" / "candidates.json").exists()
+
+
+def test_single_candidate_oversized_rejected(workspace):
+    """Single candidate exceeding 12 KiB (12288 bytes) must be rejected with PAYLOAD_TOO_LARGE."""
+    project, skill = workspace
+    data = valid_explore()
+    # Create candidate with > 12 KiB serialized size
+    big_content = "x" * 13000
+    data["candidates"] = [
+        {"candidate_id": "c1", "title": "Normal"},
+        {"candidate_id": "c2", "title": "Huge", "content": big_content},
+    ]
+    inp = write_json(project / "cand-oversized-item.json", data)
+
+    result = run_ck(
+        "freeze", "--stage", "explore", "--run-id", "single-oversized-test",
+        "--input", inp, "--project-root", str(project), "--skill-root", str(skill),
+    )
+
+    assert result.returncode != 0
+    assert "PAYLOAD_TOO_LARGE" in result.stderr
+    assert "12288" in result.stderr or "12 KiB" in result.stderr or "serialized size" in result.stderr
+    # Fail-closed: contract NOT printed, stage artifacts NOT written
+    assert "NEXT CONTRACT" not in result.stdout
+    assert "EXPLORE SELECTOR RUBRIC" not in result.stdout
+    assert not (project / ".ai" / "pizm" / "run-single-oversized-test" / "candidates.json").exists()
+
+
+def test_total_artifact_oversized_rejected(workspace):
+    """Total candidates artifact exceeding 192 KiB (196608 bytes) must be rejected with PAYLOAD_TOO_LARGE."""
+    project, skill = workspace
+    data = valid_explore()
+    # 20 candidates, each ~10 KiB (under 12 KiB individually, but 20 * 10 = ~200 KiB > 192 KiB)
+    data["candidates"] = [
+        {"candidate_id": f"c{i}", "title": f"Idea {i}", "content": "y" * 10000}
+        for i in range(1, 21)
+    ]
+    inp = write_json(project / "cand-oversized-total.json", data)
+
+    result = run_ck(
+        "freeze", "--stage", "explore", "--run-id", "total-oversized-test",
+        "--input", inp, "--project-root", str(project), "--skill-root", str(skill),
+    )
+
+    assert result.returncode != 0
+    assert "PAYLOAD_TOO_LARGE" in result.stderr
+    assert "196608" in result.stderr or "192 KiB" in result.stderr
+    # Fail-closed: contract NOT printed, stage artifacts NOT written
+    assert "NEXT CONTRACT" not in result.stdout
+    assert "EXPLORE SELECTOR RUBRIC" not in result.stdout
+    assert not (project / ".ai" / "pizm" / "run-total-oversized-test" / "candidates.json").exists()

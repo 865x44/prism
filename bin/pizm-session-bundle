@@ -123,6 +123,94 @@ def _copy_file(src: Path, dst: Path) -> str:
     return _sha256_hex(data)
 
 
+def _compute_explore_diagnostics(candidates_path: Path, selection_path: Path) -> dict:
+    """Compute deterministic selector diagnostics for an Explore stage (R1.6).
+
+    Post-hoc calculation from frozen artifacts; zero hot-path changes;
+    no numeric quality scores.
+    """
+    cand_bytes = candidates_path.read_bytes()
+    sel_bytes = selection_path.read_bytes()
+
+    try:
+        cand_data = json.loads(cand_bytes.decode("utf-8"))
+    except Exception:
+        cand_data = {}
+
+    try:
+        sel_data = json.loads(sel_bytes.decode("utf-8"))
+    except Exception:
+        sel_data = {}
+
+    candidates = cand_data.get("candidates", []) if isinstance(cand_data, dict) else []
+    candidate_count = len(candidates) if isinstance(candidates, list) else 0
+
+    dispositions = sel_data.get("dispositions", []) if isinstance(sel_data, dict) else []
+
+    keep_count = 0
+    merge_count = 0
+    drop_count = 0
+    borderline_count = 0
+    disposition_distribution = {}
+
+    if isinstance(dispositions, list) and len(dispositions) > 0:
+        for d in dispositions:
+            if isinstance(d, dict):
+                disp = d.get("disposition")
+                if disp:
+                    disposition_distribution[disp] = (
+                        disposition_distribution.get(disp, 0) + 1
+                    )
+                    if disp == "KEEP":
+                        keep_count += 1
+                    elif disp == "MERGE":
+                        merge_count += 1
+                    elif disp == "DROP":
+                        drop_count += 1
+                    elif disp == "BORDERLINE":
+                        borderline_count += 1
+    else:
+        # Fallback for simple selection fixture format or kept/merged lists
+        kept_list = sel_data.get("kept", []) if isinstance(sel_data, dict) else []
+        merged_list = sel_data.get("merged", []) if isinstance(sel_data, dict) else []
+        if isinstance(kept_list, list) and len(kept_list) > 0:
+            keep_count = len(kept_list)
+        elif isinstance(sel_data, dict) and "selected" in sel_data:
+            keep_count = 1
+        if isinstance(merged_list, list) and len(merged_list) > 0:
+            merge_count = len(merged_list)
+        if keep_count:
+            disposition_distribution["KEEP"] = keep_count
+        if merge_count:
+            disposition_distribution["MERGE"] = merge_count
+
+    merged_entries = sel_data.get("merged", []) if isinstance(sel_data, dict) else []
+    duplicate_or_merge_count = 0
+    if isinstance(merged_entries, list):
+        for m in merged_entries:
+            if isinstance(m, dict):
+                sources = m.get("sources", [])
+                if isinstance(sources, list):
+                    duplicate_or_merge_count += len(sources)
+                else:
+                    duplicate_or_merge_count += 1
+            else:
+                duplicate_or_merge_count += 1
+    if duplicate_or_merge_count == 0 and merge_count > 0:
+        duplicate_or_merge_count = merge_count
+
+    return {
+        "candidate_count": candidate_count,
+        "keep_count": keep_count,
+        "merge_count": merge_count,
+        "drop_count": drop_count,
+        "borderline_count": borderline_count,
+        "disposition_distribution": disposition_distribution,
+        "duplicate_or_merge_count": duplicate_or_merge_count,
+        "serialized_candidates_bytes": len(cand_bytes),
+        "serialized_selection_bytes": len(sel_bytes),
+    }
+
 def create_bundle(
     output_root: str,
     slug: str,
@@ -252,6 +340,7 @@ def create_bundle(
         # Copy stages
         stage_labels = []
         artifacts = {}  # relative path -> sha256
+        diagnostics = {}
 
         for label, run_dir, stage_type in stage_specs:
             stage_dir = bundle_dir / label
@@ -278,8 +367,21 @@ def create_bundle(
                 sha = _copy_file(meta_src, dst)
                 artifacts[f"{label}/{meta_name}"] = sha
 
-        manifest["stages"] = stage_labels
+            # R1.6: compute and record diagnostics for explore stages
+            if stage_type == "explore":
+                cand_file = stage_dir / "candidates.json"
+                sel_file = stage_dir / "selection.json"
+                if cand_file.exists() and sel_file.exists():
+                    stage_diag = _compute_explore_diagnostics(cand_file, sel_file)
+                    diagnostics[label] = stage_diag
+                    diag_path = stage_dir / "diagnostics.json"
+                    diag_bytes = json.dumps(stage_diag, indent=2).encode("utf-8")
+                    diag_path.write_bytes(diag_bytes)
+                    artifacts[f"{label}/diagnostics.json"] = _sha256_hex(diag_bytes)
 
+        manifest["stages"] = stage_labels
+        if diagnostics:
+            manifest["diagnostics"] = diagnostics
         # Copy inputs
         input_records = []
         for p in input_paths:

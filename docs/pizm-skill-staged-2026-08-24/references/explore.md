@@ -34,11 +34,25 @@ In staged execution, Explore operates as a generator: it produces a structured c
 ## Modes
 
 ### NORMAL
-Find several strong, practically useful perspectives the user is not already considering.
+
+Candidate = compact search seed, not final Perspective.
+
+Search broadly for materially different structural shifts.
+
+When the material supports it:
+aim roughly for 12–16 candidate seeds.
+
+Around 20 is a soft safety ceiling, not a target.
+
+Fewer is correct when further search mostly yields:
+structural duplicates, decorative variants, weak noise.
+
+Never pad to hit a number.
+
+Preserve promising underdeveloped seeds for the selector.
+Do not optimize toward the hidden selector rubric.
 
 Prefer materially different mechanisms, incentives, constraints, causal structures, units of analysis, system boundaries, temporal dynamics, or agency distributions. Remove paraphrases and generic advice.
-
-Usually a small set is enough. There is no card quota. Generate fewer perspectives when the material is thin and more only when they are genuinely independent.
 
 For each candidate perspective, populate the semantic core:
 - `candidate_id` and short title;
@@ -75,7 +89,7 @@ Use prior accessible Pizm territory. Reconstruct its semantic cores before claim
 
 Do not regenerate previous territory under new names. If prior context is materially incomplete enough to make novelty uncertain, say so rather than pretending continuity.
 
-There is no minimum candidate or family count. A smaller map of genuinely independent territories is better than a large fake-breadth map.
+There is no fixed candidate quota. A map of genuinely independent territories is better than a large fake-breadth map of decorative variations.
 
 For each candidate perspective, populate `difference_from_prior` along with the semantic core.
 
@@ -119,7 +133,15 @@ Candidate JSON must conform to the following schema:
 }
 ```
 
-Ensure seeds remain compact — no presentation-ready essays.
+### Compact Seed Guidance
+
+Raw candidates are search seeds, not final polished perspective cards:
+- Each candidate should be compact (~1.0–1.5 KiB serialized). Do not make every candidate explain the entire universe or write presentation-ready essays.
+- Focus on one semantic core and one load-bearing structural shift.
+- Provide minimal grounding and epistemic status (`supported`, `inferred`, `speculative`, `unknown`).
+- Highlight 1–2 key consequences (`what_becomes_visible`).
+- Include optional `break_condition` (required for RIFT).
+- Keep descriptions crisp and dense so the search pool can support 12–16 candidate seeds within payload safety bounds.
 
 ## P-ID continuity
 

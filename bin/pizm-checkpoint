@@ -26,9 +26,13 @@ _SCHEMA_VERSIONS = {
     "deep": "pizm-development-v1",
 }
 
+# Payload safety bounds (R1)
+_EXPLORE_MAX_CANDIDATES = 20
+_EXPLORE_MAX_TOTAL_BYTES = 196608  # 192 KiB
+_EXPLORE_MAX_SINGLE_CANDIDATE_BYTES = 12288  # 12 KiB
+
 _RUN_ID_RE = re.compile(r"[a-z0-9-]+\Z")
 _P_ID_RE = re.compile(r"P[1-9][0-9]*\Z")
-
 
 def _die(msg: str, code: int = 1) -> int:
     print(f"ERROR: {msg}", file=sys.stderr)
@@ -51,7 +55,7 @@ def _validate_run_id(run_id: str) -> None:
         raise ValueError("run-id must be lowercase alphanumeric with hyphens")
 
 
-def _validate_explore(data: dict) -> None:
+def _validate_explore(data: dict, raw_bytes_len: int = 0) -> None:
     if not isinstance(data, dict):
         raise ValueError("root must be a JSON object")
     if data.get("schema_version") != _SCHEMA_VERSIONS["explore"]:
@@ -63,6 +67,19 @@ def _validate_explore(data: dict) -> None:
     candidates = data.get("candidates")
     if not isinstance(candidates, list) or len(candidates) == 0:
         raise ValueError("candidates must be a non-empty list")
+
+    # Payload safety bounds enforcement (R1)
+    if raw_bytes_len > _EXPLORE_MAX_TOTAL_BYTES:
+        raise ValueError(
+            f"PAYLOAD_TOO_LARGE: total candidates artifact size {raw_bytes_len} bytes "
+            f"exceeds maximum {_EXPLORE_MAX_TOTAL_BYTES} bytes (192 KiB)"
+        )
+    if len(candidates) > _EXPLORE_MAX_CANDIDATES:
+        raise ValueError(
+            f"PAYLOAD_TOO_LARGE: candidate count {len(candidates)} "
+            f"exceeds maximum {_EXPLORE_MAX_CANDIDATES}"
+        )
+
     seen = set()
     for i, c in enumerate(candidates):
         if not isinstance(c, dict):
@@ -73,7 +90,12 @@ def _validate_explore(data: dict) -> None:
         if cid in seen:
             raise ValueError(f"duplicate candidate_id: {cid!r}")
         seen.add(cid)
-
+        cand_bytes = json.dumps(c).encode("utf-8")
+        if len(cand_bytes) > _EXPLORE_MAX_SINGLE_CANDIDATE_BYTES:
+            raise ValueError(
+                f"PAYLOAD_TOO_LARGE: candidate[{i}] ({cid}) serialized size "
+                f"{len(cand_bytes)} bytes exceeds maximum {_EXPLORE_MAX_SINGLE_CANDIDATE_BYTES} bytes (12 KiB)"
+            )
 
 def _validate_deep(data: dict) -> None:
     if not isinstance(data, dict):
@@ -185,14 +207,16 @@ def freeze(
     # Validate schema
     try:
         if stage == "explore":
-            _validate_explore(data)
+            _validate_explore(data, len(raw))
         elif stage == "deep":
             _validate_deep(data)
         else:
             return _die(f"unknown stage: {stage!r}")
     except ValueError as e:
+        msg = str(e)
+        if msg.startswith("PAYLOAD_TOO_LARGE"):
+            return _die(msg)
         return _die(f"schema validation failed: {e}")
-
     # Determine stage-scoped file names
     prefix = "candidates" if stage == "explore" else "development"
     artifact_name = prefix + ".json"
