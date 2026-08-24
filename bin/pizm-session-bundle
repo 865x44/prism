@@ -344,6 +344,57 @@ def create_bundle(
                         )
             except (json.JSONDecodeError, OSError):
                 pass
+
+        # AUTO selection validation: when bundling selection.json with schema_version == "pizm-auto-selection-v1"
+        if stage_type == "explore":
+            sel_path = run_dir / "selection.json"
+            if sel_path.exists():
+                try:
+                    sel_data = json.loads(sel_path.read_text(encoding="utf-8"))
+                    if isinstance(sel_data, dict) and sel_data.get("schema_version") == "pizm-auto-selection-v1":
+                        # Validate auto_primary_candidate_id
+                        if "auto_primary_candidate_id" not in sel_data:
+                            return _die(f"BAD_AUTO_SELECTION: stage {label}: missing required auto_primary_candidate_id")
+                        primary_id = sel_data["auto_primary_candidate_id"]
+                        if not isinstance(primary_id, str) or not primary_id.strip():
+                            return _die(f"BAD_AUTO_SELECTION: stage {label}: auto_primary_candidate_id must be non-empty string")
+
+                        # Disallow multi-candidate or fallback candidate keys
+                        for forbidden_key in (
+                            "secondary_candidate",
+                            "secondary_candidate_id",
+                            "secondary_candidates",
+                            "fallback_candidate",
+                            "fallback_candidate_id",
+                        ):
+                            if forbidden_key in sel_data:
+                                return _die(f"BAD_AUTO_SELECTION: stage {label}: forbidden key {forbidden_key!r} found in selection")
+
+                        kept_list = sel_data.get("kept", [])
+                        if not isinstance(kept_list, list) or primary_id not in kept_list:
+                            return _die(f"BAD_AUTO_SELECTION: stage {label}: auto_primary_candidate_id {primary_id!r} not in kept list")
+
+                        dispositions = sel_data.get("dispositions", [])
+                        if not isinstance(dispositions, list):
+                            return _die(f"BAD_AUTO_SELECTION: stage {label}: dispositions must be a list")
+
+                        primary_disp = None
+                        for d in dispositions:
+                            if isinstance(d, dict) and d.get("candidate_id") == primary_id:
+                                primary_disp = d.get("disposition")
+                                break
+
+                        if primary_disp != "KEEP":
+                            return _die(f"BAD_AUTO_SELECTION: stage {label}: auto_primary_candidate_id {primary_id!r} does not have disposition KEEP (got {primary_disp!r})")
+
+                        # Validate task_orientation
+                        if "task_orientation" not in sel_data:
+                            return _die(f"BAD_AUTO_SELECTION: stage {label}: missing required task_orientation")
+                        task_or = sel_data["task_orientation"]
+                        if task_or not in ("ANALYTICAL", "ACTION_OR_DECISION"):
+                            return _die(f"BAD_AUTO_SELECTION: stage {label}: invalid task_orientation {task_or!r}. Must be ANALYTICAL or ACTION_OR_DECISION")
+                except (json.JSONDecodeError, OSError) as e:
+                    return _die(f"BAD_AUTO_SELECTION: stage {label}: failed to parse selection.json: {e}")
     # --- All validation passed, create bundle atomically ---
     temp_dir = None
     final_path = out_root / f"session-{slug}"

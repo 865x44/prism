@@ -102,3 +102,54 @@ The selector produces a compact JSON record conforming to `pizm-selection-v1`:
    - Determine `next_free_p` as the next unused P-ID (e.g., `P7`).
    - The user-visible response MUST conclude with the exact line:
      `Next free P: P<n>`
+
+---
+
+## AUTO Mode Selection Extension
+
+When executing in AUTO mode (`/pizm auto <task>`), the selector evaluates candidates categorically using the same rubric, but emits the extended schema `pizm-auto-selection-v1`.
+
+### AUTO Selection Schema (`pizm-auto-selection-v1`)
+
+The AUTO selection artifact inherits all fields from `pizm-selection-v1` and adds exactly two routing fields:
+1. `auto_primary_candidate_id`: Exactly one string identifier. MUST be a valid `candidate_id` from the frozen candidate pool, MUST be included in the `kept` list, and its disposition entry MUST have disposition `KEEP`.
+2. `task_orientation`: String enum, exactly one of:
+   - `ANALYTICAL`: The task seeks understanding, causal explanation, structural decomposition, or comparative insight.
+   - `ACTION_OR_DECISION`: The task requires an intervention, practical decision, test, organizational move, or policy action.
+   - *Ambiguity rule*: If the task orientation is genuinely ambiguous, default to `ANALYTICAL`.
+
+### Strict AUTO Routing Constraints
+- **Sole Routing Authority**: `selection.json` is the sole routing record for AUTO mode. No secondary routing file is ever created.
+- **Single Primary Only**: Only one primary candidate is nominated (`auto_primary_candidate_id`). There is no second branch candidate, no alternative candidate, and no ranked ordering.
+
+### AUTO Selection Example (`selection.json`)
+
+```json
+{
+  "schema_version": "pizm-auto-selection-v1",
+  "stage": "explore",
+  "mode": "NORMAL",
+  "frozen_hash": "a1b2c3d4e5f67890123456789abcdef0123456789abcdef0123456789abcdef0",
+  "dispositions": [
+    {
+      "candidate_id": "c1",
+      "disposition": "KEEP",
+      "standalone_quality": "strong",
+      "marginal_contribution": "high",
+      "reason": "Clear causal mechanism showing feedback loop latency as core constraint"
+    },
+    {
+      "candidate_id": "c2",
+      "disposition": "DROP",
+      "standalone_quality": "weak",
+      "marginal_contribution": "none",
+      "reason": "Generic advice without concrete grounding anchor"
+    }
+  ],
+  "kept": ["c1"],
+  "merged": [],
+  "next_free_p": "P2",
+  "auto_primary_candidate_id": "c1",
+  "task_orientation": "ACTION_OR_DECISION"
+}
+```

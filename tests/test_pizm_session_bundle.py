@@ -1118,3 +1118,120 @@ class TestLeverBundlingAndTerminalState:
         )
         assert r.returncode != 0
         assert "invalid terminal_state 'INVALID_STATE'" in r.stderr
+
+
+class TestAutoSelectionValidation:
+    def test_auto_selection_valid_bundles_ok(self, workspace):
+        """Valid pizm-auto-selection-v1 selection artifact bundles without error."""
+        sel_data = {
+            "schema_version": "pizm-auto-selection-v1",
+            "stage": "explore",
+            "mode": "NORMAL",
+            "frozen_hash": (workspace["explore"] / "candidates.sha256").read_text().strip(),
+            "dispositions": [
+                {
+                    "candidate_id": "c1",
+                    "disposition": "KEEP",
+                    "standalone_quality": "strong",
+                    "marginal_contribution": "high",
+                    "reason": "Clear mechanism",
+                },
+                {
+                    "candidate_id": "c2",
+                    "disposition": "DROP",
+                    "standalone_quality": "weak",
+                    "marginal_contribution": "none",
+                    "reason": "Weak grounding",
+                },
+            ],
+            "kept": ["c1"],
+            "merged": [],
+            "next_free_p": "P2",
+            "auto_primary_candidate_id": "c1",
+            "task_orientation": "ACTION_OR_DECISION",
+        }
+        (workspace["explore"] / "selection.json").write_text(json.dumps(sel_data))
+
+        r = run_bundle(
+            "create",
+            "--output-root", str(workspace["output"]),
+            "--slug", "auto-sel-valid-test",
+            "--skill-root", str(workspace["skill"]),
+            "--stage", f"pass-01-normal={workspace['explore']}",
+        )
+        assert r.returncode == 0, r.stderr
+
+    def test_auto_selection_missing_primary_fails(self, workspace):
+        """Missing auto_primary_candidate_id triggers BAD_AUTO_SELECTION error."""
+        sel_data = {
+            "schema_version": "pizm-auto-selection-v1",
+            "stage": "explore",
+            "mode": "NORMAL",
+            "dispositions": [
+                {"candidate_id": "c1", "disposition": "KEEP"},
+            ],
+            "kept": ["c1"],
+            "task_orientation": "ANALYTICAL",
+        }
+        (workspace["explore"] / "selection.json").write_text(json.dumps(sel_data))
+
+        r = run_bundle(
+            "create",
+            "--output-root", str(workspace["output"]),
+            "--slug", "auto-sel-missing-primary",
+            "--skill-root", str(workspace["skill"]),
+            "--stage", f"pass-01-normal={workspace['explore']}",
+        )
+        assert r.returncode != 0
+        assert "BAD_AUTO_SELECTION" in r.stderr
+
+    def test_auto_selection_primary_not_kept_fails(self, workspace):
+        """Candidate not in kept list triggers BAD_AUTO_SELECTION error."""
+        sel_data = {
+            "schema_version": "pizm-auto-selection-v1",
+            "stage": "explore",
+            "mode": "NORMAL",
+            "dispositions": [
+                {"candidate_id": "c1", "disposition": "KEEP"},
+                {"candidate_id": "c2", "disposition": "DROP"},
+            ],
+            "kept": ["c1"],
+            "auto_primary_candidate_id": "c2",
+            "task_orientation": "ANALYTICAL",
+        }
+        (workspace["explore"] / "selection.json").write_text(json.dumps(sel_data))
+
+        r = run_bundle(
+            "create",
+            "--output-root", str(workspace["output"]),
+            "--slug", "auto-sel-not-kept",
+            "--skill-root", str(workspace["skill"]),
+            "--stage", f"pass-01-normal={workspace['explore']}",
+        )
+        assert r.returncode != 0
+        assert "BAD_AUTO_SELECTION" in r.stderr
+
+    def test_auto_selection_invalid_task_orientation_fails(self, workspace):
+        """Invalid task_orientation enum triggers BAD_AUTO_SELECTION error."""
+        sel_data = {
+            "schema_version": "pizm-auto-selection-v1",
+            "stage": "explore",
+            "mode": "NORMAL",
+            "dispositions": [
+                {"candidate_id": "c1", "disposition": "KEEP"},
+            ],
+            "kept": ["c1"],
+            "auto_primary_candidate_id": "c1",
+            "task_orientation": "INVALID_CHOICE",
+        }
+        (workspace["explore"] / "selection.json").write_text(json.dumps(sel_data))
+
+        r = run_bundle(
+            "create",
+            "--output-root", str(workspace["output"]),
+            "--slug", "auto-sel-bad-orientation",
+            "--skill-root", str(workspace["skill"]),
+            "--stage", f"pass-01-normal={workspace['explore']}",
+        )
+        assert r.returncode != 0
+        assert "BAD_AUTO_SELECTION" in r.stderr

@@ -22,10 +22,11 @@ Follow the staged tool sequence defined in the loaded reference file exactly. Ea
 - `deep P7` → single-focus Deep.
 - `deep P2 P5 P8` or an equivalent explicit selection → experimental multi-focus Deep.
 - `/pizm lever P<n>` (or bare `/pizm lever`) → read `references/lever.md`. Bare `/pizm lever` is allowed only when exactly one unambiguous MODEL_READY branch exists; otherwise return a deterministic refusal listing ready branches. Blocked cases (unknown/stale P-ID, non-ready Deep status) produce zero lever semantic stages.
+- `/pizm auto <task>` → read `references/auto.md`.
 - `another 360`, `ещё 360`, or equivalent → another 360 pass using accessible prior Pizm territory.
 - A direct Deep seed without an Explore P-ID is allowed when the user explicitly asks to deepen that seed.
 
-Do not invoke or emulate AUTO unless the user explicitly asks to discuss AUTO. AUTO is outside this native skill's execution path.
+AUTO executes only via explicit `/pizm auto <task>` user delegation; manual modes never trigger it; discussing AUTO remains possible without executing it.
 
 ## Context and identity
 
