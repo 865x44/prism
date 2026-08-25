@@ -11,6 +11,8 @@ Read only the reference needed for the requested primitive:
 - Explore / NORMAL / residual search / RIFT / 360 / another Explore pass: read `references/explore.md`.
 - Deep on one P-ID, one composed Bundle B-ID, or a direct seed: read `references/deep.md` (v2 contract).
 - LEVER on a MODEL_READY Deep perspective (single P-ID or Bundle B-ID): read `references/lever.md`.
+- AUTO pipeline: read `references/auto.md`.
+- FORGE heavy automated path: read `references/forge.md`.
 Follow the staged tool sequence defined in the loaded reference file exactly. Each reference defines its own generator/developer workflow, artifact schema, freeze command, and bounded retry behavior.
 
 ## Route the request
@@ -24,10 +26,13 @@ Follow the staged tool sequence defined in the loaded reference file exactly. Ea
 - `deep P2 P5 P8` or an equivalent explicit selection → experimental multi-focus Deep: each selected focus becomes its own Deep target and is developed in its own pass.
 - `/pizm lever P<n>|B<n>` (or bare `/pizm lever`) → read `references/lever.md`. Bare `/pizm lever` is allowed only when exactly one unambiguous MODEL_READY branch exists; otherwise return a deterministic refusal listing ready branches. Blocked cases (unknown/stale target ID, non-ready Deep status) produce zero lever semantic stages.
 - `/pizm auto <task>` → read `references/auto.md`. One Search pass → Portfolio → one nominated target (P or B) → Deep → Critic → optional LEVER; the final report and the readable `run.md` are assembled deterministically from frozen artifacts with zero model calls (`bin/pizm-session-bundle render`).
+- `/pizm forge <task>` → read `references/forge.md`. Two-pass Search (initial + residual) → Portfolio over accumulated field → two competing Bundles developed separately (Deep B1 then Deep B2) → Critic/Compare → optional LEVER → deterministic final + `run.md` (`bin/pizm-session-bundle render`).
 - `another 360`, `ещё 360`, or equivalent → another Explore pass with the residual search policy, using accessible prior Pizm territory.
 - A direct Deep seed without an Explore P-ID is allowed when the user explicitly asks to deepen that seed.
 
 AUTO executes only via explicit `/pizm auto <task>` user delegation; manual modes never trigger it; discussing AUTO remains possible without executing it.
+
+FORGE executes only via explicit `/pizm forge <task>` user delegation; manual modes never trigger or emulate it; discussing FORGE remains possible without executing it.
 
 ## Context and identity
 

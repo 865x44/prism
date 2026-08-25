@@ -122,7 +122,7 @@ Explore passes accumulate into a persistent search field:
 - Candidates are addressed by composite ref `passNN:cMM`: the pass index (`pass01`, `pass02`, ... monotonic within the active conversation) plus the candidate id local to that pass. Two passes may reuse the same local ids (each may have its own `c01`) without collision because composite refs stay distinct.
 - After each pass the host maintains a tiny search-field manifest conforming to `pizm-search-field-v1`: per-pass entries referencing each frozen candidates artifact by location plus its hash, plus accumulated composite refs. The manifest references artifacts; it never duplicates candidate contents.
 - The manifest itself freezes through the checkpoint tool with stage `search-field` and is append-only across passes: earlier passes' rows are never rewritten, and payload bounds fail closed.
-
+- Across multiple passes, ~28 candidates is the accumulated soft ceiling for the search field; avoid padding beyond honest exhaustion.
 ## Candidate Schema (pizm-candidates-v1)
 
 Candidate JSON must conform to the following schema:

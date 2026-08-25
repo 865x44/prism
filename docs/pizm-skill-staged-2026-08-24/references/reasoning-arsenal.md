@@ -21,9 +21,7 @@ Compact private vocabulary for Pizm passes. Each entry names a move and states w
 - **PRODUCTIVE TENSION**: Live contradiction between members that generates consequences neither yields alone. Tension to preserve and state, not noise to smooth over.
 
 ## Critic moves
-
-Listed here for later slices; not yet wired into any stage contract:
-
+Wired into the single-model Critic contract (`references/deep-reviewer.md`) and Comparative Review:
 - **LOAD-BEARING CLAIM CENSUS**: Enumerate the claims whose failure collapses the model; most claims are decoration, few are load-bearing.
 - **SUPPORTED|INFERRED|SPECULATIVE|UNKNOWN**: Epistemic labeling of every load-bearing claim against the source material.
 - **INDEPENDENT COUNTERMODEL**: Construct the strongest model incompatible with the candidate, then ask what observation would separate them.
@@ -37,6 +35,6 @@ Listed here for later slices; not yet wired into any stage contract:
 Do not instantiate a method merely because it exists in the arsenal. There is no output quota per technique, and "no useful application of this move" is a valid outcome. The arsenal defines no method-specific agents and no public modes: it is vocabulary available inside existing passes, never a reason to create a new one.
 
 <!-- migration-notes
-arsenal: introduced as shared vocabulary in the search-field/portfolio slice
-critic moves: reserved for later slices; no stage consumes them yet
+arsenal: shared vocabulary across search-field, portfolio, deep-review, and comparison stages
+critic moves: wired into deep-reviewer.md and comparative reasoning
 -->
