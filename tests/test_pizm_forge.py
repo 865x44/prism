@@ -25,7 +25,7 @@ INSTALLED_SKILL_ROOT = Path.home() / ".config" / "opencode" / "skills" / "pizm"
 TASK_TEXT = "Reduce PR cycle time in our platform team"
 
 
-def freeze_stage(project_root: Path, stage: str, run_id: str, payload: dict, target: str = None) -> subprocess.CompletedProcess:
+def freeze_stage(project_root: Path, stage: str, run_id: str, payload: dict, target: str = None, artifact_suffix: str = None) -> subprocess.CompletedProcess:
     fd_input = project_root / f"_input_{stage}_{target or 'main'}.json"
     fd_input.write_text(json.dumps(payload, indent=2), encoding="utf-8")
     cmd = [
@@ -45,6 +45,8 @@ def freeze_stage(project_root: Path, stage: str, run_id: str, payload: dict, tar
     ]
     if target:
         cmd.extend(["--target", target])
+    if artifact_suffix:
+        cmd.extend(["--artifact-suffix", artifact_suffix])
     res = subprocess.run(cmd, capture_output=True, text=True)
     fd_input.unlink()
     return res
@@ -159,7 +161,7 @@ def search_field_payload(candidates_sha1: str, candidates_sha2: str = None):
     }
 
 
-def portfolio_v2_payload(competition_status="TWO_DEFENSIBLE_BUNDLES", field_hash="abc123"):
+def portfolio_v2_payload(competition_status="TWO_DEFENSIBLE_BUNDLES", field_hash="abc123", field_ref="search-field.json"):
     bundles = [
         {
             "bundle_id": "B1",
@@ -213,7 +215,9 @@ def portfolio_v2_payload(competition_status="TWO_DEFENSIBLE_BUNDLES", field_hash
         "schema_version": "pizm-portfolio-selection-v2",
         "stage": "portfolio",
         "route": "AUTO",
+        "field_ref": field_ref,
         "field_hash": field_hash,
+        "perspectives": {"P1": "pass01:c01", "P2": "pass01:c02"},
         "competition_status": competition_status,
         "recommended_competition": rec_comp,
         "candidate_assessments": [
@@ -303,13 +307,21 @@ def development_v2_payload(target_id="B1", member_refs=None):
     }
 
 
-def comparison_review_payload(preference="B1"):
+def comparison_review_payload(
+    preference="B1",
+    b1_ref="development-v2-B1.json",
+    b1_hash="a" * 64,
+    b2_ref="development-v2-B2.json",
+    b2_hash="b" * 64,
+):
     return {
         "schema_version": "pizm-comparison-review-v1",
         "stage": "comparison-review-v1",
         "task_summary": TASK_TEXT,
         "review_B1": {
             "target_id": "B1",
+            "development_ref": b1_ref,
+            "frozen_hash": b1_hash,
             "terminal_state": "MODEL_READY",
             "independent_countermodel": "Review capacity is sufficient but batching is culturally incentivized.",
             "load_bearing_reassessment": [
@@ -328,6 +340,8 @@ def comparison_review_payload(preference="B1"):
         },
         "review_B2": {
             "target_id": "B2",
+            "development_ref": b2_ref,
+            "frozen_hash": b2_hash,
             "terminal_state": "MODEL_READY",
             "independent_countermodel": "CI infrastructure flakes cause the perceived stall.",
             "load_bearing_reassessment": [
@@ -419,20 +433,13 @@ class TestForgeSearchTopology:
 
         # Pass 2 executes directly without portfolio judge
         p2 = pass2_candidates_payload()
-        # In multi-pass explore, pass 2 can be written as candidates-pass02.json
-        fd_p2 = tmp_path / ".ai" / "pizm" / f"run-{run_id}" / "candidates-pass02.json"
-        fd_p2.write_text(json.dumps(p2, indent=2), encoding="utf-8")
-        fd_p2_sha = tmp_path / ".ai" / "pizm" / f"run-{run_id}" / "candidates-pass02.sha256"
-        import hashlib
-        fd_p2_sha.write_text(hashlib.sha256(fd_p2.read_bytes()).hexdigest(), encoding="utf-8")
+        res_p2 = freeze_stage(tmp_path, "explore", run_id, p2, artifact_suffix="pass02")
+        assert res_p2.returncode == 0
+        sha2 = res_p2.stdout.split()[1]
 
         # Search field updated after pass 2
-        sf2 = search_field_payload(sha1, hashlib.sha256(fd_p2.read_bytes()).hexdigest())
-        # overwrite search-field for append-only simulation in test
-        (tmp_path / ".ai" / "pizm" / f"run-{run_id}" / "search-field.json").unlink()
-        (tmp_path / ".ai" / "pizm" / f"run-{run_id}" / "search-field.sha256").unlink()
-        (tmp_path / ".ai" / "pizm" / f"run-{run_id}" / "search-field.meta.json").unlink()
-        res_sf2 = freeze_stage(tmp_path, "search-field", run_id, sf2)
+        sf2 = search_field_payload(sha1, sha2)
+        res_sf2 = freeze_stage(tmp_path, "search-field", run_id, sf2, artifact_suffix="pass02")
         assert res_sf2.returncode == 0
 
     def test_fg_s3_residual_search_difference_from_prior(self):
@@ -446,7 +453,12 @@ class TestForgePortfolioContracts:
     def test_fg_p1_and_p2_portfolio_v2_two_defensible_bundles(self, tmp_path):
         """FG-P1 & FG-P2: Portfolio v2 with two defensible bundles requiring composition gain and competition axis."""
         run_id = "forge-p1-p2"
-        p_v2 = portfolio_v2_payload(competition_status="TWO_DEFENSIBLE_BUNDLES")
+        res1 = freeze_stage(tmp_path, "explore", run_id, pass1_candidates_payload())
+        sha1 = res1.stdout.split()[1]
+        res_sf = freeze_stage(tmp_path, "search-field", run_id, search_field_payload(sha1))
+        sha_sf = res_sf.stdout.split()[1]
+
+        p_v2 = portfolio_v2_payload(competition_status="TWO_DEFENSIBLE_BUNDLES", field_hash=sha_sf, field_ref="search-field.json")
         res = freeze_stage(tmp_path, "portfolio", run_id, p_v2)
         assert res.returncode == 0
         assert "FREEZE_OK" in res.stdout
@@ -454,7 +466,12 @@ class TestForgePortfolioContracts:
     def test_fg_p3_and_p4_no_second_defensible_bundle(self, tmp_path):
         """FG-P3 & FG-P4: No forced B2; portfolio v2 cleanly records NO_SECOND_DEFENSIBLE_BUNDLE."""
         run_id = "forge-p3-p4"
-        p_v2 = portfolio_v2_payload(competition_status="NO_SECOND_DEFENSIBLE_BUNDLE")
+        res1 = freeze_stage(tmp_path, "explore", run_id, pass1_candidates_payload())
+        sha1 = res1.stdout.split()[1]
+        res_sf = freeze_stage(tmp_path, "search-field", run_id, search_field_payload(sha1))
+        sha_sf = res_sf.stdout.split()[1]
+
+        p_v2 = portfolio_v2_payload(competition_status="NO_SECOND_DEFENSIBLE_BUNDLE", field_hash=sha_sf, field_ref="search-field.json")
         res = freeze_stage(tmp_path, "portfolio", run_id, p_v2)
         assert res.returncode == 0
         assert "FREEZE_OK" in res.stdout
@@ -462,10 +479,19 @@ class TestForgePortfolioContracts:
     def test_portfolio_v1_compatibility(self, tmp_path):
         """Portfolio v1 remains strictly valid under pizm-portfolio-selection-v1."""
         run_id = "portfolio-v1-compat"
-        p_v1 = portfolio_v2_payload(competition_status="TWO_DEFENSIBLE_BUNDLES")
+        res1 = freeze_stage(tmp_path, "explore", run_id, pass1_candidates_payload())
+        sha1 = res1.stdout.split()[1]
+        res_sf = freeze_stage(tmp_path, "search-field", run_id, search_field_payload(sha1))
+        sha_sf = res_sf.stdout.split()[1]
+
+        p_v1 = portfolio_v2_payload(competition_status="TWO_DEFENSIBLE_BUNDLES", field_hash=sha_sf, field_ref="search-field.json")
         p_v1["schema_version"] = "pizm-portfolio-selection-v1"
-        del p_v1["competition_status"]
+        if "competition_status" in p_v1:
+            del p_v1["competition_status"]
+        if "perspectives" in p_v1:
+            del p_v1["perspectives"]
         del p_v1["recommended_competition"]
+        del p_v1["field_ref"]
         res = freeze_stage(tmp_path, "portfolio", run_id, p_v1)
         assert res.returncode == 0
         assert "FREEZE_OK" in res.stdout
@@ -479,14 +505,22 @@ class TestForgeDeepAndCompare:
         dev_b1 = development_v2_payload("B1", ["pass01:c01", "pass01:c02"])
         res_d1 = freeze_stage(tmp_path, "development-v2", run_id, dev_b1, target="B1")
         assert res_d1.returncode == 0, res_d1.stderr
+        sha_b1 = res_d1.stdout.split()[1]
 
         # Freeze B2 development
         dev_b2 = development_v2_payload("B2", ["pass01:c02", "pass02:c01"])
         res_d2 = freeze_stage(tmp_path, "development-v2", run_id, dev_b2, target="B2")
         assert res_d2.returncode == 0, res_d2.stderr
+        sha_b2 = res_d2.stdout.split()[1]
 
         # Freeze Comparison Review
-        comp = comparison_review_payload(preference="B1")
+        comp = comparison_review_payload(
+            preference="B1",
+            b1_ref="development-v2-B1.json",
+            b1_hash=sha_b1,
+            b2_ref="development-v2-B2.json",
+            b2_hash=sha_b2,
+        )
         res_c = freeze_stage(tmp_path, "comparison-review-v1", run_id, comp)
         assert res_c.returncode == 0, res_c.stderr
         assert "FREEZE_OK" in res_c.stdout
@@ -497,9 +531,14 @@ class TestForgeLeverGates:
         """FG-L1..L3: Action FORGE runs LEVER only after MODEL_READY; UNRESOLVED does not force LEVER."""
         run_id = "forge-lever"
         # Setup B1 & B2 & Compare
-        freeze_stage(tmp_path, "development-v2", run_id, development_v2_payload("B1"), target="B1")
-        freeze_stage(tmp_path, "development-v2", run_id, development_v2_payload("B2"), target="B2")
-        freeze_stage(tmp_path, "comparison-review-v1", run_id, comparison_review_payload("B1"))
+        res_b1 = freeze_stage(tmp_path, "development-v2", run_id, development_v2_payload("B1"), target="B1")
+        res_b2 = freeze_stage(tmp_path, "development-v2", run_id, development_v2_payload("B2"), target="B2")
+        sha_b1 = res_b1.stdout.split()[1]
+        sha_b2 = res_b2.stdout.split()[1]
+        freeze_stage(
+            tmp_path, "comparison-review-v1", run_id,
+            comparison_review_payload("B1", b1_ref="development-v2-B1.json", b1_hash=sha_b1, b2_ref="development-v2-B2.json", b2_hash=sha_b2),
+        )
 
         # Freeze LEVER design and review
         res_ld = freeze_stage(tmp_path, "lever-design", run_id, lever_design_payload())
@@ -521,26 +560,36 @@ class TestForgeRendering:
 
         # 2. Pass 2
         p2 = pass2_candidates_payload()
-        fd_p2 = run_dir / "candidates-pass02.json"
-        fd_p2.write_text(json.dumps(p2, indent=2), encoding="utf-8")
-        import hashlib
-        sha2 = hashlib.sha256(fd_p2.read_bytes()).hexdigest()
-        (run_dir / "candidates-pass02.sha256").write_text(sha2, encoding="utf-8")
+        res_p2 = freeze_stage(tmp_path, "explore", run_id, p2, artifact_suffix="pass02")
+        assert res_p2.returncode == 0, res_p2.stderr
+        sha2 = res_p2.stdout.split()[1]
 
         # 3. Search field
         sf = search_field_payload(sha1, sha2)
-        freeze_stage(tmp_path, "search-field", run_id, sf)
+        res_sf = freeze_stage(tmp_path, "search-field", run_id, sf)
+        assert res_sf.returncode == 0, res_sf.stderr
+        sha_sf = res_sf.stdout.split()[1]
 
         # 4. Portfolio v2
-        pv2 = portfolio_v2_payload("TWO_DEFENSIBLE_BUNDLES", sha1)
-        freeze_stage(tmp_path, "portfolio", run_id, pv2)
+        pv2 = portfolio_v2_payload("TWO_DEFENSIBLE_BUNDLES", field_hash=sha_sf, field_ref="search-field.json")
+        res_port = freeze_stage(tmp_path, "portfolio", run_id, pv2)
+        assert res_port.returncode == 0, res_port.stderr
 
         # 5. Deep B1 & B2
-        freeze_stage(tmp_path, "development-v2", run_id, development_v2_payload("B1", ["pass01:c01", "pass01:c02"]), target="B1")
-        freeze_stage(tmp_path, "development-v2", run_id, development_v2_payload("B2", ["pass01:c02", "pass02:c01"]), target="B2")
+        res_b1 = freeze_stage(tmp_path, "development-v2", run_id, development_v2_payload("B1", ["pass01:c01", "pass01:c02"]), target="B1")
+        assert res_b1.returncode == 0, res_b1.stderr
+        sha_b1 = res_b1.stdout.split()[1]
+
+        res_b2 = freeze_stage(tmp_path, "development-v2", run_id, development_v2_payload("B2", ["pass01:c02", "pass02:c01"]), target="B2")
+        assert res_b2.returncode == 0, res_b2.stderr
+        sha_b2 = res_b2.stdout.split()[1]
 
         # 6. Comparison Review
-        freeze_stage(tmp_path, "comparison-review-v1", run_id, comparison_review_payload("B1"))
+        res_comp = freeze_stage(
+            tmp_path, "comparison-review-v1", run_id,
+            comparison_review_payload("B1", b1_ref="development-v2-B1.json", b1_hash=sha_b1, b2_ref="development-v2-B2.json", b2_hash=sha_b2),
+        )
+        assert res_comp.returncode == 0, res_comp.stderr
 
         # 7. Lever Design & Review
         freeze_stage(tmp_path, "lever-design", run_id, lever_design_payload())
@@ -593,18 +642,34 @@ class TestForgeRendering:
         res_p1 = freeze_stage(tmp_path, "explore", run_id, p1)
         sha1 = res_p1.stdout.split()[1]
 
+        # Pass 2
+        p2 = pass2_candidates_payload()
+        res_p2 = freeze_stage(tmp_path, "explore", run_id, p2, artifact_suffix="pass02")
+        assert res_p2.returncode == 0, res_p2.stderr
+        sha2 = res_p2.stdout.split()[1]
+
+        # Search field
+        sf = search_field_payload(sha1, sha2)
+        res_sf = freeze_stage(tmp_path, "search-field", run_id, sf)
+        assert res_sf.returncode == 0, res_sf.stderr
+        sha_sf = res_sf.stdout.split()[1]
+
         # Portfolio v2 with NO_SECOND_DEFENSIBLE_BUNDLE
-        pv2 = portfolio_v2_payload("NO_SECOND_DEFENSIBLE_BUNDLE", sha1)
-        freeze_stage(tmp_path, "portfolio", run_id, pv2)
+        pv2 = portfolio_v2_payload("NO_SECOND_DEFENSIBLE_BUNDLE", field_hash=sha_sf, field_ref="search-field.json")
+        res_port = freeze_stage(tmp_path, "portfolio", run_id, pv2)
+        assert res_port.returncode == 0, res_port.stderr
 
         # Deep B1
-        freeze_stage(tmp_path, "development-v2", run_id, development_v2_payload("B1", ["pass01:c01", "pass01:c02"]), target="B1")
+        res_b1 = freeze_stage(tmp_path, "development-v2", run_id, development_v2_payload("B1", ["pass01:c01", "pass01:c02"]), target="B1")
+        assert res_b1.returncode == 0, res_b1.stderr
+        sha_b1 = res_b1.stdout.split()[1]
 
         # Single-model Critic review
         single_rev = {
             "schema_version": "pizm-deep-review-v2",
             "stage": "deep-review-v2",
-            "frozen_hash": "dummyhash",
+            "target_ref": "development-v2-B1.json",
+            "frozen_hash": sha_b1,
             "target_type": "B",
             "target_id": "B1",
             "terminal_state": "MODEL_READY",
@@ -627,7 +692,8 @@ class TestForgeRendering:
             "cheapest_discriminating_test": "Queue probe",
             "verdict_rationale": "MODEL_READY verdict for single B1.",
         }
-        freeze_stage(tmp_path, "deep-review-v2", run_id, single_rev)
+        res_rev = freeze_stage(tmp_path, "deep-review-v2", run_id, single_rev)
+        assert res_rev.returncode == 0, res_rev.stderr
 
         # Render run.md in degraded mode
         out = tmp_path / "degraded_run.md"

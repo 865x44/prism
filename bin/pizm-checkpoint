@@ -96,20 +96,8 @@ def _die(msg: str, code: int = 1) -> int:
     return code
 
 
-def _cleanup_stage(run_dir: Path, stage: str) -> None:
+def _cleanup_stage(run_dir: Path, prefix: str) -> None:
     """Remove all stage-scoped outputs on any post-write failure."""
-    if stage == "explore":
-        prefix = "candidates"
-    elif stage == "deep":
-        prefix = "development"
-    elif stage == "lever-design":
-        prefix = "design"
-    elif stage == "lever-review":
-        prefix = "review"
-    elif stage in ("comparison-review-v1", "comparison"):
-        prefix = "comparison-review-v1"
-    else:
-        prefix = stage
     for suffix in (".json", ".sha256", ".meta.json"):
         p = run_dir / (prefix + suffix)
         try:
@@ -380,7 +368,12 @@ def _validate_development_v2(data: dict, raw_bytes_len: int = 0) -> None:
             )
 
 
-def _validate_deep_review_v2(data: dict, raw_bytes_len: int = 0) -> None:
+def _validate_deep_review_v2(
+    data: dict,
+    raw_bytes_len: int = 0,
+    project_root: Path | None = None,
+    run_dir: Path | None = None,
+) -> None:
     """Independent critic record over a frozen development-v2 artifact."""
     if not isinstance(data, dict):
         raise ValueError("root must be a JSON object")
@@ -399,6 +392,36 @@ def _validate_deep_review_v2(data: dict, raw_bytes_len: int = 0) -> None:
     if not isinstance(frozen_hash, str) or not frozen_hash.strip():
         raise ValueError("frozen_hash must be non-empty string")
 
+    target_type = data.get("target_type")
+    if target_type not in ("P", "B"):
+        raise ValueError(f"target_type must be P or B, got {target_type!r}")
+    target_id = data.get("target_id")
+    if not isinstance(target_id, str) or not target_id.strip():
+        raise ValueError("target_id must be non-empty string")
+    if target_type == "P":
+        if not (_P_ID_RE.fullmatch(target_id) or target_id == "DIRECT_SEED"):
+            raise ValueError(
+                f"target_id {target_id!r} must match P[1-9][0-9]* or be 'DIRECT_SEED' "
+                "for target_type P"
+            )
+    elif not _B_ID_RE.fullmatch(target_id):
+        raise ValueError(
+            f"target_id {target_id!r} must match B[1-9][0-9]* for target_type B"
+        )
+
+    if project_root is not None:
+        target_ref = data.get("target_ref") or data.get("development_ref")
+        if not target_ref:
+            if target_type == "B" and run_dir is not None and (run_dir / f"development-v2-{target_id}.json").exists():
+                target_ref = f"development-v2-{target_id}.json"
+            else:
+                target_ref = "development-v2.json"
+        target_path = _resolve_pizm_artifact(target_ref, project_root, run_dir)
+        _verify_artifact_and_sidecar(
+            target_path,
+            expected_hash=frozen_hash,
+            field_name="target_ref" if (data.get("target_ref") or data.get("development_ref")) else "frozen_hash",
+        )
     target_type = data.get("target_type")
     if target_type not in ("P", "B"):
         raise ValueError(f"target_type must be P or B, got {target_type!r}")
@@ -528,7 +551,12 @@ def _validate_deep_review_v2(data: dict, raw_bytes_len: int = 0) -> None:
         )
 
 
-def _validate_comparison_review(data: dict, raw_bytes_len: int = 0) -> None:
+def _validate_comparison_review(
+    data: dict,
+    raw_bytes_len: int = 0,
+    project_root: Path | None = None,
+    run_dir: Path | None = None,
+) -> None:
     """Validate pizm-comparison-review-v1 artifact."""
     if not isinstance(data, dict):
         raise ValueError("root must be a JSON object")
@@ -583,6 +611,34 @@ def _validate_comparison_review(data: dict, raw_bytes_len: int = 0) -> None:
         if not isinstance(countermodel, str) or not countermodel.strip():
             raise ValueError(f"{b_key}.independent_countermodel must be non-empty string")
 
+        dev_ref = review.get("development_ref") or review.get("artifact_ref") or review.get("ref") or review.get("target_ref")
+        dev_hash = review.get("frozen_hash") or review.get("development_hash") or review.get("hash")
+        if not dev_ref:
+            raise ValueError(f"{b_key} must declare development artifact reference (development_ref)")
+        if not dev_hash:
+            raise ValueError(f"{b_key} must declare development artifact hash (frozen_hash)")
+
+        if project_root is not None:
+            dev_path = _resolve_pizm_artifact(dev_ref, project_root, run_dir)
+            raw_dev, _ = _verify_artifact_and_sidecar(
+                dev_path,
+                expected_hash=dev_hash,
+                field_name=f"{b_key}.development_ref",
+            )
+            try:
+                dev_data = json.loads(raw_dev)
+            except json.JSONDecodeError:
+                raise ValueError(f"{b_key} development artifact is not valid JSON")
+            actual_target = (
+                dev_data.get("target", {}).get("target_id")
+                if isinstance(dev_data.get("target"), dict)
+                else dev_data.get("target_id")
+            )
+            if actual_target != expected_target:
+                raise ValueError(
+                    f"{b_key}.development_ref target mismatch: expected {expected_target}, got {actual_target!r}"
+                )
+
     # Validate comparison block
     comp = data.get("comparison")
     if not isinstance(comp, dict):
@@ -631,7 +687,6 @@ def _validate_comparison_review(data: dict, raw_bytes_len: int = 0) -> None:
             raise ValueError(
                 "preference B2 is forbidden while B2 review terminal_state is RETURN_TO_EXPLORE"
             )
-
 def _validate_lever_design(data: dict, raw_bytes_len: int = 0) -> None:
     if not isinstance(data, dict):
         raise ValueError("root must be a JSON object")
@@ -756,17 +811,23 @@ def _assign_bundle_ids(previous_bundles, proposed_bundles):
     return assigned
 
 
-def _validate_search_field(data: dict, raw_bytes_len: int = 0) -> None:
+def _validate_search_field(
+    data: dict,
+    raw_bytes_len: int = 0,
+    project_root: Path | None = None,
+    run_dir: Path | None = None,
+) -> None:
     if not isinstance(data, dict):
         raise ValueError("root must be a JSON object")
-    if data.get("schema_version") != _SCHEMA_VERSIONS["search-field"]:
-        raise ValueError(f"schema_version must be {_SCHEMA_VERSIONS['search-field']!r}")
+    schema_version = data.get("schema_version")
+    if schema_version != "pizm-search-field-v1":
+        raise ValueError(f"schema_version must be 'pizm-search-field-v1', got {schema_version!r}")
     if data.get("stage") != "search-field":
         raise ValueError("stage field must be 'search-field'")
 
     if raw_bytes_len > _SEARCH_FIELD_MAX_TOTAL_BYTES:
         raise ValueError(
-            f"PAYLOAD_TOO_LARGE: search-field manifest size {raw_bytes_len} bytes "
+            f"PAYLOAD_TOO_LARGE: search-field artifact size {raw_bytes_len} bytes "
             f"exceeds maximum {_SEARCH_FIELD_MAX_TOTAL_BYTES} bytes (32 KiB)"
         )
 
@@ -775,6 +836,7 @@ def _validate_search_field(data: dict, raw_bytes_len: int = 0) -> None:
         raise ValueError("passes must be a non-empty list")
 
     known_passes = set()
+    last_pass_num = -1
     for i, p in enumerate(passes):
         if not isinstance(p, dict):
             raise ValueError(f"passes[{i}] must be an object")
@@ -784,12 +846,25 @@ def _validate_search_field(data: dict, raw_bytes_len: int = 0) -> None:
         if pass_id in known_passes:
             raise ValueError(f"duplicate pass_id: {pass_id!r}")
         known_passes.add(pass_id)
+        pass_num = int(pass_id[4:])
+        if pass_num <= last_pass_num:
+            raise ValueError(f"passes must be strictly ascending: {pass_id} <= previous pass")
+        last_pass_num = pass_num
+
         candidates_ref = p.get("candidates_ref")
         if not isinstance(candidates_ref, str) or not candidates_ref.strip():
             raise ValueError(f"passes[{i}].candidates_ref must be non-empty string")
         frozen_hash = p.get("frozen_hash")
         if not isinstance(frozen_hash, str) or not frozen_hash.strip():
             raise ValueError(f"passes[{i}].frozen_hash must be non-empty string")
+
+        if project_root is not None:
+            cand_path = _resolve_pizm_artifact(candidates_ref, project_root, run_dir)
+            _verify_artifact_and_sidecar(
+                cand_path,
+                expected_hash=frozen_hash,
+                field_name=f"passes[{i}].candidates_ref",
+            )
 
     entries = data.get("entries")
     if not isinstance(entries, list) or len(entries) == 0:
@@ -809,7 +884,6 @@ def _validate_search_field(data: dict, raw_bytes_len: int = 0) -> None:
         if pass_id not in known_passes:
             raise ValueError(f"entries[{i}] references unregistered pass {pass_id!r}")
         pass_n = int(pass_id[4:])
-        # Append-only manifest: a later entry may never belong to an earlier pass.
         if pass_n < last_pass_n:
             raise ValueError(
                 f"entries[{i}] violates append-only ordering "
@@ -817,13 +891,51 @@ def _validate_search_field(data: dict, raw_bytes_len: int = 0) -> None:
             )
         last_pass_n = pass_n
 
+    prior_ref = data.get("prior_ref")
+    prior_hash = data.get("prior_hash")
+    if prior_ref is not None or prior_hash is not None:
+        if not isinstance(prior_ref, str) or not prior_ref.strip():
+            raise ValueError("prior_ref must be non-empty string when present")
+        if not isinstance(prior_hash, str) or not prior_hash.strip():
+            raise ValueError("prior_hash must be non-empty string when prior_ref is present")
+        if project_root is not None:
+            prior_path = _resolve_pizm_artifact(prior_ref, project_root, run_dir)
+            raw_prior, _ = _verify_artifact_and_sidecar(
+                prior_path,
+                expected_hash=prior_hash,
+                field_name="prior_ref",
+            )
+            try:
+                prior_data = json.loads(raw_prior)
+            except json.JSONDecodeError:
+                raise ValueError("prior artifact is not valid JSON")
 
-def _validate_portfolio(data: dict, raw_bytes_len: int = 0) -> None:
+            prior_passes = prior_data.get("passes", [])
+            if len(passes) != len(prior_passes) + 1:
+                raise ValueError(
+                    f"new snapshot must add exactly one pass (prior had {len(prior_passes)}, got {len(passes)})"
+                )
+            for j, pp in enumerate(prior_passes):
+                if passes[j] != pp:
+                    raise ValueError(f"pass {pp.get('pass_id')} mutated from prior snapshot")
+            prior_entries = prior_data.get("entries", [])
+            if len(entries) < len(prior_entries) or entries[:len(prior_entries)] != prior_entries:
+                raise ValueError("new snapshot mutated, reordered, or removed prior entries")
+
+
+def _validate_portfolio(
+    data: dict,
+    raw_bytes_len: int = 0,
+    project_root: Path | None = None,
+    run_dir: Path | None = None,
+) -> None:
     if not isinstance(data, dict):
         raise ValueError("root must be a JSON object")
     schema_version = data.get("schema_version")
     if schema_version not in ("pizm-portfolio-selection-v1", "pizm-portfolio-selection-v2"):
-        raise ValueError(f"schema_version must be 'pizm-portfolio-selection-v1' or 'pizm-portfolio-selection-v2', got {schema_version!r}")
+        raise ValueError(
+            f"schema_version must be 'pizm-portfolio-selection-v1' or 'pizm-portfolio-selection-v2', got {schema_version!r}"
+        )
     if data.get("stage") != "portfolio":
         raise ValueError("stage field must be 'portfolio'")
 
@@ -840,6 +952,37 @@ def _validate_portfolio(data: dict, raw_bytes_len: int = 0) -> None:
     field_hash = data.get("field_hash")
     if not isinstance(field_hash, str) or not field_hash.strip():
         raise ValueError("field_hash must be non-empty string")
+
+    # Resolve and verify search-field reference
+    if schema_version == "pizm-portfolio-selection-v2":
+        field_ref = data.get("field_ref")
+        if not isinstance(field_ref, str) or not field_ref.strip():
+            raise ValueError("pizm-portfolio-selection-v2 requires field_ref")
+        if project_root is not None:
+            field_path = _resolve_pizm_artifact(field_ref, project_root, run_dir)
+            _verify_artifact_and_sidecar(
+                field_path,
+                expected_hash=field_hash,
+                field_name="field_ref",
+            )
+    else:
+        # v1 compatibility
+        field_ref = data.get("field_ref")
+        if field_ref and project_root is not None:
+            field_path = _resolve_pizm_artifact(field_ref, project_root, run_dir)
+            _verify_artifact_and_sidecar(
+                field_path,
+                expected_hash=field_hash,
+                field_name="field_ref",
+            )
+        elif run_dir is not None:
+            legacy_field = run_dir / "search-field.json"
+            if legacy_field.is_file():
+                _verify_artifact_and_sidecar(
+                    legacy_field,
+                    expected_hash=field_hash,
+                    field_name="search-field.json",
+                )
 
     assessments = data.get("candidate_assessments")
     if not isinstance(assessments, list) or len(assessments) == 0:
@@ -974,7 +1117,7 @@ def _validate_portfolio(data: dict, raw_bytes_len: int = 0) -> None:
                 "and user-visible ids are never renumbered"
             )
 
-    # v2 validation: strict superset with competition_status and recommended_competition
+    # v2 validation
     if schema_version == "pizm-portfolio-selection-v2":
         comp_status = data.get("competition_status")
         if comp_status not in _COMPETITION_STATUSES:
@@ -1013,9 +1156,129 @@ def _validate_portfolio(data: dict, raw_bytes_len: int = 0) -> None:
                 if not isinstance(dq, str):
                     raise ValueError("recommended_competition.discriminating_question must be a string")
 
+        perspectives = data.get("perspectives")
+        if not isinstance(perspectives, dict) or len(perspectives) == 0:
+            raise ValueError("v2 portfolio must have a non-empty perspectives mapping")
+
+        seen_p_ids = set()
+        seen_c_refs = set()
+        last_p_num = 0
+        for p_id, c_ref in perspectives.items():
+            if not _P_ID_RE.fullmatch(p_id):
+                raise ValueError(f"invalid perspective id format: {p_id!r}")
+            p_n = int(p_id[1:])
+            if p_n <= last_p_num:
+                raise ValueError(f"P IDs must be strictly increasing: {p_id} <= previous")
+            last_p_num = p_n
+            if not _COMPOSITE_REF_RE.fullmatch(c_ref):
+                raise ValueError(f"invalid candidate ref in perspectives: {c_ref!r}")
+            if p_id in seen_p_ids:
+                raise ValueError(f"duplicate perspective id: {p_id!r}")
+            if c_ref in seen_c_refs:
+                raise ValueError(f"duplicate candidate ref mapped: {c_ref!r}")
+            if c_ref not in seen_refs:
+                raise ValueError(f"perspective candidate_ref {c_ref!r} not found in assessments")
+            seen_p_ids.add(p_id)
+            seen_c_refs.add(c_ref)
+
+        prior_ref = data.get("prior_ref")
+        prior_hash = data.get("prior_hash")
+        if prior_ref is not None or prior_hash is not None:
+            if not isinstance(prior_ref, str) or not prior_ref.strip():
+                raise ValueError("prior_ref must be non-empty string when present")
+            if not isinstance(prior_hash, str) or not prior_hash.strip():
+                raise ValueError("prior_hash must be non-empty string when prior_ref is present")
+            if project_root is not None:
+                prior_path = _resolve_pizm_artifact(prior_ref, project_root, run_dir)
+                raw_prior, _ = _verify_artifact_and_sidecar(
+                    prior_path,
+                    expected_hash=prior_hash,
+                    field_name="prior_ref",
+                )
+                try:
+                    prior_data = json.loads(raw_prior)
+                except json.JSONDecodeError:
+                    raise ValueError("prior artifact is not valid JSON")
+
+                prior_perspectives = prior_data.get("perspectives", {})
+                for old_p, old_c in prior_perspectives.items():
+                    if perspectives.get(old_p) != old_c:
+                        raise ValueError(f"mutated prior perspective mapping: {old_p}")
+
+                prior_highest = max([int(pid[1:]) for pid in prior_perspectives] + [0])
+                for p_id in perspectives:
+                    if p_id not in prior_perspectives:
+                        p_n = int(p_id[1:])
+                        if p_n <= prior_highest:
+                            raise ValueError(
+                                f"newly assigned perspective {p_id} violates monotonic ID constraint (<= {prior_highest})"
+                            )
 def _sha256_hex(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
+
+def _resolve_pizm_artifact(ref: str, project_root: Path, run_dir: Path | None = None) -> Path:
+    """Resolve an artifact reference relative to <project-root>/.ai/pizm/ or run_dir for bare names.
+
+    Rejects:
+    - empty / whitespace-only / non-string
+    - absolute paths
+    - path traversal (..)
+    - paths escaping <project-root>/.ai/pizm/ (using Path.is_relative_to)
+    """
+    if not isinstance(ref, str) or not ref.strip():
+        raise ValueError(f"invalid artifact reference {ref!r}: must be non-empty string")
+    p_ref = Path(ref.strip())
+    if p_ref.is_absolute():
+        raise ValueError(f"invalid artifact reference {ref!r}: absolute paths are forbidden")
+    if ".." in p_ref.parts:
+        raise ValueError(f"invalid artifact reference {ref!r}: path traversal is forbidden")
+
+    pizm_root = (project_root / ".ai" / "pizm").resolve()
+
+    if run_dir is not None and len(p_ref.parts) == 1:
+        resolved = (run_dir / p_ref).resolve()
+    else:
+        resolved = (pizm_root / p_ref).resolve()
+
+    try:
+        if not resolved.is_relative_to(pizm_root) or resolved == pizm_root:
+            raise ValueError(f"invalid artifact reference {ref!r}: path outside .ai/pizm root")
+    except ValueError:
+        raise ValueError(f"invalid artifact reference {ref!r}: path outside .ai/pizm root")
+
+    return resolved
+
+
+def _verify_artifact_and_sidecar(
+    resolved_json: Path,
+    expected_hash: str | None = None,
+    field_name: str = "artifact",
+) -> tuple[bytes, str]:
+    """Verify resolved JSON artifact and its exact .sha256 sidecar bytes.
+
+    Returns (raw_bytes, actual_hash).
+    Diagnostics name field_name without leaking unrelated absolute paths.
+    """
+    if not resolved_json.is_file():
+        raise ValueError(f"{field_name} references missing file: {resolved_json.name}")
+
+    sha_path = resolved_json.with_suffix(".sha256")
+    if not sha_path.is_file():
+        raise ValueError(f"{field_name} references missing sidecar: {sha_path.name}")
+
+    raw_bytes = resolved_json.read_bytes()
+    actual_hash = _sha256_hex(raw_bytes)
+
+    sidecar_text = sha_path.read_text(encoding="utf-8").strip()
+    if sidecar_text != actual_hash:
+        raise ValueError(f"{field_name} sidecar hash mismatch: expected {actual_hash}, got {sidecar_text}")
+
+    if expected_hash is not None:
+        if actual_hash != expected_hash:
+            raise ValueError(f"{field_name} hash mismatch: expected {expected_hash}, got {actual_hash}")
+
+    return raw_bytes, actual_hash
 
 def _durable_exclusive_write(target: Path, data: bytes) -> None:
     """Write data to target with durable exclusive creation.
@@ -1080,6 +1343,7 @@ def freeze(
     stage: str, run_id: str, input_path: str,
     project_root: Path, skill_root: Path,
     target: str = None,
+    artifact_suffix: str = None,
 ) -> int:
     # Validate run-id early
     try:
@@ -1099,6 +1363,7 @@ def freeze(
     except (json.JSONDecodeError, ValueError):
         return _die("input is not valid JSON")
 
+    run_dir = project_root / ".ai" / "pizm" / f"run-{run_id}"
     # Validate schema
     try:
         if stage == "explore":
@@ -1108,17 +1373,17 @@ def freeze(
         elif stage == "development-v2":
             _validate_development_v2(data, len(raw))
         elif stage == "deep-review-v2":
-            _validate_deep_review_v2(data, len(raw))
+            _validate_deep_review_v2(data, len(raw), project_root, run_dir)
         elif stage == "lever-design":
             _validate_lever_design(data, len(raw))
         elif stage == "lever-review":
             _validate_lever_review(data, len(raw))
         elif stage == "search-field":
-            _validate_search_field(data, len(raw))
+            _validate_search_field(data, len(raw), project_root, run_dir)
         elif stage == "portfolio":
-            _validate_portfolio(data, len(raw))
+            _validate_portfolio(data, len(raw), project_root, run_dir)
         elif stage in ("comparison-review-v1", "comparison"):
-            _validate_comparison_review(data, len(raw))
+            _validate_comparison_review(data, len(raw), project_root, run_dir)
         else:
             return _die(f"unknown stage: {stage!r}")
     except ValueError as e:
@@ -1130,48 +1395,6 @@ def freeze(
     # Create run directory
     run_dir = project_root / ".ai" / "pizm" / f"run-{run_id}"
     run_dir.mkdir(parents=True, exist_ok=True)
-
-    # Seam enforcement for comparison review: both B1 and B2 development artifacts must exist
-    if stage in ("comparison-review-v1", "comparison"):
-        b1_found = False
-        b2_found = False
-        # Check for B1 development
-        for cand_name in ("development-v2-B1.json", "development.json", "development-v2.json"):
-            for cand_path in (run_dir / cand_name, run_dir / "deep-B1" / cand_name):
-                if cand_path.is_file():
-                    sha_p = cand_path.with_suffix(".sha256")
-                    if sha_p.is_file() and _sha256_hex(cand_path.read_bytes()) == sha_p.read_text(encoding="utf-8").strip():
-                        try:
-                            d = json.loads(cand_path.read_bytes())
-                            if d.get("target", {}).get("target_id") == "B1" or "B1" in cand_path.name or "deep-B1" in str(cand_path):
-                                b1_found = True
-                                break
-                        except Exception:
-                            pass
-            if b1_found:
-                break
-
-        # Check for B2 development
-        for cand_name in ("development-v2-B2.json", "development.json"):
-            for cand_path in (run_dir / cand_name, run_dir / "deep-B2" / cand_name):
-                if cand_path.is_file():
-                    sha_p = cand_path.with_suffix(".sha256")
-                    if sha_p.is_file() and _sha256_hex(cand_path.read_bytes()) == sha_p.read_text(encoding="utf-8").strip():
-                        try:
-                            d = json.loads(cand_path.read_bytes())
-                            if d.get("target", {}).get("target_id") == "B2" or "B2" in cand_path.name or "deep-B2" in str(cand_path):
-                                b2_found = True
-                                break
-                        except Exception:
-                            pass
-            if b2_found:
-                break
-
-        if not (b1_found and b2_found):
-            return _die(
-                "seam check failed: both B1 and B2 development artifacts must be frozen "
-                "with valid sha256 sidecars before comparison review"
-            )
 
     # Determine stage-scoped file names
     if stage == "explore":
@@ -1205,6 +1428,13 @@ def freeze(
     else:
         prefix = stage
 
+    if artifact_suffix:
+        if stage not in ("explore", "search-field"):
+            return _die("artifact-suffix is only supported for explore and search-field stages")
+        if not _PASS_ID_RE.fullmatch(artifact_suffix):
+            return _die(f"invalid artifact-suffix format: {artifact_suffix}")
+        prefix += f"-{artifact_suffix}"
+
     artifact_name = prefix + ".json"
     sha_name = prefix + ".sha256"
     meta_name = prefix + ".meta.json"
@@ -1232,10 +1462,10 @@ def freeze(
     try:
         _durable_exclusive_write(sha_path, computed_hash.encode("utf-8"))
     except FileExistsError:
-        _cleanup_stage(run_dir, stage)
+        _cleanup_stage(run_dir, prefix)
         return _die("frozen sha256 already exists, refusing overwrite")
     except OSError as e:
-        _cleanup_stage(run_dir, stage)
+        _cleanup_stage(run_dir, prefix)
         return _die(f"failed to write sha256: {e}")
 
     # Write stage-scoped metadata
@@ -1251,20 +1481,20 @@ def freeze(
             meta_path, json.dumps(meta, indent=2).encode("utf-8")
         )
     except FileExistsError:
-        _cleanup_stage(run_dir, stage)
+        _cleanup_stage(run_dir, prefix)
         return _die("frozen metadata already exists, refusing overwrite")
     except OSError as e:
-        _cleanup_stage(run_dir, stage)
+        _cleanup_stage(run_dir, prefix)
         return _die(f"failed to write metadata: {e}")
     # Read back and verify hash
     try:
         readback = artifact_path.read_bytes()
     except OSError as e:
-        _cleanup_stage(run_dir, stage)
+        _cleanup_stage(run_dir, prefix)
         return _die(f"failed to read back artifact: {e}")
 
     if _sha256_hex(readback) != computed_hash:
-        _cleanup_stage(run_dir, stage)
+        _cleanup_stage(run_dir, prefix)
         return _die("hash mismatch after write")
 
     # Read contract AFTER hash-confirmed freeze.
@@ -1278,14 +1508,14 @@ def freeze(
         contract_rel = _CONTRACT_MAP.get(stage)
         contract_path = skill_root / contract_rel
         if not contract_path.is_file():
-            _cleanup_stage(run_dir, stage)
+            _cleanup_stage(run_dir, prefix)
             return _die("cannot find next-stage contract")
         contract_text = contract_rel
     else:
         try:
             contract_text = _read_contract(skill_root, stage)
         except OSError:
-            _cleanup_stage(run_dir, stage)
+            _cleanup_stage(run_dir, prefix)
             return _die("cannot read next-stage contract")
 
     # All verified — emit success output
@@ -1315,6 +1545,7 @@ def main() -> int:
         ],
     )
     fp.add_argument("--target", default=None, help="Target ID (e.g. B1, B2) for target-scoped artifacts")
+    fp.add_argument("--artifact-suffix", default=None, help="Optional suffix for Search artifacts (passNN)")
     fp.add_argument("--run-id", required=True)
     fp.add_argument("--input", required=True, dest="input_path")
     fp.add_argument("--project-root", default=".")
@@ -1333,6 +1564,7 @@ def main() -> int:
             project_root=Path(args.project_root).resolve(),
             skill_root=Path(args.skill_root).resolve(),
             target=args.target,
+            artifact_suffix=args.artifact_suffix,
         )
 
 

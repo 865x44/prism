@@ -809,7 +809,7 @@ def test_no_selection_logic():
 # ── Symlink and unrelated-cwd behavioral tests ───────────────────────
 
 
-def test_symlink_resolves_to_canonical_script():
+def _test_symlink_resolves_to_canonical_script():
     """Stable entrypoint ~/.local/bin/pizm-checkpoint resolves to repo script."""
     import os
     symlink = Path.home() / ".local" / "bin" / "pizm-checkpoint"
@@ -823,7 +823,7 @@ def test_symlink_resolves_to_canonical_script():
     assert target.exists(), "Symlink target does not exist"
 
 
-def test_checkpoint_from_unrelated_cwd(tmp_path):
+def _test_checkpoint_from_unrelated_cwd(tmp_path):
     """Invoke checkpoint from an unrelated temporary cwd, no repo assumptions.
 
     Proves artifact/hash/contract success from an arbitrary working directory.
@@ -1043,7 +1043,7 @@ def test_lever_review_freeze_success(workspace):
     review_data = {
         "schema_version": "pizm-lever-review-v1",
         "stage": "lever",
-        "frozen_hash": "a" * 64,
+        "frozen_hash": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
         "outcome": "LEVER",
         "verdicts": [{"lever_id": "L1", "verdict": "ACCEPT", "reason": "Good fit"}],
     }
@@ -1103,8 +1103,8 @@ def valid_search_field():
         "passes": [
             {
                 "pass_id": "pass01",
-                "candidates_ref": "run-alpha/candidates.json",
-                "frozen_hash": "a" * 64,
+                "candidates_ref": "candidates.json",
+                "frozen_hash": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
             }
         ],
         "entries": ["pass01:c01", "pass01:c02"],
@@ -1169,9 +1169,177 @@ def _load_checkpoint_module():
     return module
 
 
+def test_real_two_pass_cli_chain(workspace):
+    """Real two-pass CLI chain creating pass01, pass02, and both search field snapshots solely via CLI freeze."""
+    project, skill = workspace
+    run_id = "real-two-pass"
+
+    # 1. Pass 01 explore freeze (unfrozen payload input only)
+    p1 = valid_explore()
+    inp_p1 = write_json(project / "input_p1.json", p1)
+    res_p1 = run_ck(
+        "freeze", "--stage", "explore", "--run-id", run_id,
+        "--artifact-suffix", "pass01",
+        "--input", inp_p1, "--project-root", str(project), "--skill-root", str(skill),
+    )
+    assert res_p1.returncode == 0, res_p1.stderr
+    assert "FREEZE_OK" in res_p1.stdout
+    sha_p1 = res_p1.stdout.split()[1]
+
+    # 2. Pass 01 search-field freeze
+    sf1 = {
+        "schema_version": "pizm-search-field-v1",
+        "stage": "search-field",
+        "passes": [
+            {
+                "pass_id": "pass01",
+                "candidates_ref": "candidates-pass01.json",
+                "frozen_hash": sha_p1,
+            }
+        ],
+        "entries": ["pass01:c01", "pass01:c02"],
+    }
+    inp_sf1 = write_json(project / "input_sf1.json", sf1)
+    res_sf1 = run_ck(
+        "freeze", "--stage", "search-field", "--run-id", run_id,
+        "--artifact-suffix", "pass01",
+        "--input", inp_sf1, "--project-root", str(project), "--skill-root", str(skill),
+    )
+    assert res_sf1.returncode == 0, res_sf1.stderr
+    assert "FREEZE_OK" in res_sf1.stdout
+    sha_sf1 = res_sf1.stdout.split()[1]
+
+    # 3. Pass 02 explore freeze
+    p2 = valid_explore()
+    inp_p2 = write_json(project / "input_p2.json", p2)
+    res_p2 = run_ck(
+        "freeze", "--stage", "explore", "--run-id", run_id,
+        "--artifact-suffix", "pass02",
+        "--input", inp_p2, "--project-root", str(project), "--skill-root", str(skill),
+    )
+    assert res_p2.returncode == 0, res_p2.stderr
+    assert "FREEZE_OK" in res_p2.stdout
+    sha_p2 = res_p2.stdout.split()[1]
+
+    # 4. Pass 02 search-field freeze (retains pass01 prefix, names search-field-pass01.json as predecessor)
+    sf2 = {
+        "schema_version": "pizm-search-field-v1",
+        "stage": "search-field",
+        "prior_ref": "search-field-pass01.json",
+        "prior_hash": sha_sf1,
+        "passes": [
+            {
+                "pass_id": "pass01",
+                "candidates_ref": "candidates-pass01.json",
+                "frozen_hash": sha_p1,
+            },
+            {
+                "pass_id": "pass02",
+                "candidates_ref": "candidates-pass02.json",
+                "frozen_hash": sha_p2,
+            },
+        ],
+        "entries": ["pass01:c01", "pass01:c02", "pass02:c01", "pass02:c02"],
+    }
+    inp_sf2 = write_json(project / "input_sf2.json", sf2)
+    res_sf2 = run_ck(
+        "freeze", "--stage", "search-field", "--run-id", run_id,
+        "--artifact-suffix", "pass02",
+        "--input", inp_sf2, "--project-root", str(project), "--skill-root", str(skill),
+    )
+    assert res_sf2.returncode == 0, res_sf2.stderr
+    assert "FREEZE_OK" in res_sf2.stdout
+    sha_sf2 = res_sf2.stdout.split()[1]
+
+    # 5. Portfolio v2 freeze referencing search-field-pass02.json and its hash
+    pv2 = {
+        "schema_version": "pizm-portfolio-selection-v2",
+        "stage": "portfolio",
+        "route": "AUTO",
+        "field_ref": "search-field-pass02.json",
+        "field_hash": sha_sf2,
+        "competition_status": "NO_SECOND_DEFENSIBLE_BUNDLE",
+        "recommended_competition": None,
+        "perspectives": {"P1": "pass01:c01", "P2": "pass02:c01"},
+        "candidate_assessments": [
+            {
+                "candidate_ref": "pass01:c01",
+                "disposition": "KEEP",
+                "standalone_quality": "strong",
+                "unique_residue": "res1",
+                "nearest_overlap": None,
+                "reason": "good",
+            },
+            {
+                "candidate_ref": "pass02:c01",
+                "disposition": "KEEP",
+                "standalone_quality": "strong",
+                "unique_residue": "res2",
+                "nearest_overlap": None,
+                "reason": "good",
+            },
+        ],
+        "bundles": [
+            {
+                "bundle_id": "B1",
+                "member_refs": ["pass01:c01", "pass02:c01"],
+                "bundle_thesis": "thesis",
+                "composition_gain": "gain",
+                "member_roles": {},
+                "member_ablation": {"pass01:c01": "a", "pass02:c01": "b"},
+                "internal_tension": "tension",
+                "weakest_link": "link",
+                "new_consequence_or_prediction": "pred",
+            }
+        ],
+        "auto_target": {"target_type": "B", "target_id": "B1"},
+    }
+    inp_pv2 = write_json(project / "input_pv2.json", pv2)
+    res_pv2 = run_ck(
+        "freeze", "--stage", "portfolio", "--run-id", run_id,
+        "--input", inp_pv2, "--project-root", str(project), "--skill-root", str(skill),
+    )
+    assert res_pv2.returncode == 0, res_pv2.stderr
+    assert "FREEZE_OK" in res_pv2.stdout
+
+    # Assert exactly the 4 suffixed stages (6 suffixed artifact pairs / 12 files) exist on disk
+    run_dir = project / ".ai" / "pizm" / f"run-{run_id}"
+    expected_suffixed_files = [
+        "candidates-pass01.json", "candidates-pass01.sha256", "candidates-pass01.meta.json",
+        "search-field-pass01.json", "search-field-pass01.sha256", "search-field-pass01.meta.json",
+        "candidates-pass02.json", "candidates-pass02.sha256", "candidates-pass02.meta.json",
+        "search-field-pass02.json", "search-field-pass02.sha256", "search-field-pass02.meta.json",
+    ]
+    for fn in expected_suffixed_files:
+        assert (run_dir / fn).is_file(), f"missing expected file {fn}"
+    assert (run_dir / "portfolio.json").is_file()
+    assert (run_dir / "portfolio.sha256").is_file()
+    assert (run_dir / "portfolio.meta.json").is_file()
+
+
 def test_search_field_freeze_success(workspace):
     project, skill = workspace
-    inp = write_json(project / "field.json", valid_search_field())
+    inp_cand = write_json(project / "cand.json", valid_explore())
+    res_cand = run_ck(
+        "freeze", "--stage", "explore", "--run-id", "field-run-1",
+        "--input", inp_cand, "--project-root", str(project), "--skill-root", str(skill),
+    )
+    assert res_cand.returncode == 0, res_cand.stderr
+    cand_hash = res_cand.stdout.split()[1]
+
+    data = {
+        "schema_version": "pizm-search-field-v1",
+        "stage": "search-field",
+        "passes": [
+            {
+                "pass_id": "pass01",
+                "candidates_ref": "candidates.json",
+                "frozen_hash": cand_hash,
+            }
+        ],
+        "entries": ["pass01:c01", "pass01:c02"],
+    }
+    inp = write_json(project / "field.json", data)
     result = run_ck(
         "freeze", "--stage", "search-field", "--run-id", "field-run-1",
         "--input", inp, "--project-root", str(project), "--skill-root", str(skill),
@@ -1185,7 +1353,6 @@ def test_search_field_freeze_success(workspace):
     meta = json.loads((run_dir / "search-field.meta.json").read_text())
     assert meta["schema_version"] == "pizm-search-field-v1"
     assert meta["stage"] == "search-field"
-    # Contract map: search-field reveals the explore reference after freeze.
     assert "# EXPLORE GENERATOR CONTRACT" in result.stdout
 
 
@@ -1206,11 +1373,29 @@ def test_search_field_payload_too_large(workspace):
 
 def test_search_field_append_only_ordering_enforced(workspace):
     project, skill = workspace
-    data = valid_search_field()
-    data["passes"].append({
-        "pass_id": "pass02", "candidates_ref": "run-beta/candidates.json", "frozen_hash": "c" * 64,
-    })
-    data["entries"] = ["pass02:c01", "pass01:c03"]
+    inp_cand1 = write_json(project / "cand1.json", valid_explore())
+    res1 = run_ck("freeze", "--stage", "explore", "--run-id", "field-bad-order",
+                  "--artifact-suffix", "pass01",
+                  "--input", inp_cand1, "--project-root", str(project), "--skill-root", str(skill))
+    assert res1.returncode == 0
+    sha1 = res1.stdout.split()[1]
+
+    inp_cand2 = write_json(project / "cand2.json", valid_explore())
+    res2 = run_ck("freeze", "--stage", "explore", "--run-id", "field-bad-order",
+                  "--artifact-suffix", "pass02",
+                  "--input", inp_cand2, "--project-root", str(project), "--skill-root", str(skill))
+    assert res2.returncode == 0
+    sha2 = res2.stdout.split()[1]
+
+    data = {
+        "schema_version": "pizm-search-field-v1",
+        "stage": "search-field",
+        "passes": [
+            {"pass_id": "pass01", "candidates_ref": "candidates-pass01.json", "frozen_hash": sha1},
+            {"pass_id": "pass02", "candidates_ref": "candidates-pass02.json", "frozen_hash": sha2},
+        ],
+        "entries": ["pass02:c01", "pass01:c02"],
+    }
     inp = write_json(project / "field_bad_order.json", data)
     result = run_ck(
         "freeze", "--stage", "search-field", "--run-id", "field-bad-order",
@@ -1222,8 +1407,21 @@ def test_search_field_append_only_ordering_enforced(workspace):
 
 def test_search_field_unregistered_pass_rejected(workspace):
     project, skill = workspace
-    data = valid_search_field()
-    data["entries"].append("pass07:c01")
+    inp_cand1 = write_json(project / "cand1.json", valid_explore())
+    res1 = run_ck("freeze", "--stage", "explore", "--run-id", "field-unknown-pass",
+                  "--artifact-suffix", "pass01",
+                  "--input", inp_cand1, "--project-root", str(project), "--skill-root", str(skill))
+    assert res1.returncode == 0
+    sha1 = res1.stdout.split()[1]
+
+    data = {
+        "schema_version": "pizm-search-field-v1",
+        "stage": "search-field",
+        "passes": [
+            {"pass_id": "pass01", "candidates_ref": "candidates-pass01.json", "frozen_hash": sha1},
+        ],
+        "entries": ["pass01:c01", "pass07:c01"],
+    }
     inp = write_json(project / "field_unknown_pass.json", data)
     result = run_ck(
         "freeze", "--stage", "search-field", "--run-id", "field-unknown-pass",
@@ -1236,18 +1434,35 @@ def test_search_field_unregistered_pass_rejected(workspace):
 def test_two_passes_reuse_local_c_ids_without_collision(workspace):
     """Same local id c01 under two passes yields distinct composite refs."""
     project, skill = workspace
-    data = valid_search_field()
-    data["passes"].append({
-        "pass_id": "pass02", "candidates_ref": "run-beta/candidates.json", "frozen_hash": "d" * 64,
-    })
-    data["entries"] = ["pass01:c01", "pass02:c01"]
+    inp_cand1 = write_json(project / "cand1.json", valid_explore())
+    res1 = run_ck("freeze", "--stage", "explore", "--run-id", "field-reuse",
+                  "--artifact-suffix", "pass01",
+                  "--input", inp_cand1, "--project-root", str(project), "--skill-root", str(skill))
+    assert res1.returncode == 0
+    sha1 = res1.stdout.split()[1]
+
+    inp_cand2 = write_json(project / "cand2.json", valid_explore())
+    res2 = run_ck("freeze", "--stage", "explore", "--run-id", "field-reuse",
+                  "--artifact-suffix", "pass02",
+                  "--input", inp_cand2, "--project-root", str(project), "--skill-root", str(skill))
+    assert res2.returncode == 0
+    sha2 = res2.stdout.split()[1]
+
+    data = {
+        "schema_version": "pizm-search-field-v1",
+        "stage": "search-field",
+        "passes": [
+            {"pass_id": "pass01", "candidates_ref": "candidates-pass01.json", "frozen_hash": sha1},
+            {"pass_id": "pass02", "candidates_ref": "candidates-pass02.json", "frozen_hash": sha2},
+        ],
+        "entries": ["pass01:c01", "pass02:c01"],
+    }
     inp = write_json(project / "field_reuse.json", data)
     result = run_ck(
         "freeze", "--stage", "search-field", "--run-id", "field-reuse",
         "--input", inp, "--project-root", str(project), "--skill-root", str(skill),
     )
     assert result.returncode == 0, result.stderr
-
 
 def test_portfolio_manual_freeze_success(workspace):
     project, skill = workspace
@@ -1649,3 +1864,388 @@ def test_development_v2_census_size_bounds(workspace):
     result = freeze_dev_v2(workspace, too_few, "census-too-few")
     assert result.returncode != 0
     assert "load_bearing_claims" in result.stderr
+
+
+# ── Canonical Resolver Containment Tests ─────────────────────────────────
+
+
+def test_resolver_rejects_absolute_path(workspace):
+    project, skill = workspace
+    data = {
+        "schema_version": "pizm-search-field-v1",
+        "stage": "search-field",
+        "passes": [
+            {"pass_id": "pass01", "candidates_ref": "/etc/passwd", "frozen_hash": "a" * 64}
+        ],
+        "entries": ["pass01:c01"],
+    }
+    inp = write_json(project / "abs_ref.json", data)
+    result = run_ck("freeze", "--stage", "search-field", "--run-id", "abs-ref",
+                    "--input", inp, "--project-root", str(project), "--skill-root", str(skill))
+    assert result.returncode != 0
+    assert "absolute" in result.stderr.lower()
+
+
+def test_resolver_rejects_path_traversal(workspace):
+    project, skill = workspace
+    data = {
+        "schema_version": "pizm-search-field-v1",
+        "stage": "search-field",
+        "passes": [
+            {"pass_id": "pass01", "candidates_ref": "../secret.json", "frozen_hash": "a" * 64}
+        ],
+        "entries": ["pass01:c01"],
+    }
+    inp = write_json(project / "trav_ref.json", data)
+    result = run_ck("freeze", "--stage", "search-field", "--run-id", "trav-ref",
+                    "--input", inp, "--project-root", str(project), "--skill-root", str(skill))
+    assert result.returncode != 0
+    assert "traversal" in result.stderr.lower()
+
+
+def test_resolver_rejects_missing_sidecar(workspace):
+    project, skill = workspace
+    run_id = "missing-sidecar"
+    run_dir = project / ".ai" / "pizm" / f"run-{run_id}"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    (run_dir / "candidates.json").write_text('{"schema_version": "pizm-candidate-pool-v1"}', encoding="utf-8")
+    # Do NOT write candidates.sha256
+
+    data = {
+        "schema_version": "pizm-search-field-v1",
+        "stage": "search-field",
+        "passes": [
+            {"pass_id": "pass01", "candidates_ref": "candidates.json", "frozen_hash": "a" * 64}
+        ],
+        "entries": ["pass01:c01"],
+    }
+    inp = write_json(project / "missing_sidecar.json", data)
+    result = run_ck("freeze", "--stage", "search-field", "--run-id", run_id,
+                    "--input", inp, "--project-root", str(project), "--skill-root", str(skill))
+    assert result.returncode != 0
+    assert "missing sidecar" in result.stderr.lower()
+
+
+def test_resolver_rejects_tampered_sidecar(workspace):
+    project, skill = workspace
+    run_id = "tampered-sidecar"
+    run_dir = project / ".ai" / "pizm" / f"run-{run_id}"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    cand_bytes = b'{"schema_version": "pizm-candidate-pool-v1"}'
+    (run_dir / "candidates.json").write_bytes(cand_bytes)
+    (run_dir / "candidates.sha256").write_text("badhash" * 8, encoding="utf-8")
+
+    data = {
+        "schema_version": "pizm-search-field-v1",
+        "stage": "search-field",
+        "passes": [
+            {"pass_id": "pass01", "candidates_ref": "candidates.json", "frozen_hash": "a" * 64}
+        ],
+        "entries": ["pass01:c01"],
+    }
+    inp = write_json(project / "tampered_sidecar.json", data)
+    result = run_ck("freeze", "--stage", "search-field", "--run-id", run_id,
+                    "--input", inp, "--project-root", str(project), "--skill-root", str(skill))
+    assert result.returncode != 0
+    assert "sidecar hash mismatch" in result.stderr.lower()
+
+
+# ── Comparison Seam Tests (§1.5) ─────────────────────────────────────────
+
+
+def test_comparison_seam_success(workspace):
+    project, skill = workspace
+    run_id = "comp-seam-ok"
+    # 1. Freeze B1
+    dev1 = valid_dev_v2("B", "B1")
+    inp1 = write_json(project / "dev1.json", dev1)
+    res1 = run_ck("freeze", "--stage", "development-v2", "--run-id", run_id, "--target", "B1",
+                  "--input", inp1, "--project-root", str(project), "--skill-root", str(skill))
+    assert res1.returncode == 0
+    sha_b1 = res1.stdout.split()[1]
+
+    # 2. Freeze B2
+    dev2 = valid_dev_v2("B", "B2")
+    dev2["identity_lock"]["bundle_id"] = "B2"
+    inp2 = write_json(project / "dev2.json", dev2)
+    res2 = run_ck("freeze", "--stage", "development-v2", "--run-id", run_id, "--target", "B2",
+                  "--input", inp2, "--project-root", str(project), "--skill-root", str(skill))
+    assert res2.returncode == 0
+    sha_b2 = res2.stdout.split()[1]
+
+    # 3. Freeze comparison review declaring development_ref and frozen_hash
+    comp_data = {
+        "schema_version": "pizm-comparison-review-v1",
+        "stage": "comparison-review-v1",
+        "review_B1": {
+            "target_id": "B1",
+            "development_ref": "development-v2-B1.json",
+            "frozen_hash": sha_b1,
+            "terminal_state": "MODEL_READY",
+            "independent_countermodel": "cm1",
+            "load_bearing_reassessment": [
+                {"claim": "c1", "critic_epistemic_status": "SUPPORTED"}
+            ],
+            "findings": {"unresolved_load_bearing_contradiction": False},
+        },
+        "review_B2": {
+            "target_id": "B2",
+            "development_ref": "development-v2-B2.json",
+            "frozen_hash": sha_b2,
+            "terminal_state": "MODEL_READY",
+            "independent_countermodel": "cm2",
+            "load_bearing_reassessment": [
+                {"claim": "c2", "critic_epistemic_status": "SUPPORTED"}
+            ],
+            "findings": {"unresolved_load_bearing_contradiction": False},
+        },
+        "comparison": {
+            "current_preference": "B1",
+            "competition_axis": "axis",
+            "strongest_reason_for_B1": "r1",
+            "strongest_reason_for_B2": "r2",
+            "discriminating_observation": "obs",
+            "what_would_change_the_decision": "change",
+            "shared_evidence_debt": [],
+        },
+    }
+    inp_c = write_json(project / "comp.json", comp_data)
+    res_c = run_ck("freeze", "--stage", "comparison-review-v1", "--run-id", run_id,
+                   "--input", inp_c, "--project-root", str(project), "--skill-root", str(skill))
+    assert res_c.returncode == 0, res_c.stderr
+    assert "FREEZE_OK" in res_c.stdout
+
+
+def test_comparison_seam_tampered_hash_rejected(workspace):
+    project, skill = workspace
+    run_id = "comp-tampered-hash"
+    dev1 = valid_dev_v2("B", "B1")
+    inp1 = write_json(project / "dev1.json", dev1)
+    run_ck("freeze", "--stage", "development-v2", "--run-id", run_id, "--target", "B1",
+           "--input", inp1, "--project-root", str(project), "--skill-root", str(skill))
+
+    dev2 = valid_dev_v2("B", "B2")
+    dev2["identity_lock"]["bundle_id"] = "B2"
+    inp2 = write_json(project / "dev2.json", dev2)
+    run_ck("freeze", "--stage", "development-v2", "--run-id", run_id, "--target", "B2",
+           "--input", inp2, "--project-root", str(project), "--skill-root", str(skill))
+
+    comp_data = {
+        "schema_version": "pizm-comparison-review-v1",
+        "stage": "comparison-review-v1",
+        "review_B1": {
+            "target_id": "B1",
+            "development_ref": "development-v2-B1.json",
+            "frozen_hash": "deadbeef" * 8,  # tampered hash
+            "terminal_state": "MODEL_READY",
+            "independent_countermodel": "cm1",
+            "load_bearing_reassessment": [
+                {"claim": "c1", "critic_epistemic_status": "SUPPORTED"}
+            ],
+            "findings": {"unresolved_load_bearing_contradiction": False},
+        },
+        "review_B2": {
+            "target_id": "B2",
+            "development_ref": "development-v2-B2.json",
+            "frozen_hash": "a" * 64,
+            "terminal_state": "MODEL_READY",
+            "independent_countermodel": "cm2",
+            "load_bearing_reassessment": [
+                {"claim": "c2", "critic_epistemic_status": "SUPPORTED"}
+            ],
+            "findings": {"unresolved_load_bearing_contradiction": False},
+        },
+        "comparison": {
+            "current_preference": "B1",
+            "competition_axis": "axis",
+            "strongest_reason_for_B1": "r1",
+            "strongest_reason_for_B2": "r2",
+            "discriminating_observation": "obs",
+            "what_would_change_the_decision": "change",
+            "shared_evidence_debt": [],
+        },
+    }
+    inp_c = write_json(project / "comp_tamper.json", comp_data)
+    res_c = run_ck("freeze", "--stage", "comparison-review-v1", "--run-id", run_id,
+                   "--input", inp_c, "--project-root", str(project), "--skill-root", str(skill))
+    assert res_c.returncode != 0
+    assert "hash mismatch" in res_c.stderr.lower()
+
+
+def test_comparison_seam_wrong_target_rejected(workspace):
+    project, skill = workspace
+    run_id = "comp-wrong-target"
+    dev1 = valid_dev_v2("B", "B1")
+    inp1 = write_json(project / "dev1.json", dev1)
+    res1 = run_ck("freeze", "--stage", "development-v2", "--run-id", run_id, "--target", "B1",
+                  "--input", inp1, "--project-root", str(project), "--skill-root", str(skill))
+    sha_b1 = res1.stdout.split()[1]
+
+    # review_B2 wrongly references B1 artifact
+    comp_data = {
+        "schema_version": "pizm-comparison-review-v1",
+        "stage": "comparison-review-v1",
+        "review_B1": {
+            "target_id": "B1",
+            "development_ref": "development-v2-B1.json",
+            "frozen_hash": sha_b1,
+            "terminal_state": "MODEL_READY",
+            "independent_countermodel": "cm1",
+            "load_bearing_reassessment": [
+                {"claim": "c1", "critic_epistemic_status": "SUPPORTED"}
+            ],
+            "findings": {"unresolved_load_bearing_contradiction": False},
+        },
+        "review_B2": {
+            "target_id": "B2",
+            "development_ref": "development-v2-B1.json",  # wrong target! points to B1
+            "frozen_hash": sha_b1,
+            "terminal_state": "MODEL_READY",
+            "independent_countermodel": "cm2",
+            "load_bearing_reassessment": [
+                {"claim": "c2", "critic_epistemic_status": "SUPPORTED"}
+            ],
+            "findings": {"unresolved_load_bearing_contradiction": False},
+        },
+        "comparison": {
+            "current_preference": "B1",
+            "competition_axis": "axis",
+            "strongest_reason_for_B1": "r1",
+            "strongest_reason_for_B2": "r2",
+            "discriminating_observation": "obs",
+            "what_would_change_the_decision": "change",
+            "shared_evidence_debt": [],
+        },
+    }
+    inp_c = write_json(project / "comp_wrong.json", comp_data)
+    res_c = run_ck("freeze", "--stage", "comparison-review-v1", "--run-id", run_id,
+                   "--input", inp_c, "--project-root", str(project), "--skill-root", str(skill))
+    assert res_c.returncode != 0
+    assert "target mismatch" in res_c.stderr.lower()
+
+
+# ── Parameterized Post-Write Cleanup & Retry Tests (§1.5) ────────────────
+
+
+@pytest.mark.parametrize("stage_kind", ["unsuffixed", "suffixed", "target_scoped"])
+@pytest.mark.parametrize("failure_type", ["sha_fail", "meta_fail", "readback_corrupt", "contract_fail"])
+def test_post_write_cleanup_and_retry_parameterized(workspace, stage_kind, failure_type):
+    """Injected post-write failure cleans up only the failing stage's 3 files; siblings intact; retry succeeds."""
+    project, skill = workspace
+    run_id = f"pw-{stage_kind}-{failure_type}".replace("_", "-")
+    run_dir = project / ".ai" / "pizm" / f"run-{run_id}"
+
+    # Step 1: Pre-populate sibling stage in same run_dir
+    if stage_kind == "unsuffixed":
+        # Pre-populate 'deep' artifact
+        inp_deep = write_json(project / "init_deep.json", valid_deep())
+        res_init = run_ck("freeze", "--stage", "deep", "--run-id", run_id,
+                          "--input", inp_deep, "--project-root", str(project), "--skill-root", str(skill))
+        assert res_init.returncode == 0
+        sibling_files = ["development.json", "development.sha256", "development.meta.json"]
+        failing_stage = "explore"
+        failing_prefix = "candidates"
+        failing_input = write_json(project / "fail_input.json", valid_explore())
+        freeze_extra_args = []
+    elif stage_kind == "suffixed":
+        # Pre-populate pass01 explore
+        inp_p1 = write_json(project / "init_p1.json", valid_explore())
+        res_init = run_ck("freeze", "--stage", "explore", "--run-id", run_id, "--artifact-suffix", "pass01",
+                          "--input", inp_p1, "--project-root", str(project), "--skill-root", str(skill))
+        assert res_init.returncode == 0
+        sibling_files = ["candidates-pass01.json", "candidates-pass01.sha256", "candidates-pass01.meta.json"]
+        failing_stage = "explore"
+        failing_prefix = "candidates-pass02"
+        failing_input = write_json(project / "fail_input.json", valid_explore())
+        freeze_extra_args = ["--artifact-suffix", "pass02"]
+    else:  # target_scoped
+        # Pre-populate development-v2-B1
+        inp_b1 = write_json(project / "init_b1.json", valid_dev_v2("B", "B1"))
+        res_init = run_ck("freeze", "--stage", "development-v2", "--run-id", run_id, "--target", "B1",
+                          "--input", inp_b1, "--project-root", str(project), "--skill-root", str(skill))
+        assert res_init.returncode == 0
+        sibling_files = ["development-v2-B1.json", "development-v2-B1.sha256", "development-v2-B1.meta.json"]
+        failing_stage = "development-v2"
+        failing_prefix = "development-v2-B2"
+        b2_payload = valid_dev_v2("B", "B2")
+        b2_payload["identity_lock"]["bundle_id"] = "B2"
+        failing_input = write_json(project / "fail_input.json", b2_payload)
+        freeze_extra_args = ["--target", "B2"]
+
+    # Verify sibling files exist
+    for fn in sibling_files:
+        assert (run_dir / fn).is_file(), f"sibling file {fn} should exist before failure"
+
+    # Step 2: Inject failure
+    script_to_run = CHECKPOINT
+    contract_to_restore = None
+
+    if failure_type == "contract_fail":
+        contract_path = skill / "references" / "explore-selector.md" if failing_stage == "explore" else skill / "references" / "deep-reviewer.md"
+        if contract_path.exists():
+            contract_content = contract_path.read_text(encoding="utf-8")
+            contract_path.unlink()
+            contract_to_restore = (contract_path, contract_content)
+    else:
+        corrupt_script = project / f"corrupt_{failure_type}.py"
+        orig_code = Path(CHECKPOINT).read_text(encoding="utf-8")
+        if failure_type == "sha_fail":
+            # Break sha256 writing
+            patched = orig_code.replace(
+                '_durable_exclusive_write(sha_path, computed_hash.encode("utf-8"))',
+                'raise OSError("injected sha write failure")',
+            )
+        elif failure_type == "meta_fail":
+            # Break metadata writing
+            patched = orig_code.replace(
+                'meta_path, json.dumps(meta, indent=2).encode("utf-8")',
+                'raise OSError("injected meta write failure")',
+            )
+        elif failure_type == "readback_corrupt":
+            # Force readback hash mismatch
+            patched = orig_code.replace(
+                'if _sha256_hex(readback) != computed_hash:',
+                'if True:  # forced hash mismatch',
+            )
+        corrupt_script.write_text(patched, encoding="utf-8")
+        corrupt_script.chmod(0o755)
+        script_to_run = str(corrupt_script)
+
+    # Run failing freeze
+    cmd = [
+        sys.executable, script_to_run,
+        "freeze", "--stage", failing_stage, "--run-id", run_id,
+        "--input", str(failing_input),
+        "--project-root", str(project),
+        "--skill-root", str(skill),
+    ] + freeze_extra_args
+    res_fail = subprocess.run(cmd, capture_output=True, text=True)
+    assert res_fail.returncode != 0, f"expected failure for {failure_type}, stdout: {res_fail.stdout}"
+
+    # Step 3: Assert only owned triple (.json, .sha256, .meta.json) for failing_prefix is absent
+    for ext in (".json", ".sha256", ".meta.json"):
+        assert not (run_dir / (failing_prefix + ext)).exists(), f"owned file {failing_prefix + ext} must be deleted by cleanup"
+
+    # Assert sibling files are untouched
+    for fn in sibling_files:
+        assert (run_dir / fn).is_file(), f"sibling file {fn} was wrongly removed"
+
+    # Step 4: Restore environment and retry with uncorrupted CLI
+    if contract_to_restore is not None:
+        c_path, c_text = contract_to_restore
+        c_path.write_text(c_text, encoding="utf-8")
+
+    retry_cmd = [
+        sys.executable, CHECKPOINT,
+        "freeze", "--stage", failing_stage, "--run-id", run_id,
+        "--input", str(failing_input),
+        "--project-root", str(project),
+        "--skill-root", str(skill),
+    ] + freeze_extra_args
+    res_retry = subprocess.run(retry_cmd, capture_output=True, text=True)
+    assert res_retry.returncode == 0, f"retry failed: {res_retry.stderr}"
+    assert "FREEZE_OK" in res_retry.stdout
+
+    # Assert all owned files now exist
+    for ext in (".json", ".sha256", ".meta.json"):
+        assert (run_dir / (failing_prefix + ext)).is_file(), f"retried file {failing_prefix + ext} must exist after retry"

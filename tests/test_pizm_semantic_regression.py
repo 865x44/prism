@@ -36,9 +36,10 @@ def freeze_stage(
     run_id: str,
     payload: dict,
     target: str = None,
+    artifact_suffix: str = None,
 ) -> subprocess.CompletedProcess:
     """Freeze one stage artifact through the real pizm-checkpoint CLI."""
-    fd_input = project_root / f"_in_{stage}_{target or 'main'}.json"
+    fd_input = project_root / f"_in_{stage}_{target or 'main'}_{artifact_suffix or 'main'}.json"
     fd_input.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
     cmd = [
@@ -51,6 +52,8 @@ def freeze_stage(
     ]
     if target:
         cmd.extend(["--target", target])
+    if artifact_suffix:
+        cmd.extend(["--artifact-suffix", artifact_suffix])
 
     res = subprocess.run(cmd, capture_output=True, text=True)
     if fd_input.exists():
@@ -149,6 +152,7 @@ def make_portfolio_payload(
     competition_status: str = None,
     recommended_competition: dict = None,
     prior_bundles: list = None,
+    field_ref: str = "search-field.json",
 ):
     payload = {
         "schema_version": schema_version,
@@ -159,13 +163,23 @@ def make_portfolio_payload(
         "bundles": bundles or [],
         "auto_target": auto_target,
     }
+    if field_ref is not None:
+        payload["field_ref"] = field_ref
     if prior_bundles is not None:
         payload["prior_bundles"] = prior_bundles
     if schema_version == "pizm-portfolio-selection-v2":
         payload["competition_status"] = competition_status or "TWO_DEFENSIBLE_BUNDLES"
         payload["recommended_competition"] = recommended_competition
-    return payload
 
+        # Add perspectives mapping based on keeping candidates
+        perspectives = {}
+        p_idx = 1
+        for a in assessments:
+            if a.get("disposition") == "KEEP":
+                perspectives[f"P{p_idx}"] = a["candidate_ref"]
+                p_idx += 1
+        payload["perspectives"] = perspectives
+    return payload
 
 def make_development_v2_payload(
     target_type: str = "P",
@@ -344,12 +358,18 @@ def make_comparison_review_payload(
     discriminating_obs: str = "Evaluate team calendar fragmentation and timezone distribution.",
     what_changes: str = "If team is colocated with open calendars, B2 becomes clearly superior.",
     shared_debt: list = None,
+    b1_ref: str = "development-v2-B1.json",
+    b1_hash: str = "a" * 64,
+    b2_ref: str = "development-v2-B2.json",
+    b2_hash: str = "b" * 64,
 ):
     return {
         "schema_version": "pizm-comparison-review-v1",
         "stage": "comparison-review-v1",
         "review_B1": {
             "target_id": "B1",
+            "development_ref": b1_ref,
+            "frozen_hash": b1_hash,
             "terminal_state": b1_terminal,
             "findings": {
                 "cross_field_contradictions": [],
@@ -368,6 +388,8 @@ def make_comparison_review_payload(
         },
         "review_B2": {
             "target_id": "B2",
+            "development_ref": b2_ref,
+            "frozen_hash": b2_hash,
             "terminal_state": b2_terminal,
             "findings": {
                 "cross_field_contradictions": [],
@@ -394,7 +416,6 @@ def make_comparison_review_payload(
             "shared_evidence_debt": shared_debt or ["Longitudinal study of engineering satisfaction under both paradigms"],
         },
     }
-
 
 def make_lever_design_payload():
     return {
@@ -538,16 +559,13 @@ class TestSearchHorizon:
             }
         ]
         p2 = make_candidates_payload(pass_num=2, candidates=p2_candidates)
-        (run_dir / "candidates.json").unlink()
-        (run_dir / "candidates.sha256").unlink()
-        (run_dir / "candidates.meta.json").unlink()
-        freeze_stage(tmp_path, "explore", run_id, p2)
-        p2_hash = (run_dir / "candidates.sha256").read_text().strip()
+        freeze_stage(tmp_path, "explore", run_id, p2, artifact_suffix="pass02")
+        p2_hash = (run_dir / "candidates-pass02.sha256").read_text().strip()
 
         sf = make_search_field_payload(
             passes=[
                 {"pass_id": "pass01", "candidates_ref": "candidates.json", "frozen_hash": p1_hash},
-                {"pass_id": "pass02", "candidates_ref": "candidates.json", "frozen_hash": p2_hash},
+                {"pass_id": "pass02", "candidates_ref": "candidates-pass02.json", "frozen_hash": p2_hash},
             ],
             entries=["pass01:c01", "pass01:c02", "pass02:c01"],
         )
@@ -594,16 +612,13 @@ class TestSearchHorizon:
             }
         ]
         p2 = make_candidates_payload(pass_num=2, candidates=p2_candidates)
-        (run_dir / "candidates.json").unlink()
-        (run_dir / "candidates.sha256").unlink()
-        (run_dir / "candidates.meta.json").unlink()
-        freeze_stage(tmp_path, "explore", run_id, p2)
-        p2_hash = (run_dir / "candidates.sha256").read_text().strip()
+        freeze_stage(tmp_path, "explore", run_id, p2, artifact_suffix="pass02")
+        p2_hash = (run_dir / "candidates-pass02.sha256").read_text().strip()
 
         sf = make_search_field_payload(
             passes=[
                 {"pass_id": "pass01", "candidates_ref": "candidates.json", "frozen_hash": p1_hash},
-                {"pass_id": "pass02", "candidates_ref": "candidates.json", "frozen_hash": p2_hash},
+                {"pass_id": "pass02", "candidates_ref": "candidates-pass02.json", "frozen_hash": p2_hash},
             ],
             entries=["pass01:c01", "pass01:c02", "pass02:c01"],
         )
@@ -1732,8 +1747,16 @@ class TestForgeEndToEndFixtures:
             )
             freeze_stage(tmp_path, "development-v2", run_id, dev_b2, target="B2")
 
+            sha_b1 = (run_dir / "development-v2-B1.sha256").read_text().strip()
+            sha_b2 = (run_dir / "development-v2-B2.sha256").read_text().strip()
             # Comparison Review
-            comp = make_comparison_review_payload(preference=comp_preference)
+            comp = make_comparison_review_payload(
+                preference=comp_preference,
+                b1_ref="development-v2-B1.json",
+                b1_hash=sha_b1,
+                b2_ref="development-v2-B2.json",
+                b2_hash=sha_b2,
+            )
             freeze_stage(tmp_path, "comparison-review-v1", run_id, comp)
         else:
             # Single-model deep review
@@ -1744,8 +1767,8 @@ class TestForgeEndToEndFixtures:
                 target_id="B1",
                 terminal_state="MODEL_READY",
             )
+            single_rev["target_ref"] = "development-v2-B1.json"
             freeze_stage(tmp_path, "deep-review-v2", run_id, single_rev)
-
         if with_lever and comp_preference in ("B1", "B2"):
             ld = make_lever_design_payload()
             freeze_stage(tmp_path, "lever-design", run_id, ld)
