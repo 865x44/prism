@@ -1478,3 +1478,174 @@ def test_old_stage_validations_still_pass(workspace):
             "--input", inp, "--project-root", str(project), "--skill-root", str(skill),
         )
         assert result.returncode == 0, f"{stage} regressed: {result.stderr}"
+
+
+# ── Development-v2 & deep-review-v2 stages (C2) ──────────────────────────
+
+
+def valid_dev_v2(target_type="P", target_id="P7"):
+    lock = {
+        "title": "T", "core_claim": "C", "structural_shift": "S",
+        "mechanism": "M", "boundary": "B",
+    }
+    if target_type == "P":
+        lock["p_id"] = target_id
+    else:
+        lock["bundle_id"] = target_id
+        lock["member_refs"] = ["pass01:c01", "pass01:c02"]
+    model = {
+        "thesis": "developed thesis",
+        "synthesis": "analytical prose synthesis of the developed model",
+        "dynamics": "model behavior under pressure",
+        "mechanism_chain": ["step 1", "step 2", "step 3"],
+        "implications": ["i1"],
+        "predictions_or_observables": ["o1"],
+        "break_conditions": ["b1"],
+        "unresolved_tensions": [],
+        "evidence_debt": [],
+        "load_bearing_claims": [
+            {
+                "claim": "claim one",
+                "role_in_model": "core",
+                "epistemic_status": "SUPPORTED",
+                "what_would_weaken_or_refute": "observation x",
+            },
+            {
+                "claim": "claim two",
+                "role_in_model": "durability",
+                "epistemic_status": "SPECULATIVE",
+                "what_would_weaken_or_refute": "observation y",
+            },
+        ],
+    }
+    if target_type == "B":
+        model["member_contributions"] = {
+            "pass01:c01": "contributes A",
+            "pass01:c02": "contributes B",
+        }
+        model["member_ablation"] = {
+            "pass01:c01": "A disappears",
+            "pass01:c02": "B disappears",
+        }
+        model["unresolved_tensions"] = ["composition tension"]
+    return {
+        "schema_version": "pizm-development-v2",
+        "stage": "development-v2",
+        "target": {"target_type": target_type, "target_id": target_id},
+        "identity_lock": lock,
+        "developed_model": model,
+    }
+
+
+def freeze_dev_v2(workspace, payload, run_id):
+    project, skill = workspace
+    inp = write_json(project / f"{run_id}.json", payload)
+    return run_ck(
+        "freeze", "--stage", "development-v2", "--run-id", run_id,
+        "--input", inp, "--project-root", str(project), "--skill-root", str(skill),
+    )
+
+
+def test_development_v2_freeze_success_p(workspace):
+    project, skill = workspace
+    result = freeze_dev_v2(workspace, valid_dev_v2("P", "P7"), "dev2-p")
+    assert result.returncode == 0, result.stderr
+    assert "FREEZE_OK" in result.stdout
+    # Reveal semantics: development-v2 freeze reveals the hidden critic contract
+    assert "DEEP REVIEWER RUBRIC" in result.stdout
+    run_dir = project / ".ai" / "pizm" / "run-dev2-p"
+    assert (run_dir / "development-v2.json").exists()
+    assert (run_dir / "development-v2.sha256").exists()
+    assert (run_dir / "development-v2.meta.json").exists()
+
+
+def test_development_v2_freeze_success_b(workspace):
+    result = freeze_dev_v2(workspace, valid_dev_v2("B", "B1"), "dev2-b")
+    assert result.returncode == 0, result.stderr
+
+
+def test_development_v2_bundle_identity_lock_preserves_member_ids(workspace):
+    """bundle_id and member_refs are frozen into the identity lock; drift fails closed."""
+    mismatched = valid_dev_v2("B", "B1")
+    mismatched["identity_lock"]["bundle_id"] = "B2"
+    result = freeze_dev_v2(workspace, mismatched, "dev2-b-id-drift")
+    assert result.returncode != 0
+    assert "identity drift fails closed" in result.stderr
+
+    bad_refs = valid_dev_v2("B", "B1")
+    bad_refs["identity_lock"]["member_refs"] = ["pass01:c01"]
+    result = freeze_dev_v2(workspace, bad_refs, "dev2-b-single-member")
+    assert result.returncode != 0
+    assert "member_refs" in result.stderr
+
+    bad_format = valid_dev_v2("B", "B1")
+    bad_format["identity_lock"]["member_refs"] = ["P1", "P2"]
+    result = freeze_dev_v2(workspace, bad_format, "dev2-b-bad-ref-format")
+    assert result.returncode != 0
+    assert "composite ref" in result.stderr
+
+    missing_contribution = valid_dev_v2("B", "B1")
+    del missing_contribution["developed_model"]["member_contributions"]["pass01:c02"]
+    result = freeze_dev_v2(workspace, missing_contribution, "dev2-b-missing-contrib")
+    assert result.returncode != 0
+    assert "member_contributions" in result.stderr
+
+    missing_ablation = valid_dev_v2("B", "B1")
+    missing_ablation["developed_model"]["member_ablation"]["pass01:c01"] = ""
+    result = freeze_dev_v2(workspace, missing_ablation, "dev2-b-empty-ablation")
+    assert result.returncode != 0
+    assert "member_ablation" in result.stderr
+
+
+def test_development_v2_p_rejects_member_only_fields(workspace):
+    payload = valid_dev_v2("P", "P7")
+    payload["developed_model"]["member_contributions"] = {"pass01:c01": "x"}
+    result = freeze_dev_v2(workspace, payload, "dev2-p-member-fields")
+    assert result.returncode != 0
+    assert "Bundle targets" in result.stderr
+
+
+@pytest.mark.parametrize(
+    "status", ["SUPPORTED", "INFERRED", "SPECULATIVE", "UNKNOWN"]
+)
+def test_development_v2_census_enum_accepted(workspace, status):
+    payload = valid_dev_v2()
+    payload["developed_model"]["load_bearing_claims"][0]["epistemic_status"] = status
+    result = freeze_dev_v2(workspace, payload, f"census-{status.lower()}")
+    assert result.returncode == 0, result.stderr
+
+
+def test_development_v2_census_enum_invalid_rejected(workspace):
+    payload = valid_dev_v2()
+    payload["developed_model"]["load_bearing_claims"][0]["epistemic_status"] = "PROBABLY_TRUE"
+    result = freeze_dev_v2(workspace, payload, "census-bad-enum")
+    assert result.returncode != 0
+    assert "epistemic_status" in result.stderr
+
+
+def test_development_v2_synthesis_must_be_prose_string(workspace):
+    """Synthesis is first-class prose; a card list fails closed."""
+    payload = valid_dev_v2()
+    payload["developed_model"]["synthesis"] = ["card one", "card two"]
+    result = freeze_dev_v2(workspace, payload, "synthesis-list")
+    assert result.returncode != 0
+    assert "synthesis" in result.stderr
+
+
+@pytest.mark.parametrize("chain", [["a"], ["a", "b"], [f"step {i}" for i in range(7)]])
+def test_development_v2_mechanism_chain_bounds(workspace, chain):
+    payload = valid_dev_v2()
+    payload["developed_model"]["mechanism_chain"] = chain
+    result = freeze_dev_v2(workspace, payload, "chain-bounds")
+    assert result.returncode != 0
+    assert "3..6" in result.stderr
+
+
+def test_development_v2_census_size_bounds(workspace):
+    too_few = valid_dev_v2()
+    too_few["developed_model"]["load_bearing_claims"] = too_few[
+        "developed_model"
+    ]["load_bearing_claims"][:1]
+    result = freeze_dev_v2(workspace, too_few, "census-too-few")
+    assert result.returncode != 0
+    assert "load_bearing_claims" in result.stderr

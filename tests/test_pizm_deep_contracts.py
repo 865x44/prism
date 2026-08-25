@@ -137,6 +137,7 @@ class TestBlindness:
         "MODEL_READY", "NEED_EVIDENCE", "RETURN_TO_EXPLORE",
         "identity_verified", "frozen_hash", "verdict_rationale",
         "review.json", "pizm-review-v1",
+        "pizm-deep-review-v2", "independent_countermodel",
     ]
 
     @pytest.mark.parametrize("term", REVIEWER_TERMS)
@@ -207,18 +208,18 @@ class TestBlindness:
 class TestCheckpointIntegration:
     def test_checkpoint_invoked(self, deep_text):
         assert "pizm-checkpoint" in deep_text
-        assert "--stage deep" in deep_text
+        assert "--stage development-v2" in deep_text
 
     def test_checkpoint_required_arguments(self, deep_text):
         assert re.search(
-            r"pizm-checkpoint\s+freeze\s+--stage\s+deep"
+            r"pizm-checkpoint\s+freeze\s+--stage\s+development-v2"
             r"\s+--run-id\s+<random-lowercase-slug>"
             r"\s+--input\s+<pending-json-path>",
             deep_text,
         )
 
     def test_stable_checkpoint_entrypoint(self, deep_text):
-        assert "$HOME/.local/bin/pizm-checkpoint freeze --stage deep" in deep_text
+        assert "$HOME/.local/bin/pizm-checkpoint freeze --stage development-v2" in deep_text
 
     def test_tool_only_instruction(self, deep_text):
         assert re.search(r"(?i)tool-only\s+pre-freeze", deep_text)
@@ -242,24 +243,24 @@ class TestCheckpointIntegration:
 
 class TestDevelopmentSchema:
     def test_schema_version(self, deep_text):
-        assert "pizm-development-v1" in deep_text
+        assert "pizm-development-v2" in deep_text
 
     def test_schema_version_field(self, deep_text):
-        assert '"schema_version": "pizm-development-v1"' in deep_text
+        assert '"schema_version": "pizm-development-v2"' in deep_text
 
-    def test_stage_deep(self, deep_text):
-        assert '"stage": "deep"' in deep_text
+    def test_stage_development_v2(self, deep_text):
+        assert '"stage": "development-v2"' in deep_text
 
-    def test_selected_p_ids(self, deep_text):
-        assert "selected_p_ids" in deep_text
-
-    def test_checkpoint_compatible_development_root(self, deep_text):
-        assert '"development": {' in deep_text
-        assert '"developments": {' not in deep_text
+    def test_target_selection(self, deep_text):
+        assert '"target": {' in deep_text
+        assert "target_type" in deep_text
+        assert "target_id" in deep_text
 
     def test_identity_lock(self, deep_text):
         assert "identity_lock" in deep_text
         assert "p_id" in deep_text
+        assert "bundle_id" in deep_text
+        assert "member_refs" in deep_text
         assert "title" in deep_text
         assert "core_claim" in deep_text
         assert "structural_shift" in deep_text
@@ -268,24 +269,44 @@ class TestDevelopmentSchema:
 
     def test_developed_model(self, deep_text):
         assert "developed_model" in deep_text
-        assert "strengthened_claim" in deep_text
-        assert "load_bearing_mechanism" in deep_text
-        assert "strongest_objection" in deep_text
-        assert "break_conditions" in deep_text
+        for field in (
+            "thesis", "synthesis", "mechanism_chain", "dynamics",
+            "implications", "predictions_or_observables",
+            "load_bearing_claims", "break_conditions",
+            "unresolved_tensions", "evidence_debt",
+        ):
+            assert field in deep_text
 
-    def test_epistemics(self, deep_text):
-        assert "epistemics" in deep_text
-        assert "supported" in deep_text
-        assert "inferred" in deep_text
-        assert "speculative" in deep_text
-        assert "unknown" in deep_text
-        assert "assumptions" in deep_text
-        assert "evidence_needed" in deep_text
+    def test_bundle_fields(self, deep_text):
+        assert "member_contributions" in deep_text
+        assert "member_ablation" in deep_text
+
+    def test_one_bundle_one_deep(self, deep_text):
+        assert "One Bundle = one Deep" in deep_text
+        assert "mini-Deep" in deep_text
+
+    def test_synthesis_first_class_prose(self, deep_text):
+        """Synthesis is the first-class readable prose field, not a card list."""
+        assert "First-class readable analytical prose" in deep_text
+        assert "not a card list" in deep_text
+        assert re.search(r"900[–-]1600\s*words", deep_text)
+        assert "No padding" in deep_text
+        assert "long paraphrase is not depth" in deep_text
+
+    def test_mechanism_chain_bounds(self, deep_text):
+        assert re.search(r"3[–-]6\s+steps", deep_text)
+
+    def test_load_bearing_claims_census(self, deep_text):
+        assert "epistemic_status" in deep_text
+        for status in ("SUPPORTED", "INFERRED", "SPECULATIVE", "UNKNOWN"):
+            assert status in deep_text
+        assert "role_in_model" in deep_text
+        assert "what_would_weaken_or_refute" in deep_text
+        assert "2–5" in deep_text
 
     def test_direct_seed_label(self, deep_text, reviewer_text):
-        assert 'selected_p_ids` to `["DIRECT_SEED"]' in deep_text
-        assert "`development.DIRECT_SEED`" in deep_text
-        assert 'identity_lock.p_id` to exact `"DIRECT_SEED"`' in deep_text
+        assert 'exact `"DIRECT_SEED"`' in deep_text
+        assert "Do not allocate or invent a P-ID" in deep_text
         assert 'exact `"DIRECT_SEED"`' in reviewer_text
         assert "never invent or substitute a P-ID" in reviewer_text
 
@@ -323,9 +344,12 @@ class TestInputAuthority:
 
     def test_input_sources_listed(self, deep_text):
         """Developer must list allowed input sources."""
-        assert "Selected P-ID" in deep_text or "selected P-ID" in deep_text
-        assert "direct seed" in deep_text.lower()
-        assert "visible P content" in deep_text or "visible semantic identity" in deep_text
+        lower = deep_text.lower()
+        assert "selected target" in lower
+        assert "p-id" in lower
+        assert "bundle" in lower
+        assert "direct seed" in lower
+        assert "visible semantic identity" in lower
 
 
 # ---------------------------------------------------------------------------
@@ -347,7 +371,7 @@ class TestReviewerContract:
         assert "Never write a cwd-global" in reviewer_text
 
     def test_review_schema_version(self, reviewer_text):
-        assert "pizm-review-v1" in reviewer_text
+        assert "pizm-deep-review-v2" in reviewer_text
 
     def test_terminal_state_instruction(self, reviewer_text):
         assert "MODEL_READY" in reviewer_text
@@ -384,11 +408,6 @@ class TestTerminalStates:
             r"(?i)Do\s+not\s+automatically\s+run\s+Explore", reviewer_text
         )
 
-    def test_unsalvageable_returns_to_explore(self, reviewer_text):
-        assert "unsalvageable" in reviewer_text.lower()
-        assert "RETURN_TO_EXPLORE" in reviewer_text
-
-
 # ---------------------------------------------------------------------------
 # 9. Router and Explore preservation
 # ---------------------------------------------------------------------------
@@ -410,6 +429,10 @@ class TestRouterPreserved:
     def test_route_deep(self, skill_text):
         assert re.search(r"deep\s+P\d+", skill_text)
         assert "single-focus Deep" in skill_text
+
+    def test_route_deep_bundle(self, skill_text):
+        assert re.search(r"deep\s+B\d+", skill_text)
+        assert "one Bundle = one Deep" in skill_text
 
     def test_route_another_360(self, skill_text):
         assert "another 360" in skill_text

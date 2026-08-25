@@ -39,6 +39,16 @@ Evaluate each candidate lever in `levers` against the mandatory criteria below. 
 - The `stop_condition` must define concrete, observable triggers to continue, revise, or abandon the move.
 - Vague or unobservable stop criteria must be rejected.
 
+### 7. GOAL AND LEVEL ALIGNMENT
+- Check the goal reading and structural level reading embedded in `model_link`: does the move target what participants actually enact (STATED GOAL vs ENACTED GOAL), and the structural relation that generates the outcome rather than its visible knob (APPARENT LEVER vs ACTUAL STRUCTURAL LEVEL)? A lever that pushes the INTUITIVE direction while the model's structure implies the opposite push, without acknowledging the divergence, must be rejected.
+
+### 8. CONTROL ZONE HONESTY
+- Each accepted lever's intervention point must carry an honest control-zone classification: `CAN_CHANGE` (directly actionable), `CAN_INFLUENCE` (indirectly movable), or `MUST_ACCOUNT_FOR` (fixed constraint). Misclassifying a fixed constraint as changeable — or an influenceable node as directly changeable — rejects the candidate.
+
+## Anti-Cargo-Cult Clause
+
+The lenses above are analytic aids for evaluation, not quotas. There is no required number of lens applications per lever and no required vocabulary in the design artifact. If the developed model genuinely supports no useful application of any candidate, `NO_DEFENSIBLE_LEVER` is the correct outcome — do not manufacture levers to appear thorough. These extensions introduce no new agents, modes, or stages.
+
 ## Top-Level Outcomes
 
 Return exactly one of two top-level outcomes:

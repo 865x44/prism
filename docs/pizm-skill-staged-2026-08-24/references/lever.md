@@ -6,7 +6,7 @@ Topology: `LEVER_DESIGN → FREEZE → reveal LEVER_REVIEW → LEVER_REVIEW → 
 
 ## Preconditions and Routing
 
-LEVER operates exclusively on a completed Deep branch whose review artifact has verified `terminal_state: MODEL_READY`.
+LEVER operates exclusively on a completed Deep branch whose review artifact has verified `terminal_state: MODEL_READY`. The ready branch may sit on a single perspective (`P<n>`) or on a composed Bundle (`B<n>`): B targets are ordinary LEVER targets.
 
 Blocked cases produce **zero** lever semantic stages:
 1. **Unknown or stale P-ID**: If the requested P-ID is unknown, ambiguous, or stale in the conversation, return a deterministic error listing available branches without executing LEVER.
@@ -25,6 +25,17 @@ Blocked cases produce **zero** lever semantic stages:
    $HOME/.local/bin/pizm-checkpoint freeze --stage lever-design --run-id <slug> --input <path>
    ```
 5. On successful freeze, checkpoint confirms `FREEZE_OK` and reveals only the reference path `references/lever-reviewer.md` (never its rubric content).
+
+### Structural Analysis Lenses
+
+Analyze the locked `MODEL_READY` developed model through four structural lenses while identifying intervention points:
+
+- **STATED GOAL vs ENACTED GOAL**: what participants say they optimize versus what their behavior actually optimizes. Levers aimed only at the stated goal routinely miss the enacted one.
+- **APPARENT LEVER vs ACTUAL STRUCTURAL LEVEL**: the visible knob versus the structural relation that generates the outcome. Prefer moves aimed at the level that actually produces the phenomenon.
+- **INTUITIVE PUSH vs STRUCTURALLY IMPLIED PUSH**: the direction a naive actor would push versus the direction the model's causal structure implies. When they diverge, name the divergence explicitly in `model_link`.
+- **CONTROL ZONE**: classify each candidate's intervention point as `CAN_CHANGE` (directly actionable), `CAN_INFLUENCE` (movable indirectly through agents, incentives, or feedback), or `MUST_ACCOUNT_FOR` (a fixed constraint to design around).
+
+Anti-cargo-cult clause: these lenses are analytic aids, not a method quota. Do not fabricate levers to exercise every lens, and do not pad designs with lens vocabulary. A model may legitimately support zero defensible levers; `NO_DEFENSIBLE_LEVER` — "no useful application found" — is a valid, respected outcome. These lenses introduce no new agents, modes, or stages.
 
 ### Bounded Retry and Repair Budget
 

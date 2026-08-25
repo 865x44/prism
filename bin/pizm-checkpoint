@@ -15,7 +15,12 @@ import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
-# Hidden contract mapping (never printed before verified freeze, never named in errors)
+# Stage -> contract revealed AFTER verified freeze of that stage (reveal semantics).
+# A None value marks a terminal stage: nothing further to reveal.
+# Schema documentation association:
+#   development-v2 is defined by references/deep.md
+#   deep-review-v2 is defined by references/deep-reviewer.md
+#   (hidden until verified freeze, same pattern as the existing deep stage)
 _CONTRACT_MAP = {
     "explore": "references/explore-selector.md",
     "deep": "references/deep-reviewer.md",
@@ -23,6 +28,8 @@ _CONTRACT_MAP = {
     "lever-review": None,
     "search-field": "references/explore.md",
     "portfolio": "references/explore-selector.md",
+    "development-v2": "references/deep-reviewer.md",
+    "deep-review-v2": None,
 }
 
 _SCHEMA_VERSIONS = {
@@ -32,6 +39,8 @@ _SCHEMA_VERSIONS = {
     "lever-review": "pizm-lever-review-v1",
     "search-field": "pizm-search-field-v1",
     "portfolio": "pizm-portfolio-selection-v1",
+    "development-v2": "pizm-development-v2",
+    "deep-review-v2": "pizm-deep-review-v2",
 }
 
 
@@ -42,6 +51,23 @@ _EXPLORE_MAX_SINGLE_CANDIDATE_BYTES = 12288  # 12 KiB
 _LEVER_MAX_TOTAL_BYTES = 65536  # 64 KiB
 _SEARCH_FIELD_MAX_TOTAL_BYTES = 32768  # 32 KiB
 _PORTFOLIO_MAX_TOTAL_BYTES = 163840  # 160 KiB
+_DEVELOPMENT_V2_MAX_TOTAL_BYTES = 196608  # 192 KiB
+_DEEP_REVIEW_V2_MAX_TOTAL_BYTES = 131072  # 128 KiB
+
+# Deep v2 load-bearing claim census: authoritative epistemic status enum
+_EPISTEMIC_STATUSES = ("SUPPORTED", "INFERRED", "SPECULATIVE", "UNKNOWN")
+
+# Critic v2 terminal states — identical set to the v1 deep review (no fourth status)
+_DEEP_REVIEW_TERMINAL_STATES = ("MODEL_READY", "NEED_EVIDENCE", "RETURN_TO_EXPLORE")
+
+_DEEP_IDENTITY_FIELDS = (
+    "title",
+    "core_claim",
+    "structural_shift",
+    "mechanism",
+    "boundary",
+)
+
 _LEVER_REQUIRED_FIELDS = (
     "lever_id",
     "intervention_or_test_point",
@@ -150,6 +176,348 @@ def _validate_deep(data: dict) -> None:
     dev = data.get("development")
     if not isinstance(dev, dict) or len(dev) == 0:
         raise ValueError("development must be a non-empty object")
+
+
+def _validate_development_v2(data: dict, raw_bytes_len: int = 0) -> None:
+    """Deep v2 artifact: exactly one target (P<n>, B<n>, or DIRECT_SEED), one developed model."""
+    if not isinstance(data, dict):
+        raise ValueError("root must be a JSON object")
+    if data.get("schema_version") != _SCHEMA_VERSIONS["development-v2"]:
+        raise ValueError(f"schema_version must be {_SCHEMA_VERSIONS['development-v2']!r}")
+    if data.get("stage") != "development-v2":
+        raise ValueError("stage field must be 'development-v2'")
+
+    if raw_bytes_len > _DEVELOPMENT_V2_MAX_TOTAL_BYTES:
+        raise ValueError(
+            f"PAYLOAD_TOO_LARGE: development-v2 artifact size {raw_bytes_len} bytes "
+            f"exceeds maximum {_DEVELOPMENT_V2_MAX_TOTAL_BYTES} bytes (192 KiB)"
+        )
+
+    target = data.get("target")
+    if not isinstance(target, dict):
+        raise ValueError("target must be an object")
+    target_type = target.get("target_type")
+    if target_type not in ("P", "B"):
+        raise ValueError(f"target.target_type must be P or B, got {target_type!r}")
+    target_id = target.get("target_id")
+    if not isinstance(target_id, str) or not target_id.strip():
+        raise ValueError("target.target_id must be non-empty string")
+    if target_type == "P":
+        if not (_P_ID_RE.fullmatch(target_id) or target_id == "DIRECT_SEED"):
+            raise ValueError(
+                f"target.target_id {target_id!r} must match P[1-9][0-9]* or be "
+                "'DIRECT_SEED' for target_type P"
+            )
+    elif not _B_ID_RE.fullmatch(target_id):
+        raise ValueError(
+            f"target.target_id {target_id!r} must match B[1-9][0-9]* for target_type B"
+        )
+
+    lock = data.get("identity_lock")
+    if not isinstance(lock, dict) or len(lock) == 0:
+        raise ValueError("identity_lock must be a non-empty object")
+    member_refs = None
+    if target_type == "P":
+        if lock.get("p_id") != target_id:
+            raise ValueError(
+                f"identity_lock.p_id {lock.get('p_id')!r} must equal "
+                f"target.target_id {target_id!r} (identity drift fails closed)"
+            )
+    else:
+        # B identity lock preserves the bundle: bundle_id + member_refs frozen
+        if lock.get("bundle_id") != target_id:
+            raise ValueError(
+                f"identity_lock.bundle_id {lock.get('bundle_id')!r} must equal "
+                f"target.target_id {target_id!r} (identity drift fails closed)"
+            )
+        member_refs = lock.get("member_refs")
+        if not isinstance(member_refs, list) or len(member_refs) < 2:
+            raise ValueError(
+                "identity_lock.member_refs must be a list of at least 2 composite refs "
+                "(bundle membership is frozen into the identity lock)"
+            )
+        seen_members = set()
+        for j, m in enumerate(member_refs):
+            if not isinstance(m, str) or not _COMPOSITE_REF_RE.fullmatch(m):
+                raise ValueError(
+                    f"identity_lock.member_refs[{j}] must be a composite ref "
+                    f"passNN:cNN, got {m!r}"
+                )
+            if m in seen_members:
+                raise ValueError(f"identity_lock duplicate member_ref: {m!r}")
+            seen_members.add(m)
+    for field in _DEEP_IDENTITY_FIELDS:
+        val = lock.get(field)
+        if not isinstance(val, str) or not val.strip():
+            raise ValueError(f"identity_lock.{field} must be non-empty string")
+
+    model = data.get("developed_model")
+    if not isinstance(model, dict) or len(model) == 0:
+        raise ValueError("developed_model must be a non-empty object")
+
+    thesis = model.get("thesis")
+    if not isinstance(thesis, str) or not thesis.strip():
+        raise ValueError("developed_model.thesis must be non-empty string")
+
+    synthesis = model.get("synthesis")
+    if not isinstance(synthesis, str) or not synthesis.strip():
+        raise ValueError(
+            "developed_model.synthesis must be first-class readable analytical prose "
+            "(a single string), not a card list"
+        )
+
+    dynamics = model.get("dynamics")
+    if not isinstance(dynamics, str) or not dynamics.strip():
+        raise ValueError("developed_model.dynamics must be non-empty string")
+
+    chain = model.get("mechanism_chain")
+    if chain is not None:
+        if not isinstance(chain, list) or not (3 <= len(chain) <= 6):
+            raise ValueError(
+                "developed_model.mechanism_chain must be a list of 3..6 causal steps"
+            )
+        for i, step in enumerate(chain):
+            if not isinstance(step, str) or not step.strip():
+                raise ValueError(
+                    f"developed_model.mechanism_chain[{i}] must be non-empty string"
+                )
+
+    for field in ("implications", "predictions_or_observables", "break_conditions"):
+        items = model.get(field)
+        if not isinstance(items, list) or len(items) == 0:
+            raise ValueError(f"developed_model.{field} must be a non-empty list")
+        for i, item in enumerate(items):
+            if not isinstance(item, str) or not item.strip():
+                raise ValueError(f"developed_model.{field}[{i}] must be non-empty string")
+
+    tensions = model.get("unresolved_tensions")
+    if not isinstance(tensions, list):
+        raise ValueError("developed_model.unresolved_tensions must be a list")
+    if target_type == "B" and len(tensions) == 0:
+        raise ValueError(
+            "developed_model.unresolved_tensions must be non-empty for a Bundle target "
+            "(the composition's internal tension is mandatory)"
+        )
+    for i, t in enumerate(tensions):
+        if not isinstance(t, str) or not t.strip():
+            raise ValueError(
+                f"developed_model.unresolved_tensions[{i}] must be non-empty string"
+            )
+
+    debt = model.get("evidence_debt")
+    if not isinstance(debt, list):
+        raise ValueError("developed_model.evidence_debt must be a list")
+    for i, d in enumerate(debt):
+        if not isinstance(d, str) or not d.strip():
+            raise ValueError(f"developed_model.evidence_debt[{i}] must be non-empty string")
+
+    census = model.get("load_bearing_claims")
+    if not isinstance(census, list) or not (2 <= len(census) <= 5):
+        raise ValueError(
+            "developed_model.load_bearing_claims must be a census of 2..5 claims"
+        )
+    for i, claim in enumerate(census):
+        if not isinstance(claim, dict):
+            raise ValueError(f"developed_model.load_bearing_claims[{i}] must be an object")
+        for field in ("claim", "role_in_model", "what_would_weaken_or_refute"):
+            val = claim.get(field)
+            if not isinstance(val, str) or not val.strip():
+                raise ValueError(
+                    f"developed_model.load_bearing_claims[{i}].{field} must be "
+                    "non-empty string"
+                )
+        status = claim.get("epistemic_status")
+        if status not in _EPISTEMIC_STATUSES:
+            raise ValueError(
+                f"developed_model.load_bearing_claims[{i}].epistemic_status must be one "
+                f"of SUPPORTED|INFERRED|SPECULATIVE|UNKNOWN, got {status!r}"
+            )
+
+    contributions = model.get("member_contributions")
+    ablation = model.get("member_ablation")
+    if target_type == "B":
+        expected_members = set(member_refs)
+        if (
+            not isinstance(contributions, dict)
+            or set(contributions.keys()) != expected_members
+        ):
+            raise ValueError(
+                "developed_model.member_contributions must have exactly one entry per "
+                "identity_lock.member_ref for a Bundle target"
+            )
+        for k, v in contributions.items():
+            if not isinstance(v, str) or not v.strip():
+                raise ValueError(
+                    f"developed_model.member_contributions[{k!r}] must be non-empty string"
+                )
+        if not isinstance(ablation, dict) or set(ablation.keys()) != expected_members:
+            raise ValueError(
+                "developed_model.member_ablation must have exactly one entry per "
+                "identity_lock.member_ref for a Bundle target "
+                "(what disappears when that member is removed)"
+            )
+        for k, v in ablation.items():
+            if not isinstance(v, str) or not v.strip():
+                raise ValueError(
+                    f"developed_model.member_ablation[{k!r}] must be non-empty string"
+                )
+    else:
+        if contributions is not None:
+            raise ValueError(
+                "developed_model.member_contributions applies only to Bundle targets (B)"
+            )
+        if ablation is not None:
+            raise ValueError(
+                "developed_model.member_ablation applies only to Bundle targets (B)"
+            )
+
+
+def _validate_deep_review_v2(data: dict, raw_bytes_len: int = 0) -> None:
+    """Independent critic record over a frozen development-v2 artifact."""
+    if not isinstance(data, dict):
+        raise ValueError("root must be a JSON object")
+    if data.get("schema_version") != _SCHEMA_VERSIONS["deep-review-v2"]:
+        raise ValueError(f"schema_version must be {_SCHEMA_VERSIONS['deep-review-v2']!r}")
+    if data.get("stage") != "deep-review-v2":
+        raise ValueError("stage field must be 'deep-review-v2'")
+
+    if raw_bytes_len > _DEEP_REVIEW_V2_MAX_TOTAL_BYTES:
+        raise ValueError(
+            f"PAYLOAD_TOO_LARGE: deep-review-v2 artifact size {raw_bytes_len} bytes "
+            f"exceeds maximum {_DEEP_REVIEW_V2_MAX_TOTAL_BYTES} bytes (128 KiB)"
+        )
+
+    frozen_hash = data.get("frozen_hash")
+    if not isinstance(frozen_hash, str) or not frozen_hash.strip():
+        raise ValueError("frozen_hash must be non-empty string")
+
+    target_type = data.get("target_type")
+    if target_type not in ("P", "B"):
+        raise ValueError(f"target_type must be P or B, got {target_type!r}")
+    target_id = data.get("target_id")
+    if not isinstance(target_id, str) or not target_id.strip():
+        raise ValueError("target_id must be non-empty string")
+    if target_type == "P":
+        if not (_P_ID_RE.fullmatch(target_id) or target_id == "DIRECT_SEED"):
+            raise ValueError(
+                f"target_id {target_id!r} must match P[1-9][0-9]* or be 'DIRECT_SEED' "
+                "for target_type P"
+            )
+    elif not _B_ID_RE.fullmatch(target_id):
+        raise ValueError(
+            f"target_id {target_id!r} must match B[1-9][0-9]* for target_type B"
+        )
+
+    terminal_state = data.get("terminal_state")
+    if terminal_state not in _DEEP_REVIEW_TERMINAL_STATES:
+        raise ValueError(
+            "terminal_state must be one of MODEL_READY|NEED_EVIDENCE|RETURN_TO_EXPLORE, "
+            f"got {terminal_state!r}"
+        )
+
+    identity_verified = data.get("identity_verified")
+    if not isinstance(identity_verified, bool):
+        raise ValueError("identity_verified must be a boolean")
+
+    countermodel = data.get("independent_countermodel")
+    if not isinstance(countermodel, str) or not countermodel.strip():
+        raise ValueError(
+            "independent_countermodel must be non-empty string "
+            "(the critic constructs its own countermodel)"
+        )
+
+    cheapest_test = data.get("cheapest_discriminating_test")
+    if not isinstance(cheapest_test, str) or not cheapest_test.strip():
+        raise ValueError("cheapest_discriminating_test must be non-empty string")
+
+    reassessment = data.get("load_bearing_reassessment")
+    if not isinstance(reassessment, list) or len(reassessment) == 0:
+        raise ValueError(
+            "load_bearing_reassessment must be a non-empty list "
+            "(the critic independently reassesses each load-bearing claim; "
+            "developer labels are not authority)"
+        )
+    for i, r in enumerate(reassessment):
+        if not isinstance(r, dict):
+            raise ValueError(f"load_bearing_reassessment[{i}] must be an object")
+        claim = r.get("claim")
+        if not isinstance(claim, str) or not claim.strip():
+            raise ValueError(
+                f"load_bearing_reassessment[{i}].claim must be non-empty string"
+            )
+        status = r.get("critic_epistemic_status")
+        if status not in _EPISTEMIC_STATUSES:
+            raise ValueError(
+                f"load_bearing_reassessment[{i}].critic_epistemic_status must be one of "
+                f"SUPPORTED|INFERRED|SPECULATIVE|UNKNOWN, got {status!r}"
+            )
+
+    findings = data.get("findings")
+    if not isinstance(findings, dict):
+        raise ValueError("findings must be an object")
+    for field in (
+        "cross_field_contradictions",
+        "unsupported_specificity",
+        "epistemic_laundering",
+    ):
+        items = findings.get(field) or []
+        if not isinstance(items, list):
+            raise ValueError(f"findings.{field} must be a list")
+        for i, item in enumerate(items):
+            if not isinstance(item, str) or not item.strip():
+                raise ValueError(f"findings.{field}[{i}] must be non-empty string")
+    unresolved_contradiction = findings.get("unresolved_load_bearing_contradiction", False)
+    if not isinstance(unresolved_contradiction, bool):
+        raise ValueError(
+            "findings.unresolved_load_bearing_contradiction must be a boolean"
+        )
+    for field in ("identity_drift", "cost_relocation"):
+        val = findings.get(field)
+        if val is not None and not isinstance(val, str):
+            raise ValueError(f"findings.{field} must be a string or null")
+    round_trip = findings.get("round_trip_skeleton")
+    if not isinstance(round_trip, str) or not round_trip.strip():
+        raise ValueError(
+            "findings.round_trip_skeleton must be non-empty string "
+            "(structural skeleton recovered from the prose)"
+        )
+    member_ablation_finding = findings.get("member_ablation")
+    if member_ablation_finding is not None and not isinstance(member_ablation_finding, str):
+        raise ValueError("findings.member_ablation must be a string or null")
+
+    evidence_debt = data.get("evidence_debt")
+    if not isinstance(evidence_debt, list):
+        raise ValueError("evidence_debt must be a list")
+    for i, d in enumerate(evidence_debt):
+        if not isinstance(d, str) or not d.strip():
+            raise ValueError(f"evidence_debt[{i}] must be non-empty string")
+
+    rationale = data.get("verdict_rationale")
+    if not isinstance(rationale, str) or not rationale.strip():
+        raise ValueError("verdict_rationale must be non-empty string")
+
+    # Deterministic decision-rule couplings
+    if unresolved_contradiction and terminal_state == "MODEL_READY":
+        raise ValueError(
+            "MODEL_READY is forbidden while findings.unresolved_load_bearing_contradiction "
+            "is true (an unresolved load-bearing contradiction blocks MODEL_READY)"
+        )
+    if not identity_verified and terminal_state != "RETURN_TO_EXPLORE":
+        raise ValueError(
+            "identity_verified false requires RETURN_TO_EXPLORE "
+            "(identity or composition collapse)"
+        )
+    if findings.get("unsupported_specificity") and len(evidence_debt) == 0:
+        raise ValueError(
+            "unsupported specificity findings require recorded evidence_debt "
+            "(never launder invented specificity past the review)"
+        )
+    if target_type == "B" and not (
+        isinstance(member_ablation_finding, str) and member_ablation_finding.strip()
+    ):
+        raise ValueError(
+            "findings.member_ablation must carry a non-empty assessment for a Bundle target"
+        )
 
 
 def _validate_lever_design(data: dict, raw_bytes_len: int = 0) -> None:
@@ -584,6 +952,10 @@ def freeze(
             _validate_explore(data, len(raw))
         elif stage == "deep":
             _validate_deep(data)
+        elif stage == "development-v2":
+            _validate_development_v2(data, len(raw))
+        elif stage == "deep-review-v2":
+            _validate_deep_review_v2(data, len(raw))
         elif stage == "lever-design":
             _validate_lever_design(data, len(raw))
         elif stage == "lever-review":
@@ -679,9 +1051,11 @@ def freeze(
         _cleanup_stage(run_dir, stage)
         return _die("hash mismatch after write")
 
-    # Read contract AFTER hash-confirmed freeze
+    # Read contract AFTER hash-confirmed freeze.
+    # Map value None = terminal stage: nothing further to reveal (deep-review-v2,
+    # lever-review).
     contract_text = None
-    if stage == "lever-review":
+    if _CONTRACT_MAP.get(stage) is None:
         contract_text = None
     elif stage == "lever-design":
         # Reveal only reference path/name, never rubric body
@@ -718,7 +1092,7 @@ def main() -> int:
     fp.add_argument(
         "--stage",
         required=True,
-        choices=["explore", "deep", "lever-design", "lever-review", "search-field", "portfolio"],
+        choices=["explore", "deep", "development-v2", "deep-review-v2", "lever-design", "lever-review", "search-field", "portfolio"],
     )
     fp.add_argument("--run-id", required=True)
     fp.add_argument("--input", required=True, dest="input_path")

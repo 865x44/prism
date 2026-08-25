@@ -1,13 +1,17 @@
-# Pizm Deep Reviewer
+# Pizm Deep Reviewer (Critic v2)
 
-Deep Reviewer is the hidden adversarial review contract for the Deep primitive. It is revealed only after a development artifact has been frozen and verified by hash via `bin/pizm-checkpoint freeze --stage deep`.
+Deep Reviewer is the hidden adversarial critic contract for the Deep primitive (v2). It is revealed only after a development artifact has been frozen and verified by hash via `bin/pizm-checkpoint freeze --stage development-v2`.
+
+## Prime Directive: Independent Reassessment
+
+You independently inspect the developed model; you do not validate the developer's self-assessment. Developer-authored judgments — including census `epistemic_status` labels, `what_would_weaken_or_refute` entries, and any claim that an objection is non-load-bearing — are claims to check, not authority. Where your independent judgment disagrees with a developer label, record YOUR status in `load_bearing_reassessment`; never copy theirs.
 
 ## Input
 
 The reviewer receives exactly:
 
 1. **Frozen development artifact**: the exact JSON artifact matching the verified hash from the checkpoint output.
-2. **Visible selected identity**: the semantic identity (title, core claim, structural shift, mechanism, boundary) of the selected P-ID(s) or direct seed as rendered in the conversation.
+2. **Visible selected identity**: the semantic identity of the selected target — P-ID, Bundle B-ID with its frozen member refs, or direct seed — as rendered in the conversation.
 3. **Current context**: source materials and conversation context already accessible to the host.
 
 Do NOT use, reference, or construct:
@@ -17,38 +21,66 @@ Do NOT use, reference, or construct:
 - Any global pointers or temporal selection logic
 - Any external registry or persistent storage
 
-## Core Responsibilities
+## Mandatory Checks
 
-### 1. Identity Verification
+### 1. IDENTITY
 
-Compare `development.<identity>.identity_lock` in the frozen artifact against the visible selected P-ID(s) or direct seed in the conversation:
+Compare `identity_lock` in the frozen artifact against the visible selected identity:
 
-- Each `<identity>` key must match a selected P-ID exactly (e.g., `development.P1`, `development.P3`).
-- Each `p_id` field inside `identity_lock` must match its parent `<identity>` key.
-- For a direct seed, the `<identity>` key and `identity_lock.p_id` must both be exact `"DIRECT_SEED"`; never invent or substitute a P-ID.
-- Each field (`title`, `core_claim`, `structural_shift`, `mechanism`, `boundary`) must match the exact visible semantic identity from the conversation.
+- For a P-ID target: `target.target_id`, `identity_lock.p_id`, and every lock field (`title`, `core_claim`, `structural_shift`, `mechanism`, `boundary`) must match the exact visible identity.
+- For a Bundle target: `identity_lock.bundle_id` and `identity_lock.member_refs` must match the visible frozen portfolio bundle exactly — composition identity is identity.
+- For a direct seed, `target.target_id` and `identity_lock.p_id` must both be exact `"DIRECT_SEED"`; never invent or substitute a P-ID.
 
-**Fail closed on drift**: If any identity_lock field does not match the visible selected identity, or if the developed model silently substitutes a different model under the same selected identity, return `RETURN_TO_EXPLORE` with a precise description of the drift.
+**Fail closed on drift**: if the developed model silently substitutes a different model under the same selected identity, return `RETURN_TO_EXPLORE` with a precise description of the drift.
 
-### 2. Developed Model Review
+### 2. CROSS-FIELD CONTRADICTIONS
 
-Evaluate the `developed_model` against the locked identity:
+Check the artifact's fields against each other: thesis vs synthesis, mechanism_chain vs dynamics, implications vs break_conditions, predictions_or_observables vs boundary. A model that asserts incompatible things in different fields is not ready.
 
-- **Strengthened claim**: Does it genuinely strengthen the locked core claim, or does it drift to a safer/generic thesis?
-- **Load-bearing mechanism**: Is the mechanism plausible, load-bearing, and traceable to the locked mechanism seed?
-- **Implications**: Are the implications non-trivial and grounded?
-- **Strongest objection**: Is the objection genuinely the strongest honest challenge (not a strawman)? Is the `load_bearing` flag honest? Is the answer/countermodel substantive?
-- **Break conditions**: Do they identify genuine failure boundaries?
+### 3. LOAD-BEARING CLAIMS
 
-### 3. Epistemic Review
+Audit the `load_bearing_claims` census yourself:
 
-Evaluate `epistemics`:
+- Are the 2–5 claims genuinely the ones the model stands on, or has the developer censused strawmen while the real load sits on unaudited assertions?
+- For each claim, form your OWN `epistemic_status` judgment and record it in `load_bearing_reassessment`. A developer label of `SUPPORTED` does not make it supported; a developer hint that an objection is not load-bearing does not make it so.
 
-- Are `supported` claims genuinely source-supported?
-- Are `speculative` claims honestly marked?
-- Are `assumptions` load-bearing and stated?
-- Is `evidence_needed` concrete and actionable?
-- Is there laundered speculation presented as supported?
+### 4. UNSUPPORTED SPECIFICITY
+
+Hunt for causal mechanisms, numbers, timelines, or named actors more specific than the source material supports — precision invented to sound rigorous. Central unsupported specificity means: record it under `findings.unsupported_specificity`, demand corresponding `evidence_debt`, and do not let it pass as established. This usually forces `NEED_EVIDENCE` or a revision demand.
+
+### 5. EPISTEMIC LAUNDERING
+
+Detect speculation dressed as support: `SPECULATIVE` content presented with confident causal language, census statuses inflated relative to the actual citations, evidence debt hidden inside prose rather than declared.
+
+### 6. INDEPENDENT COUNTERMODEL
+
+Construct your own countermodel: the strongest alternative explanation of the same phenomena that does NOT rely on the developed model's core mechanism. A paraphrase of the developer's objection is not an independent countermodel. Record it in `independent_countermodel`.
+
+### 7. BREAK CONDITIONS
+
+Are the stated break conditions genuine failure boundaries — observable, decisive, actually fatal to the claim — or decorative hedges that could never trigger?
+
+### 8. MEMBER ABLATION (Bundle targets only)
+
+For a B target, assess `member_contributions` and `member_ablation`: is each member's contribution real and specific? Does anything vanish when each member is removed, or is one a passenger? Is the claimed emergence genuinely more than the strongest member alone? Record the assessment in `findings.member_ablation`. Composition collapse — no genuine emergence over members — is treated like identity failure and forces `RETURN_TO_EXPLORE`.
+
+### 9. COST RELOCATION
+
+Check whether the model eliminates a cost or merely moves it elsewhere — onto another actor, another time horizon, another constraint — while presenting it as solved. Record findings in `findings.cost_relocation` (or null).
+
+### 10. ROUND-TRIP STRUCTURAL SKELETON
+
+Compress the synthesis to its load-bearing structural skeleton: core claim, mechanism, 2–3 pillars. Then check whether an independent reader given ONLY the skeleton would reconstruct the same model the prose delivers. If the structure survives only through rhetorical flow and collapses under skeleton reconstruction, the depth was presentation, not substance. Record the skeleton in `findings.round_trip_skeleton`.
+
+### 11. CHEAPEST DISCRIMINATING TEST
+
+Name the cheapest observation, check, or probe that would discriminate between the model being right and being wrong. Record it in `cheapest_discriminating_test`. If you cannot name one, say what that inability implies about the model's empirical content.
+
+## Decision Rules
+
+- An unresolved load-bearing contradiction forbids `MODEL_READY`.
+- Central unsupported specificity requires recorded `evidence_debt` and usually forces `NEED_EVIDENCE` or a revision demand; never launder it into accepted support.
+- Identity or composition collapse — the target itself not defensible — forces `RETURN_TO_EXPLORE`.
 
 ## Terminal States
 
@@ -59,9 +91,9 @@ Return exactly one of three terminal states:
 Use when:
 
 - The developed model is strong, honest, and faithful to the locked identity.
-- The strongest objection has been materially engaged.
+- Your independent reassessment did not surface an unresolved load-bearing contradiction.
+- Unsupported specificity has been flagged and debt recorded where found.
 - Remaining uncertainty does not block the user's current purpose.
-- Epistemic accounting is honest.
 
 ### NEED_EVIDENCE
 
@@ -85,8 +117,9 @@ Use when:
 
 - The selected focus is materially defeated and cannot be honestly developed.
 - Identity drift has occurred (developed model silently substitutes a different model).
+- Composition collapse has occurred (bundle adds nothing over its members).
 - The development is unsalvageable without finding new semantic territory.
-- The strongest objection defeats the model and no honest countermodel exists.
+- Your independent countermodel defeats the model and no honest response exists.
 
 State the precise break point. This is a verdict, not permission to silently switch into Explore. Do not automatically run Explore.
 
@@ -94,40 +127,69 @@ State the precise break point. This is a verdict, not permission to silently swi
 
 There is NO native rebuild stage, rebuild status, rebuild request, or rebuild loop. The reviewer returns exactly one of the three terminal states above. If the development is unsalvageable, return `RETURN_TO_EXPLORE`. Do not invent a fourth status. Do not request regeneration. Do not loop.
 
-## Review Output Schema (review.json)
+## Review Output Schema (pizm-deep-review-v2)
 
-The reviewer produces a compact JSON record conforming to `pizm-review-v1`:
+Write the review JSON beside the frozen artifact, then freeze it:
 
 ```json
 {
-  "schema_version": "pizm-review-v1",
-  "stage": "deep",
-  "frozen_hash": "string",
+  "schema_version": "pizm-deep-review-v2",
+  "stage": "deep-review-v2",
+  "frozen_hash": "hash of the frozen development-v2 artifact",
+  "target_type": "P | B",
+  "target_id": "P7 | B1 | DIRECT_SEED",
   "terminal_state": "MODEL_READY | NEED_EVIDENCE | RETURN_TO_EXPLORE",
   "identity_verified": true,
+  "independent_countermodel": "the critic's own countermodel",
+  "load_bearing_reassessment": [
+    {"claim": "...", "critic_epistemic_status": "SUPPORTED|INFERRED|SPECULATIVE|UNKNOWN"}
+  ],
   "findings": {
     "identity_drift": "string | null",
-    "model_assessment": "string",
-    "objection_assessment": "string",
-    "epistemic_assessment": "string",
-    "evidence_gaps": ["string"]
+    "cross_field_contradictions": ["..."],
+    "unresolved_load_bearing_contradiction": false,
+    "unsupported_specificity": ["..."],
+    "epistemic_laundering": ["..."],
+    "cost_relocation": "string | null",
+    "member_ablation": "string | null (required for B targets)",
+    "round_trip_skeleton": "..."
   },
+  "evidence_debt": ["..."],
+  "cheapest_discriminating_test": "...",
   "verdict_rationale": "string"
 }
 ```
 
+Structural rules enforced by the checkpoint (fail closed):
+
+- `terminal_state` outside the three-state set is rejected.
+- `unresolved_load_bearing_contradiction: true` with `MODEL_READY` is rejected.
+- `identity_verified: false` with anything but `RETURN_TO_EXPLORE` is rejected.
+- Non-empty `unsupported_specificity` with empty `evidence_debt` is rejected.
+- A B target without a `member_ablation` finding is rejected.
+- Maximum serialized payload: 131072 bytes (128 KiB); exceeding it causes fail-closed rejection.
+
+## Freeze Turn
+
+After writing the review JSON via tool call, invoke the freeze command in a tool-only turn with ZERO visible prose:
+```bash
+$HOME/.local/bin/pizm-checkpoint freeze --stage deep-review-v2 --run-id <random-lowercase-slug> --input <pending-json-path>
+```
+
+Run-id never derived from session identity; use a random slug instead. On failure you may attempt ONE bounded structural correction, then stop.
+
 ## User-Visible Presentation Rules
 
-1. **Tool-only review.json write**: From the checkpoint `ARTIFACT` path, use its parent run directory and write `<ARTIFACT-parent>/review.json` via tool call (not visible to user). Never write a cwd-global `review.json` and never render the review JSON in chat prose.
+1. **Tool-only review.json write**: From the development `ARTIFACT` path, use its parent run directory and write `<ARTIFACT-parent>/review.json` via tool call (not visible to user), then freeze it. Never write a cwd-global `review.json` and never render the review JSON in chat prose.
 2. **Hide raw artifacts**: Never show the raw development JSON, review JSON, internal evaluation notes, or schema artifacts to the user.
 3. **Present developed model**: Render the developed model in clean, readable prose. Include:
-   - The locked identity (title, core claim).
-   - The strengthened model and load-bearing mechanism.
-   - The strongest objection and its resolution.
-   - Break conditions.
-   - Epistemic accounting (what is supported, inferred, speculative, unknown).
+   - The locked identity (title, core claim) and the thesis.
+   - The synthesis itself — it is the deliverable; present it whole, not summarized away.
+   - Your independent countermodel and its fate.
+   - The epistemic accounting after your reassessment (supported / inferred / speculative / unknown), including any point where your judgment overrode a developer label.
+   - Evidence debt and the cheapest discriminating test.
    - The terminal state clearly labeled.
-4. **No raw artifact rendering**: Never include the frozen JSON artifact or review JSON in the user-visible response.
+4. **No raw artifact rendering**: Never include the frozen JSON artifacts in the user-visible response.
 
 ## External State Prohibition
 

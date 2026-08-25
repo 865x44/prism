@@ -9,8 +9,8 @@ Use the current host model as the Pizm reasoning subject. Do not call a separate
 
 Read only the reference needed for the requested primitive:
 - Explore / NORMAL / residual search / RIFT / 360 / another Explore pass: read `references/explore.md`.
-- Deep on one or more P-IDs or a direct seed: read `references/deep.md`.
-- LEVER on a MODEL_READY Deep perspective: read `references/lever.md`.
+- Deep on one P-ID, one composed Bundle B-ID, or a direct seed: read `references/deep.md` (v2 contract).
+- LEVER on a MODEL_READY Deep perspective (single P-ID or Bundle B-ID): read `references/lever.md`.
 Follow the staged tool sequence defined in the loaded reference file exactly. Each reference defines its own generator/developer workflow, artifact schema, freeze command, and bounded retry behavior.
 
 ## Route the request
@@ -19,9 +19,10 @@ Follow the staged tool sequence defined in the loaded reference file exactly. Ea
 - `normal`, `explore`, or equivalent → Explore NORMAL.
 - `rift` → Explore RIFT. Manual-only trigger: rift starts solely from an explicit `/pizm rift` user request; AUTO/FORGE never auto-trigger it and there is no hidden auto-trigger.
 - `360` → Explore 360 — deprecated compatibility alias that executes the residual search policy (Search(residual)); explicit only, never triggered implicitly just because the input is rich.
-- `deep P7` → single-focus Deep.
-- `deep P2 P5 P8` or an equivalent explicit selection → experimental multi-focus Deep.
-- `/pizm lever P<n>` (or bare `/pizm lever`) → read `references/lever.md`. Bare `/pizm lever` is allowed only when exactly one unambiguous MODEL_READY branch exists; otherwise return a deterministic refusal listing ready branches. Blocked cases (unknown/stale P-ID, non-ready Deep status) produce zero lever semantic stages.
+- `deep P7` → single-focus Deep (v2 contract: one target per developed artifact).
+- `deep B1` → Deep on one composed Bundle: one Bundle = one Deep, never per-member mini-Deeps.
+- `deep P2 P5 P8` or an equivalent explicit selection → experimental multi-focus Deep: each selected focus becomes its own Deep target and is developed in its own pass.
+- `/pizm lever P<n>|B<n>` (or bare `/pizm lever`) → read `references/lever.md`. Bare `/pizm lever` is allowed only when exactly one unambiguous MODEL_READY branch exists; otherwise return a deterministic refusal listing ready branches. Blocked cases (unknown/stale target ID, non-ready Deep status) produce zero lever semantic stages.
 - `/pizm auto <task>` → read `references/auto.md`.
 - `another 360`, `ещё 360`, or equivalent → another Explore pass with the residual search policy, using accessible prior Pizm territory.
 - A direct Deep seed without an Explore P-ID is allowed when the user explicitly asks to deepen that seed.
