@@ -39,6 +39,8 @@ INSTALLED_SELECTOR = INSTALLED_ROOT / "references" / "explore-selector.md"
 INSTALLED_SKILL = INSTALLED_ROOT / "SKILL.md"
 INSTALLED_DEEP = INSTALLED_ROOT / "references" / "deep.md"
 INSTALLED_OPENAI = INSTALLED_ROOT / "agents" / "openai.yaml"
+INSTALLED_ARSENAL = INSTALLED_ROOT / "references" / "reasoning-arsenal.md"
+STAGED_ARSENAL = STAGED_ROOT / "references" / "reasoning-arsenal.md"
 
 
 @pytest.fixture
@@ -354,32 +356,37 @@ class TestSelectorCategorical:
             assert 'adequate' not in schema_text, "adequate is not a valid standalone_quality value"
             assert 'decorative' not in schema_text, "decorative is not a valid standalone_quality value"
 
-    def test_marginal_contribution_enum_values(self, selector_text):
-        """Verify marginal_contribution uses Core enum: high|medium|low|none"""
-        assert re.search(r'marginal_contribution.*high\|medium\|low\|none', selector_text), \
-            "marginal_contribution must be high|medium|low|none (Core enum)"
-        # Check for removed enum values (should NOT be present in schema)
-        schema_match = re.search(r'```json\s*\{.*?"marginal_contribution".*?\}\s*```', selector_text, re.DOTALL)
-        if schema_match:
-            schema_text = schema_match.group(0)
-            assert 'distinct' not in schema_text, "distinct is not a valid marginal_contribution value"
-            assert 'incremental' not in schema_text, "incremental is not a valid marginal_contribution value"
-            assert 'redundant' not in schema_text, "redundant is not a valid marginal_contribution value"
-            assert 'noise' not in schema_text, "noise is not a valid marginal_contribution value"
+    def test_unique_residue_and_nearest_overlap_fields(self, selector_text):
+        """Portfolio judge replaces the marginal-contribution dimension with
+        unique_residue plus nearest_overlap."""
+        assert re.search(r"\bunique_residue\b", selector_text), \
+            "unique_residue must be part of the judging contract"
+        assert re.search(r"\bnearest_overlap\b", selector_text), \
+            "nearest_overlap must be part of the judging contract"
+        assert '"nearest_overlap": "pass02:c03|null"' in selector_text, \
+            "nearest_overlap must accept a composite ref or null"
 
-    def test_tool_only_selection_json_write(self, selector_text):
-        """Selector writes selection evidence beside the frozen pool, never cwd-global."""
-        has_selection_json = "selection.json" in selector_text
+    def test_no_uniformity_without_distinctions(self, selector_text):
+        """Failure-to-avoid: uniform strong outcomes without structural
+        distinctions are a judging failure."""
+        assert re.search(r"(?i)uniform\s+outcome", selector_text)
+        assert re.search(r"(?i)judging\s+failure", selector_text)
+
+    def test_tool_only_portfolio_record_write(self, selector_text):
+        """Selector freezes its record beside the field artifacts via tool call,
+        never as a cwd-global file or visible prose."""
+        has_record = "portfolio.json" in selector_text
         has_tool_write = re.search(
             r"tool.?call|via tool|write.*tool|tool.*write",
             selector_text,
             re.IGNORECASE,
         )
-        assert has_selection_json and has_tool_write, (
-            "Selector must require writing selection.json via tool call, not visible prose"
+        assert has_record and has_tool_write, (
+            "Selector must require freezing the portfolio record via tool call, "
+            "not visible prose"
         )
-        assert "<ARTIFACT-parent>/selection.json" in selector_text
-        assert "Never write a cwd-global `selection.json`" in selector_text
+        assert "<ARTIFACT-parent>/portfolio.json" in selector_text
+        assert "Never write a cwd-global `portfolio.json`" in selector_text
 
 
 class TestRawPoolHiding:
@@ -506,3 +513,144 @@ class TestExploreBreadthContract:
 
     def test_skill_manual_mode_invariant(self, skill_text):
         assert "branch commit remains the user's" in skill_text
+
+
+# ---------------------------------------------------------------------------
+# 16. C1 search policies — initial / residual / rift
+# ---------------------------------------------------------------------------
+
+
+class TestSearchPolicies:
+    def test_policy_framing_present(self, explore_text):
+        assert "## Search Policies" in explore_text
+        for policy in ("initial", "residual", "rift"):
+            assert re.search(
+                rf"(?i)\b{policy}\b", explore_text
+            ), f"Policy {policy} missing from generator contract"
+
+    def test_residual_soft_target(self, explore_text):
+        assert re.search(r"[6–-]10\s+candidate\s+seeds", explore_text) or \
+               re.search(r"6[–-]10\s+candidate\s+seeds", explore_text), \
+            "Residual policy must carry a 6-10 soft target"
+
+    def test_count_not_quality(self, explore_text):
+        assert "Candidate count is never a quality metric" in explore_text
+
+    def test_mode_strings_remain_parseable(self, explore_text):
+        assert "remain parseable on read" in explore_text
+        assert "NORMAL|360|RIFT" in explore_text
+
+    def test_360_deprecated_alias(self, explore_text):
+        assert "### 360" in explore_text
+        assert "Deprecated compatibility alias" in explore_text
+        assert "residual search policy" in explore_text or "residual policy" in explore_text
+
+    @pytest.mark.parametrize("mode", ["NORMAL", "360", "RIFT"])
+    def test_mode_headings_preserved(self, explore_text, mode):
+        assert f"### {mode}" in explore_text
+
+    def test_rift_manual_only(self, explore_text):
+        assert "MANUAL-ONLY" in explore_text
+        assert "/pizm rift" in explore_text
+        assert "never auto-trigger" in explore_text.lower()
+        assert "no hidden auto-trigger" in explore_text
+
+    def test_rift_negative_context(self, explore_text):
+        assert "negative context" in explore_text
+
+    def test_residual_keeps_coverage_semantics(self, explore_text):
+        assert "seen" in explore_text and "closed" in explore_text
+        assert "attractor repetition" in explore_text
+        assert "Honest exhaustion is allowed" in explore_text
+        assert "difference_from_prior" in explore_text
+
+
+# ---------------------------------------------------------------------------
+# 17. Search field — accumulated candidates across passes
+# ---------------------------------------------------------------------------
+
+
+class TestSearchField:
+    def test_composite_refs_documented(self, explore_text):
+        assert "`passNN:cMM`" in explore_text or "passNN:cMM" in explore_text
+        assert re.search(r"pass01", explore_text)
+
+    def test_reused_local_ids_no_collision(self, explore_text):
+        assert "without collision" in explore_text
+
+    def test_append_only_field(self, explore_text):
+        assert "append-only" in explore_text or "append to the field" in explore_text
+        assert "never overwrite" in explore_text
+
+    def test_manifest_schema_named(self, explore_text):
+        assert "pizm-search-field-v1" in explore_text
+        assert "stage `search-field`" in explore_text or "--stage search-field" in explore_text
+
+    def test_manifest_does_not_duplicate_contents(self, explore_text):
+        assert "never duplicates candidate contents" in explore_text
+
+
+# ---------------------------------------------------------------------------
+# 18. Reasoning arsenal — staged + installed mirror
+# ---------------------------------------------------------------------------
+
+
+class TestReasoningArsenal:
+    SECTIONS = [
+        "## Search moves",
+        "## Portfolio moves",
+        "## Critic moves",
+        "## Anti-cargo-cult rule",
+    ]
+    SEARCH_MOVES = [
+        "APPARENT RESOURCE -> HIDDEN POLICY",
+        "CONSTRAINT VALIDITY",
+        "STRUCTURAL CONTRADICTION",
+        "DISSOLVED VS RELOCATED",
+        "FEEDBACK / DELAY / THRESHOLD",
+        "STATED VS ENACTED GOAL",
+    ]
+    PORTFOLIO_MOVES = [
+        "UNIQUE RESIDUE",
+        "COMPOSITION GAIN",
+        "MEMBER ABLATION",
+        "DYNAMIC CLOSURE",
+        "COST RELOCATION",
+        "PRODUCTIVE TENSION",
+    ]
+    CRITIC_MOVES = [
+        "LOAD-BEARING CLAIM CENSUS",
+        "SUPPORTED|INFERRED|SPECULATIVE|UNKNOWN",
+        "INDEPENDENT COUNTERMODEL",
+        "UNSUPPORTED SPECIFICITY",
+        "EPISTEMIC LAUNDERING",
+        "ROUND-TRIP SKELETON",
+        "CHEAPEST DISCRIMINATING TEST",
+    ]
+
+    @pytest.fixture
+    def arsenal_text(self):
+        return INSTALLED_ARSENAL.read_text(encoding="utf-8")
+
+    def test_staged_mirror_byte_identical(self):
+        assert INSTALLED_ARSENAL.exists(), "installed reasoning-arsenal.md missing"
+        assert STAGED_ARSENAL.exists(), "staged reasoning-arsenal.md missing"
+        assert STAGED_ARSENAL.read_bytes() == INSTALLED_ARSENAL.read_bytes()
+
+    @pytest.mark.parametrize("section", SECTIONS)
+    def test_sections_present(self, arsenal_text, section):
+        assert section in arsenal_text
+
+    @pytest.mark.parametrize("move", SEARCH_MOVES + PORTFOLIO_MOVES + CRITIC_MOVES)
+    def test_moves_present(self, arsenal_text, move):
+        assert move in arsenal_text, f"Arsenal move {move!r} missing"
+
+    def test_anti_cargo_cult_rule(self, arsenal_text):
+        assert (
+            "Do not instantiate a method merely because it exists in the arsenal."
+            in arsenal_text
+        )
+        assert "no output quota per technique" in arsenal_text
+        assert '"no useful application of this move" is a valid outcome' in arsenal_text
+        assert "no method-specific agents" in arsenal_text
+        assert "no public modes" in arsenal_text

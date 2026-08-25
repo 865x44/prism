@@ -34,6 +34,8 @@ def workspace(tmp_path):
     refs.mkdir()
     (refs / "explore-selector.md").write_text("# EXPLORE SELECTOR RUBRIC\nhidden rubric")
     (refs / "deep-reviewer.md").write_text("# DEEP REVIEWER RUBRIC\nhidden rubric")
+    (refs / "explore.md").write_text("# EXPLORE GENERATOR CONTRACT\n")
+    (refs / "lever-reviewer.md").write_text("# LEVER REVIEWER RUBRIC\nhidden rubric")
     return project, skill
 
 
@@ -1089,3 +1091,390 @@ def test_lever_design_duplicate_id(workspace):
     )
     assert result.returncode != 0
     assert "duplicate" in result.stderr
+
+
+# ── Search-field & portfolio stages (C1) ──────────────────────────────
+
+
+def valid_search_field():
+    return {
+        "schema_version": "pizm-search-field-v1",
+        "stage": "search-field",
+        "passes": [
+            {
+                "pass_id": "pass01",
+                "candidates_ref": "run-alpha/candidates.json",
+                "frozen_hash": "a" * 64,
+            }
+        ],
+        "entries": ["pass01:c01", "pass01:c02"],
+    }
+
+
+def valid_portfolio():
+    return {
+        "schema_version": "pizm-portfolio-selection-v1",
+        "stage": "portfolio",
+        "route": "MANUAL",
+        "field_hash": "b" * 64,
+        "candidate_assessments": [
+            {
+                "candidate_ref": "pass01:c01",
+                "disposition": "KEEP",
+                "standalone_quality": "strong",
+                "unique_residue": "only candidate carrying the delay mechanism",
+                "nearest_overlap": None,
+                "reason": "distinct mechanism, well grounded",
+            },
+            {
+                "candidate_ref": "pass01:c02",
+                "disposition": "DROP",
+                "standalone_quality": "weak",
+                "unique_residue": "",
+                "nearest_overlap": "pass01:c01",
+                "reason": "paraphrase of pass01:c01",
+            },
+        ],
+        "bundles": [],
+        "auto_target": None,
+    }
+
+
+def bundle(**overrides):
+    b = {
+        "bundle_id": "B1",
+        "member_refs": ["pass01:c02", "pass01:c08"],
+        "bundle_thesis": "delay and threshold jointly explain collapse timing",
+        "composition_gain": "predicts collapse onset that neither member predicts alone",
+        "member_roles": {},
+        "member_ablation": {
+            "pass01:c02": "without the delay mechanism the timing prediction vanishes",
+            "pass01:c08": "without the threshold the collapse direction is unexplained",
+        },
+        "internal_tension": "delay pushes later, threshold pulls earlier",
+        "weakest_link": "threshold calibration",
+        "new_consequence_or_prediction": "collapse occurs within one delay cycle of threshold crossing",
+    }
+    b.update(overrides)
+    return b
+
+
+def _load_checkpoint_module():
+    import importlib.util
+    from importlib.machinery import SourceFileLoader
+    loader = SourceFileLoader("pizm_checkpoint_under_test", CHECKPOINT)
+    spec = importlib.util.spec_from_loader(loader.name, loader)
+    module = importlib.util.module_from_spec(spec)
+    loader.exec_module(module)
+    return module
+
+
+def test_search_field_freeze_success(workspace):
+    project, skill = workspace
+    inp = write_json(project / "field.json", valid_search_field())
+    result = run_ck(
+        "freeze", "--stage", "search-field", "--run-id", "field-run-1",
+        "--input", inp, "--project-root", str(project), "--skill-root", str(skill),
+    )
+    assert result.returncode == 0, result.stderr
+    assert "FREEZE_OK" in result.stdout
+    run_dir = project / ".ai" / "pizm" / "run-field-run-1"
+    assert (run_dir / "search-field.json").exists()
+    assert (run_dir / "search-field.sha256").exists()
+    assert (run_dir / "search-field.meta.json").exists()
+    meta = json.loads((run_dir / "search-field.meta.json").read_text())
+    assert meta["schema_version"] == "pizm-search-field-v1"
+    assert meta["stage"] == "search-field"
+    # Contract map: search-field reveals the explore reference after freeze.
+    assert "# EXPLORE GENERATOR CONTRACT" in result.stdout
+
+
+def test_search_field_payload_too_large(workspace):
+    project, skill = workspace
+    data = valid_search_field()
+    data["passes"][0]["candidates_ref"] = "x" * 40000
+    inp = write_json(project / "big_field.json", data)
+    result = run_ck(
+        "freeze", "--stage", "search-field", "--run-id", "field-too-big",
+        "--input", inp, "--project-root", str(project), "--skill-root", str(skill),
+    )
+    assert result.returncode != 0
+    assert "PAYLOAD_TOO_LARGE" in result.stderr
+    assert "32768" in result.stderr
+    assert not (project / ".ai" / "pizm" / "run-field-too-big" / "search-field.json").exists()
+
+
+def test_search_field_append_only_ordering_enforced(workspace):
+    project, skill = workspace
+    data = valid_search_field()
+    data["passes"].append({
+        "pass_id": "pass02", "candidates_ref": "run-beta/candidates.json", "frozen_hash": "c" * 64,
+    })
+    data["entries"] = ["pass02:c01", "pass01:c03"]
+    inp = write_json(project / "field_bad_order.json", data)
+    result = run_ck(
+        "freeze", "--stage", "search-field", "--run-id", "field-bad-order",
+        "--input", inp, "--project-root", str(project), "--skill-root", str(skill),
+    )
+    assert result.returncode != 0
+    assert "append-only" in result.stderr
+
+
+def test_search_field_unregistered_pass_rejected(workspace):
+    project, skill = workspace
+    data = valid_search_field()
+    data["entries"].append("pass07:c01")
+    inp = write_json(project / "field_unknown_pass.json", data)
+    result = run_ck(
+        "freeze", "--stage", "search-field", "--run-id", "field-unknown-pass",
+        "--input", inp, "--project-root", str(project), "--skill-root", str(skill),
+    )
+    assert result.returncode != 0
+    assert "unregistered pass" in result.stderr
+
+
+def test_two_passes_reuse_local_c_ids_without_collision(workspace):
+    """Same local id c01 under two passes yields distinct composite refs."""
+    project, skill = workspace
+    data = valid_search_field()
+    data["passes"].append({
+        "pass_id": "pass02", "candidates_ref": "run-beta/candidates.json", "frozen_hash": "d" * 64,
+    })
+    data["entries"] = ["pass01:c01", "pass02:c01"]
+    inp = write_json(project / "field_reuse.json", data)
+    result = run_ck(
+        "freeze", "--stage", "search-field", "--run-id", "field-reuse",
+        "--input", inp, "--project-root", str(project), "--skill-root", str(skill),
+    )
+    assert result.returncode == 0, result.stderr
+
+
+def test_portfolio_manual_freeze_success(workspace):
+    project, skill = workspace
+    inp = write_json(project / "portfolio.json", valid_portfolio())
+    result = run_ck(
+        "freeze", "--stage", "portfolio", "--run-id", "pfolio-run-1",
+        "--input", inp, "--project-root", str(project), "--skill-root", str(skill),
+    )
+    assert result.returncode == 0, result.stderr
+    assert "FREEZE_OK" in result.stdout
+    run_dir = project / ".ai" / "pizm" / "run-pfolio-run-1"
+    assert (run_dir / "portfolio.json").exists()
+    assert (run_dir / "portfolio.sha256").exists()
+    assert (run_dir / "portfolio.meta.json").exists()
+    meta = json.loads((run_dir / "portfolio.meta.json").read_text())
+    assert meta["schema_version"] == "pizm-portfolio-selection-v1"
+    # Contract map: portfolio reveals the selector reference after freeze.
+    assert "EXPLORE SELECTOR RUBRIC" in result.stdout
+
+
+@pytest.mark.parametrize(
+    "target,valid",
+    [
+        ({"target_type": "P", "target_id": "P3"}, True),
+        ({"target_type": "B", "target_id": "B1"}, True),
+        ({"target_type": "B", "target_id": "B9"}, False),  # not a proposed bundle
+        ({"target_type": "X", "target_id": "P1"}, False),
+    ],
+)
+def test_portfolio_auto_targets(workspace, target, valid):
+    project, skill = workspace
+    data = valid_portfolio()
+    data["route"] = "AUTO"
+    data["bundles"] = [bundle()]
+    data["auto_target"] = target
+    inp = write_json(project / "portfolio_auto.json", data)
+    result = run_ck(
+        "freeze", "--stage", "portfolio", "--run-id", f"auto-{abs(hash(json.dumps(target)))}",
+        "--input", inp, "--project-root", str(project), "--skill-root", str(skill),
+    )
+    assert (result.returncode == 0) == valid
+
+
+def test_portfolio_auto_without_target_rejected(workspace):
+    project, skill = workspace
+    data = valid_portfolio()
+    data["route"] = "AUTO"
+    del data["auto_target"]
+    inp = write_json(project / "portfolio_auto_missing.json", data)
+    result = run_ck(
+        "freeze", "--stage", "portfolio", "--run-id", "auto-missing-target",
+        "--input", inp, "--project-root", str(project), "--skill-root", str(skill),
+    )
+    assert result.returncode != 0
+    assert "exactly one auto_target" in result.stderr
+
+
+def test_portfolio_manual_with_target_rejected(workspace):
+    project, skill = workspace
+    data = valid_portfolio()
+    data["auto_target"] = {"target_type": "P", "target_id": "P1"}
+    inp = write_json(project / "portfolio_manual_target.json", data)
+    result = run_ck(
+        "freeze", "--stage", "portfolio", "--run-id", "manual-with-target",
+        "--input", inp, "--project-root", str(project), "--skill-root", str(skill),
+    )
+    assert result.returncode != 0
+    assert "null" in result.stderr
+
+
+def test_portfolio_payload_too_large(workspace):
+    project, skill = workspace
+    data = valid_portfolio()
+    data["field_hash"] = "e" * 170000
+    inp = write_json(project / "portfolio_big.json", data)
+    result = run_ck(
+        "freeze", "--stage", "portfolio", "--run-id", "pfolio-too-big",
+        "--input", inp, "--project-root", str(project), "--skill-root", str(skill),
+    )
+    assert result.returncode != 0
+    assert "PAYLOAD_TOO_LARGE" in result.stderr
+    assert "163840" in result.stderr
+    assert not (project / ".ai" / "pizm" / "run-pfolio-too-big" / "portfolio.json").exists()
+
+
+def test_bundle_passenger_fails_ablation(workspace):
+    """member_ablation missing an entry for one member must be rejected."""
+    project, skill = workspace
+    data = valid_portfolio()
+    incomplete = bundle()
+    del incomplete["member_ablation"]["pass01:c08"]
+    data["bundles"] = [incomplete]
+    inp = write_json(project / "portfolio_passenger.json", data)
+    result = run_ck(
+        "freeze", "--stage", "portfolio", "--run-id", "passenger-bundle",
+        "--input", inp, "--project-root", str(project), "--skill-root", str(skill),
+    )
+    assert result.returncode != 0
+    assert "member_ablation" in result.stderr
+
+
+def test_bundle_single_member_rejected(workspace):
+    project, skill = workspace
+    data = valid_portfolio()
+    data["bundles"] = [bundle(member_refs=["pass01:c02"])]
+    inp = write_json(project / "portfolio_solo_bundle.json", data)
+    result = run_ck(
+        "freeze", "--stage", "portfolio", "--run-id", "solo-bundle",
+        "--input", inp, "--project-root", str(project), "--skill-root", str(skill),
+    )
+    assert result.returncode != 0
+    assert "at least 2" in result.stderr
+
+
+def test_duplicate_bundle_id_rejected(workspace):
+    project, skill = workspace
+    data = valid_portfolio()
+    data["bundles"] = [bundle(), bundle(bundle_id="B1", member_refs=["pass02:c01", "pass02:c02"])]
+    inp = write_json(project / "portfolio_dup_bid.json", data)
+    result = run_ck(
+        "freeze", "--stage", "portfolio", "--run-id", "dup-bid",
+        "--input", inp, "--project-root", str(project), "--skill-root", str(skill),
+    )
+    assert result.returncode != 0
+    assert "duplicate bundle_id" in result.stderr
+
+
+def test_prior_bundles_renumbering_rejected(workspace):
+    """Proposed ids diverging from the deterministic assignment fail closed."""
+    project, skill = workspace
+    data = valid_portfolio()
+    renamed = bundle(bundle_id="B7")
+    data["bundles"] = [renamed]
+    data["prior_bundles"] = [{"bundle_id": "B1", "member_refs": ["pass01:c02", "pass01:c08"]}]
+    inp = write_json(project / "portfolio_renum.json", data)
+    result = run_ck(
+        "freeze", "--stage", "portfolio", "--run-id", "renumber-attempt",
+        "--input", inp, "--project-root", str(project), "--skill-root", str(skill),
+    )
+    assert result.returncode != 0
+    assert "deterministic B-ID assignment violated" in result.stderr
+
+
+def test_prior_bundles_reuse_preserves_id(workspace):
+    project, skill = workspace
+    data = valid_portfolio()
+    fresh = bundle(
+        bundle_id="B2",
+        member_refs=["pass02:c01", "pass02:c02"],
+        member_ablation={
+            "pass02:c01": "without this member the cost-shift view vanishes",
+            "pass02:c02": "without this member the incentive view vanishes",
+        },
+    )
+    reused = bundle()  # same membership as prior B1 -> keeps B1
+    data["bundles"] = [reused, fresh]
+    data["prior_bundles"] = [{"bundle_id": "B1", "member_refs": ["pass01:c08", "pass01:c02"]}]
+    inp = write_json(project / "portfolio_reuse.json", data)
+    result = run_ck(
+        "freeze", "--stage", "portfolio", "--run-id", "reuse-prior",
+        "--input", inp, "--project-root", str(project), "--skill-root", str(skill),
+    )
+    assert result.returncode == 0, result.stderr
+
+
+# ── Deterministic B-ID helper (pure function) ───────────────────────────
+
+
+def test_assign_bundle_ids_fresh_monotonic():
+    module = _load_checkpoint_module()
+    props = [
+        {"member_refs": ["pass01:c02", "pass01:c08"]},
+        {"member_refs": ["pass02:c01", "pass02:c02"]},
+    ]
+    assert module._assign_bundle_ids([], props) == ["B1", "B2"]
+
+
+def test_assign_bundle_ids_reuse_preserves_and_continues_monotonic():
+    module = _load_checkpoint_module()
+    prior = [
+        {"bundle_id": "B1", "member_refs": ["pass01:c08", "pass01:c02"]},
+        {"bundle_id": "B4", "member_refs": ["pass00:c01", "pass00:c02"]},
+    ]
+    props = [
+        {"member_refs": ["pass01:c02", "pass01:c08"]},   # reuse B1
+        {"member_refs": ["pass09:c01", "pass09:c02"]},   # fresh above max(1,4)
+    ]
+    assert module._assign_bundle_ids(prior, props) == ["B1", "B5"]
+
+
+def test_assign_bundle_ids_deterministic_across_reruns():
+    module = _load_checkpoint_module()
+    prior = [{"bundle_id": "B2", "member_refs": ["pass01:c01", "pass01:c03"]}]
+    props = [
+        {"member_refs": ["pass01:c05", "pass01:c06"]},
+        {"member_refs": ["pass01:c01", "pass01:c03"]},
+        {"member_refs": ["pass03:c02", "pass04:c09"]},
+    ]
+    first = module._assign_bundle_ids(prior, props)
+    second = module._assign_bundle_ids(prior, props)
+    assert first == second
+    # Fresh ids are monotonic above every known id (prior max B2); the
+    # reused membership keeps B2; reruns are byte-identical (no renumbering).
+    assert first == ["B3", "B2", "B4"]
+
+
+def test_assign_bundle_ids_ambiguous_prior_state_fails_closed():
+    module = _load_checkpoint_module()
+    prior = [
+        {"bundle_id": "B1", "member_refs": ["pass01:c01", "pass01:c02"]},
+        {"bundle_id": "B2", "member_refs": ["pass01:c02", "pass01:c01"]},
+    ]
+    with pytest.raises(ValueError, match="ambiguous prior state"):
+        module._assign_bundle_ids(prior, [{"member_refs": ["pass05:c01", "pass05:c02"]}])
+
+
+def test_old_stage_validations_still_pass(workspace):
+    """Existing schemas stay valid after C1 additions."""
+    project, skill = workspace
+    for stage, payload, run in (
+        ("explore", valid_explore(), "old-explore"),
+        ("deep", valid_deep(), "old-deep"),
+        ("lever-design", valid_lever_design_data(), "old-lever"),
+    ):
+        inp = write_json(project / f"{run}.json", payload)
+        result = run_ck(
+            "freeze", "--stage", stage, "--run-id", run,
+            "--input", inp, "--project-root", str(project), "--skill-root", str(skill),
+        )
+        assert result.returncode == 0, f"{stage} regressed: {result.stderr}"

@@ -21,6 +21,8 @@ _CONTRACT_MAP = {
     "deep": "references/deep-reviewer.md",
     "lever-design": "references/lever-reviewer.md",
     "lever-review": None,
+    "search-field": "references/explore.md",
+    "portfolio": "references/explore-selector.md",
 }
 
 _SCHEMA_VERSIONS = {
@@ -28,13 +30,18 @@ _SCHEMA_VERSIONS = {
     "deep": "pizm-development-v1",
     "lever-design": "pizm-lever-design-v1",
     "lever-review": "pizm-lever-review-v1",
+    "search-field": "pizm-search-field-v1",
+    "portfolio": "pizm-portfolio-selection-v1",
 }
+
 
 # Payload safety bounds (R1, R2)
 _EXPLORE_MAX_CANDIDATES = 20
 _EXPLORE_MAX_TOTAL_BYTES = 196608  # 192 KiB
 _EXPLORE_MAX_SINGLE_CANDIDATE_BYTES = 12288  # 12 KiB
 _LEVER_MAX_TOTAL_BYTES = 65536  # 64 KiB
+_SEARCH_FIELD_MAX_TOTAL_BYTES = 32768  # 32 KiB
+_PORTFOLIO_MAX_TOTAL_BYTES = 163840  # 160 KiB
 _LEVER_REQUIRED_FIELDS = (
     "lever_id",
     "intervention_or_test_point",
@@ -48,6 +55,9 @@ _LEVER_REQUIRED_FIELDS = (
 
 _RUN_ID_RE = re.compile(r"[a-z0-9-]+\Z")
 _P_ID_RE = re.compile(r"P[1-9][0-9]*\Z")
+_B_ID_RE = re.compile(r"B[1-9][0-9]*\Z")
+_PASS_ID_RE = re.compile(r"pass[0-9]{2,}\Z")
+_COMPOSITE_REF_RE = re.compile(r"pass[0-9]{2,}:[A-Za-z0-9_-]+\Z")
 
 def _die(msg: str, code: int = 1) -> int:
     print(f"ERROR: {msg}", file=sys.stderr)
@@ -214,6 +224,275 @@ def _validate_lever_review(data: dict, raw_bytes_len: int = 0) -> None:
             if "verdict" in v and v["verdict"] not in ("ACCEPT", "REJECT"):
                 raise ValueError(f"verdicts[{i}].verdict must be ACCEPT or REJECT, got {v['verdict']!r}")
 
+def _assign_bundle_ids(previous_bundles, proposed_bundles):
+    """Deterministic canonical B-ID assignment (pure function).
+
+    previous_bundles: iterable of {"bundle_id": "B<n>", "member_refs": [...]}
+        canonical bundles already assigned in earlier frozen portfolios.
+    proposed_bundles: iterable of {"member_refs": [...]}.
+
+    Returns a list of canonical bundle ids aligned with proposed_bundles order.
+
+    Rules:
+    - reuse preserves the prior id (membership matched order-insensitively);
+    - fresh ids are allocated monotonically above every known id;
+    - identical inputs always produce an identical assignment (no renumbering);
+    - ambiguous prior state (two priors with identical membership) fails closed.
+    """
+    by_members = {}
+    max_n = 0
+    for b in previous_bundles:
+        bid = b.get("bundle_id")
+        if not isinstance(bid, str) or not _B_ID_RE.fullmatch(bid):
+            raise ValueError(f"prior bundle_id must match B[1-9][0-9]*, got {bid!r}")
+        members = b.get("member_refs")
+        if not isinstance(members, list) or len(members) < 2:
+            raise ValueError("prior bundle member_refs must be a list of at least 2 items")
+        key = tuple(sorted(members))
+        if key in by_members:
+            raise ValueError(
+                "ambiguous prior state: two prior bundles share identical membership"
+            )
+        by_members[key] = bid
+        max_n = max(max_n, int(bid[1:]))
+
+    assigned = []
+    fresh_by_members = {}
+    next_fresh = max_n + 1
+    for prop in proposed_bundles:
+        members = prop.get("member_refs")
+        if not isinstance(members, list) or len(members) < 2:
+            raise ValueError("proposed bundle member_refs must be a list of at least 2 items")
+        key = tuple(sorted(members))
+        if key in by_members:
+            assigned.append(by_members[key])
+        elif key in fresh_by_members:
+            assigned.append(fresh_by_members[key])
+        else:
+            new_id = f"B{next_fresh}"
+            next_fresh += 1
+            fresh_by_members[key] = new_id
+            assigned.append(new_id)
+    return assigned
+
+
+def _validate_search_field(data: dict, raw_bytes_len: int = 0) -> None:
+    if not isinstance(data, dict):
+        raise ValueError("root must be a JSON object")
+    if data.get("schema_version") != _SCHEMA_VERSIONS["search-field"]:
+        raise ValueError(f"schema_version must be {_SCHEMA_VERSIONS['search-field']!r}")
+    if data.get("stage") != "search-field":
+        raise ValueError("stage field must be 'search-field'")
+
+    if raw_bytes_len > _SEARCH_FIELD_MAX_TOTAL_BYTES:
+        raise ValueError(
+            f"PAYLOAD_TOO_LARGE: search-field manifest size {raw_bytes_len} bytes "
+            f"exceeds maximum {_SEARCH_FIELD_MAX_TOTAL_BYTES} bytes (32 KiB)"
+        )
+
+    passes = data.get("passes")
+    if not isinstance(passes, list) or len(passes) == 0:
+        raise ValueError("passes must be a non-empty list")
+
+    known_passes = set()
+    for i, p in enumerate(passes):
+        if not isinstance(p, dict):
+            raise ValueError(f"passes[{i}] must be an object")
+        pass_id = p.get("pass_id")
+        if not isinstance(pass_id, str) or not _PASS_ID_RE.fullmatch(pass_id):
+            raise ValueError(f"passes[{i}].pass_id must match passNN (e.g. pass01), got {pass_id!r}")
+        if pass_id in known_passes:
+            raise ValueError(f"duplicate pass_id: {pass_id!r}")
+        known_passes.add(pass_id)
+        candidates_ref = p.get("candidates_ref")
+        if not isinstance(candidates_ref, str) or not candidates_ref.strip():
+            raise ValueError(f"passes[{i}].candidates_ref must be non-empty string")
+        frozen_hash = p.get("frozen_hash")
+        if not isinstance(frozen_hash, str) or not frozen_hash.strip():
+            raise ValueError(f"passes[{i}].frozen_hash must be non-empty string")
+
+    entries = data.get("entries")
+    if not isinstance(entries, list) or len(entries) == 0:
+        raise ValueError("entries must be a non-empty list")
+
+    seen_refs = set()
+    last_pass_n = 0
+    for i, ref in enumerate(entries):
+        if not isinstance(ref, str) or not _COMPOSITE_REF_RE.fullmatch(ref):
+            raise ValueError(
+                f"entries[{i}] must be a composite ref passNN:cNN, got {ref!r}"
+            )
+        if ref in seen_refs:
+            raise ValueError(f"duplicate composite ref: {ref!r}")
+        seen_refs.add(ref)
+        pass_id = ref.split(":", 1)[0]
+        if pass_id not in known_passes:
+            raise ValueError(f"entries[{i}] references unregistered pass {pass_id!r}")
+        pass_n = int(pass_id[4:])
+        # Append-only manifest: a later entry may never belong to an earlier pass.
+        if pass_n < last_pass_n:
+            raise ValueError(
+                f"entries[{i}] violates append-only ordering "
+                f"({pass_id} appears after its later pass)"
+            )
+        last_pass_n = pass_n
+
+
+def _validate_portfolio(data: dict, raw_bytes_len: int = 0) -> None:
+    if not isinstance(data, dict):
+        raise ValueError("root must be a JSON object")
+    if data.get("schema_version") != _SCHEMA_VERSIONS["portfolio"]:
+        raise ValueError(f"schema_version must be {_SCHEMA_VERSIONS['portfolio']!r}")
+    if data.get("stage") != "portfolio":
+        raise ValueError("stage field must be 'portfolio'")
+
+    if raw_bytes_len > _PORTFOLIO_MAX_TOTAL_BYTES:
+        raise ValueError(
+            f"PAYLOAD_TOO_LARGE: portfolio artifact size {raw_bytes_len} bytes "
+            f"exceeds maximum {_PORTFOLIO_MAX_TOTAL_BYTES} bytes (160 KiB)"
+        )
+
+    route = data.get("route")
+    if route not in ("MANUAL", "AUTO"):
+        raise ValueError(f"route must be MANUAL or AUTO, got {route!r}")
+
+    field_hash = data.get("field_hash")
+    if not isinstance(field_hash, str) or not field_hash.strip():
+        raise ValueError("field_hash must be non-empty string")
+
+    assessments = data.get("candidate_assessments")
+    if not isinstance(assessments, list) or len(assessments) == 0:
+        raise ValueError("candidate_assessments must be a non-empty list")
+
+    seen_refs = set()
+    for i, a in enumerate(assessments):
+        if not isinstance(a, dict):
+            raise ValueError(f"candidate_assessments[{i}] must be an object")
+        ref = a.get("candidate_ref")
+        if not isinstance(ref, str) or not _COMPOSITE_REF_RE.fullmatch(ref):
+            raise ValueError(
+                f"candidate_assessments[{i}].candidate_ref must be a composite ref "
+                f"passNN:cNN, got {ref!r}"
+            )
+        if ref in seen_refs:
+            raise ValueError(f"duplicate candidate_ref: {ref!r}")
+        seen_refs.add(ref)
+        if a.get("disposition") not in ("KEEP", "BORDERLINE", "MERGE", "DROP"):
+            raise ValueError(
+                f"candidate_assessments[{i}].disposition must be KEEP|BORDERLINE|MERGE|DROP"
+            )
+        if a.get("standalone_quality") not in ("strong", "borderline", "weak"):
+            raise ValueError(
+                f"candidate_assessments[{i}].standalone_quality must be strong|borderline|weak"
+            )
+        if not isinstance(a.get("unique_residue"), str):
+            raise ValueError(f"candidate_assessments[{i}].unique_residue must be a string")
+        overlap = a.get("nearest_overlap")
+        if overlap is not None and (
+            not isinstance(overlap, str) or not _COMPOSITE_REF_RE.fullmatch(overlap)
+        ):
+            raise ValueError(
+                f"candidate_assessments[{i}].nearest_overlap must be null or a "
+                f"composite ref passNN:cNN, got {overlap!r}"
+            )
+        reason = a.get("reason")
+        if not isinstance(reason, str) or not reason.strip():
+            raise ValueError(f"candidate_assessments[{i}].reason must be non-empty string")
+
+    bundles = data.get("bundles")
+    if not isinstance(bundles, list):
+        raise ValueError("bundles must be a list")
+
+    seen_bundle_ids = set()
+    bundle_ids_in_artifact = []
+    for i, b in enumerate(bundles):
+        if not isinstance(b, dict):
+            raise ValueError(f"bundles[{i}] must be an object")
+        bid = b.get("bundle_id")
+        if not isinstance(bid, str) or not _B_ID_RE.fullmatch(bid):
+            raise ValueError(f"bundles[{i}].bundle_id must match B[1-9][0-9]*, got {bid!r}")
+        if bid in seen_bundle_ids:
+            raise ValueError(f"duplicate bundle_id: {bid!r}")
+        seen_bundle_ids.add(bid)
+        bundle_ids_in_artifact.append(bid)
+
+        members = b.get("member_refs")
+        if not isinstance(members, list) or len(members) < 2:
+            raise ValueError(
+                f"bundles[{i}].member_refs must be a list of at least 2 composite refs"
+            )
+        seen_members = set()
+        for j, m in enumerate(members):
+            if not isinstance(m, str) or not _COMPOSITE_REF_RE.fullmatch(m):
+                raise ValueError(
+                    f"bundles[{i}].member_refs[{j}] must be a composite ref passNN:cNN, got {m!r}"
+                )
+            if m in seen_members:
+                raise ValueError(f"bundles[{i}] duplicate member_ref: {m!r}")
+            seen_members.add(m)
+
+        for field_name in ("bundle_thesis", "composition_gain", "new_consequence_or_prediction"):
+            v = b.get(field_name)
+            if not isinstance(v, str) or not v.strip():
+                raise ValueError(f"bundles[{i}].{field_name} must be non-empty string")
+        for field_name in ("internal_tension", "weakest_link"):
+            if not isinstance(b.get(field_name), str):
+                raise ValueError(f"bundles[{i}].{field_name} must be a string")
+
+        roles = b.get("member_roles")
+        if not isinstance(roles, dict):
+            raise ValueError(f"bundles[{i}].member_roles must be an object")
+        for k, v in roles.items():
+            if k not in seen_members:
+                raise ValueError(f"bundles[{i}].member_roles key {k!r} is not a member_ref")
+            if not isinstance(v, str):
+                raise ValueError(f"bundles[{i}].member_roles[{k!r}] must be a string")
+
+        ablation = b.get("member_ablation")
+        if not isinstance(ablation, dict) or set(ablation.keys()) != seen_members:
+            raise ValueError(
+                f"bundles[{i}].member_ablation must have exactly one non-empty entry per "
+                "member_ref (member ablation is required; a removable passenger "
+                "invalidates the bundle)"
+            )
+        for k, v in ablation.items():
+            if not isinstance(v, str) or not v.strip():
+                raise ValueError(f"bundles[{i}].member_ablation[{k!r}] must be non-empty string")
+
+    auto_target = data.get("auto_target")
+    if route == "AUTO":
+        if not isinstance(auto_target, dict):
+            raise ValueError("route AUTO requires exactly one auto_target object")
+        ttype = auto_target.get("target_type")
+        if ttype not in ("P", "B"):
+            raise ValueError(f"auto_target.target_type must be P or B, got {ttype!r}")
+        tid = auto_target.get("target_id")
+        if not isinstance(tid, str) or not tid.strip():
+            raise ValueError("auto_target.target_id must be non-empty string")
+        if ttype == "P":
+            if not _P_ID_RE.fullmatch(tid):
+                raise ValueError(
+                    f"auto_target.target_id {tid!r} must match P[1-9][0-9]* for target_type P"
+                )
+        elif tid not in seen_bundle_ids:
+            raise ValueError(
+                f"auto_target.target_id {tid!r} must reference a bundle_id proposed in this portfolio"
+            )
+    elif auto_target is not None:
+        raise ValueError("route MANUAL requires auto_target to be null")
+
+    prior_bundles = data.get("prior_bundles")
+    if prior_bundles is not None:
+        if not isinstance(prior_bundles, list):
+            raise ValueError("prior_bundles must be a list")
+        expected = _assign_bundle_ids(prior_bundles, bundles)
+        if bundle_ids_in_artifact != expected:
+            raise ValueError(
+                f"deterministic B-ID assignment violated: bundle ids {bundle_ids_in_artifact} "
+                f"do not match canonical assignment {expected}; reuse preserves prior ids "
+                "and user-visible ids are never renumbered"
+            )
+
 def _sha256_hex(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
@@ -309,6 +588,10 @@ def freeze(
             _validate_lever_design(data, len(raw))
         elif stage == "lever-review":
             _validate_lever_review(data, len(raw))
+        elif stage == "search-field":
+            _validate_search_field(data, len(raw))
+        elif stage == "portfolio":
+            _validate_portfolio(data, len(raw))
         else:
             return _die(f"unknown stage: {stage!r}")
     except ValueError as e:
@@ -326,6 +609,10 @@ def freeze(
         prefix = "design"
     elif stage == "lever-review":
         prefix = "review"
+    elif stage == "search-field":
+        prefix = "search-field"
+    elif stage == "portfolio":
+        prefix = "portfolio"
     else:
         prefix = stage
 
@@ -431,7 +718,7 @@ def main() -> int:
     fp.add_argument(
         "--stage",
         required=True,
-        choices=["explore", "deep", "lever-design", "lever-review"],
+        choices=["explore", "deep", "lever-design", "lever-review", "search-field", "portfolio"],
     )
     fp.add_argument("--run-id", required=True)
     fp.add_argument("--input", required=True, dest="input_path")

@@ -8,8 +8,8 @@ In staged execution, Explore operates as a generator: it produces a structured c
 
 **Pre-freeze future-contract prohibition:** Until the checkpoint returns `FREEZE_OK`, do not read, open, search, list, inspect, or otherwise access any future-stage contract or reference asset. Use only this loaded pre-freeze contract and the visible conversation context. If a future-stage contract is exposed prematurely, stop the pass and report the separation failure.
 
-1. Analyze the task, source materials, and any prior visible Pizm territory.
-2. Generate candidate perspective seeds according to the requested mode (NORMAL, 360, or RIFT).
+1. Analyze the task, source materials, any accumulated search field, and any prior visible Pizm territory.
+2. Generate candidate perspective seeds according to the requested search policy (initial, residual, or rift; see Search Policies below).
 3. Format candidate perspectives according to the `pizm-candidates-v1` schema.
 4. **Tool-only pre-freeze turn**: The assistant turn that writes candidates and invokes checkpoint must contain ONLY tool calls (write the pending JSON file, then invoke the freeze command via bash). Emit ZERO visible prose in this turn — no summaries, no "candidates saved", no commentary. The `<slug>` used as `--run-id` must be a timestamp or random lowercase alphanumeric slug (e.g., `20260824t153000`, `a3f7b2`), never derived from session identity or user-visible state.
    ```bash
@@ -31,7 +31,11 @@ In staged execution, Explore operates as a generator: it produces a structured c
 - Do not use "weakest/strongest candidate" language.
 - Maintain objective, descriptive generation of candidate models without editorializing.
 
-## Modes
+## Search Policies
+
+Every Explore pass runs exactly one deliberate search policy: `initial`, `residual`, or `rift`. The policy names how this pass searches; it is not a quality grade. Candidate count is never a quality metric, and no policy has a fixed quota.
+
+Legacy mode strings remain parseable on read for compatibility: NORMAL = initial policy, 360 = residual policy (deprecated alias), RIFT = rift policy.
 
 ### NORMAL
 
@@ -63,7 +67,37 @@ For each candidate perspective, populate the semantic core:
 - load-bearing assumption or limit (`boundary`);
 - epistemics arrays (`supported`, `inferred`, `speculative`, `unknown`).
 
+### residual policy
+
+The residual policy inspects the accumulated search field (see Search Field below), reconstructs the semantic territory already covered, and searches genuinely uncovered structural territory. Soft target: 6–10 candidate seeds when the material supports it.
+
+Coverage-first semantics:
+
+- Distinguish seen from closed: territory can be seen without being closed; only a genuinely exhausted outer shell justifies moving on.
+- Reconstruct prior semantic cores before claiming novelty, then seek the next outer shell: blind spots, missing variables, countermodels, alternative units of analysis, boundary shifts, new causal families.
+- Avoid attractor repetition: do not regenerate previous territory under new names, and do not keep returning to a favored mechanism, actor swap, example swap, family heading, or stylistic reframing as if it were new breadth.
+- Seek genuinely distinct logics: mechanisms, system boundaries, agency distributions, time horizons, constraints, assumptions, failure logics, intervention logics.
+- Honest exhaustion is allowed: when no genuinely uncovered structural territory remains, return a short honest limit rather than forcing novelty.
+- Borderline-open territories may stay open: an inconclusive shell may remain explicitly open instead of being forced shut.
+- If prior context is materially incomplete enough to make novelty uncertain, say so rather than pretending continuity.
+
+There is no fixed candidate quota. A map of genuinely independent territories is better than a large fake-breadth map of decorative variations.
+
+For each residual candidate, populate `difference_from_prior` along with the semantic core.
+
+### 360
+
+Deprecated compatibility alias. A request for 360 executes the residual search policy above; the mode string stays accepted on read. Removal is deferred to a later plan. A 360 request never runs implicitly and never means "a larger NORMAL".
+
 ### RIFT
+
+Rift is MANUAL-ONLY. It starts solely from an explicit `/pizm rift` user request. AUTO and FORGE never auto-trigger a rift pass, and there is no hidden auto-trigger.
+
+Field handling:
+
+- If an accumulated field exists, rift receives it as negative context: territory to move away from, not territory to refine.
+- With no accumulated field, rift works directly from the source/task.
+
 Find far-but-grounded structural shifts, not merely unusual wording or decorative analogy.
 
 A RIFT may change the unit of analysis, allocation of agency, mechanism, system boundary, time horizon, type of causality, or transfer a genuinely relevant functional structure from another domain.
@@ -80,18 +114,14 @@ For each candidate RIFT, provide:
 
 If the material cannot support a meaningful RIFT, return a short honest limit rather than forcing novelty.
 
-### 360
-360 is explicit-only and coverage-first. It is not a larger NORMAL and not a ranking pass.
+## Search Field (accumulated candidates across passes)
 
-Before local elaboration, seek materially distinct grounded semantic territories. Do not count refinements, actor swaps, example swaps, family headings, stylistic reframings, or candidate count as independent breadth.
+Explore passes accumulate into a persistent search field:
 
-Use prior accessible Pizm territory. Reconstruct its semantic cores before claiming novelty and seek the next outer shell: blind spots, missing variables, countermodels, alternative units of analysis, new causal families, boundary shifts, or otherwise genuinely distinct territories.
-
-Do not regenerate previous territory under new names. If prior context is materially incomplete enough to make novelty uncertain, say so rather than pretending continuity.
-
-There is no fixed candidate quota. A map of genuinely independent territories is better than a large fake-breadth map of decorative variations.
-
-For each candidate perspective, populate `difference_from_prior` along with the semantic core.
+- Every pass's frozen candidates stay available. Later passes append to the field; they never overwrite, prune, or rewrite earlier raw candidates.
+- Candidates are addressed by composite ref `passNN:cMM`: the pass index (`pass01`, `pass02`, ... monotonic within the active conversation) plus the candidate id local to that pass. Two passes may reuse the same local ids (each may have its own `c01`) without collision because composite refs stay distinct.
+- After each pass the host maintains a tiny search-field manifest conforming to `pizm-search-field-v1`: per-pass entries referencing each frozen candidates artifact by location plus its hash, plus accumulated composite refs. The manifest references artifacts; it never duplicates candidate contents.
+- The manifest itself freezes through the checkpoint tool with stage `search-field` and is append-only across passes: earlier passes' rows are never rewritten, and payload bounds fail closed.
 
 ## Candidate Schema (pizm-candidates-v1)
 
@@ -121,7 +151,7 @@ Candidate JSON must conform to the following schema:
         "unknown": ["string"]
       },
       "break_condition": "string (optional, RIFT-required)",
-      "difference_from_prior": "string (360 only)",
+      "difference_from_prior": "string (residual policy; includes deprecated 360 alias)",
       "rift_extras": {
         "source_structure": "string",
         "functional_mapping": "string",
@@ -171,4 +201,5 @@ return_path: RIFT-only via rift_extras
 default_frame: derived from visible framing + structural_shift (not stored)
 blind_spot: represented by what_becomes_visible + difference_from_prior
 operator provenance: represented by mode + rift_extras.source_structure (no invented IDs)
+search-policy naming: initial|residual|rift; legacy mode strings NORMAL|360|RIFT stay parseable on read (360 = deprecated alias of residual)
 -->

@@ -1,18 +1,26 @@
 # Pizm Explore Selector
 
-Explore Selector is the hidden evaluation contract for the Explore primitive. It is revealed only after a candidate pool has been frozen and verified by hash via `bin/pizm-checkpoint freeze --stage explore`.
+Explore Selector is the hidden evaluation contract for the Explore primitive. It is revealed only after a candidate pool has been frozen and verified by hash via `bin/pizm-checkpoint freeze --stage explore`. Selection always happens after freeze: the generator never sees this contract before its artifact is frozen, and the judge evaluates nothing that was not frozen first.
+
+The selector is a portfolio judge, not a ranker. It judges the exact frozen field and assembles the strongest portfolio: per-candidate categorical judgments plus bundles where — and only where — composition gains exist.
 
 ## Core Responsibilities
 
-1. **Judge exact frozen pool only**: Evaluate candidates strictly from the frozen artifact matching the verified hash. Do not invent new candidates or alter frozen candidate content.
-2. **Enforce task constraints and grounding**: Verify that each candidate is firmly anchored in the source/task and that its mechanism is plausible.
-3. **Detect structural vs decorative novelty**: Distinguish genuine structural shifts (mechanisms, constraints, boundaries, agency, causal models) from decorative analogies, stylistic reframings, or vocabulary swaps.
-4. **Detect redundancy**: Identify paraphrases, overlapping mechanisms, or generic platitudes across candidates.
-5. **Construct strong survivor set with adaptive count**: Retain only candidates that offer distinct value. There is no fixed quota; select fewer when candidate quality is low and more only when candidates are genuinely independent.
+The judge reasons about, at minimum:
 
-## Categorical Evaluation Rubric
+1. **Judge exact frozen pool only**: Evaluate candidates strictly from the frozen artifacts matching the verified hashes (`field_hash`). Do not invent new candidates or alter frozen candidate content.
+2. **Constraint validity**: Verify that each candidate is firmly anchored in the source/task and that its mechanism is plausible under the task's real constraints.
+3. **Structural vs decorative novelty**: Distinguish genuine structural shifts (mechanisms, constraints, boundaries, agency, causal models) from decorative analogies, stylistic reframings, or vocabulary swaps.
+4. **Unique residue**: For every candidate, identify what it contributes that nothing else in the accumulated field does.
+5. **Nearest overlap**: For every candidate, identify its closest neighbor in the field (composite ref), or record that none exists.
+6. **MERGE**: Collapse obvious duplicates that share one core mechanism.
+7. **Complementarity and productive tension**: Recognize when candidates jointly generate insight, contrast, or consequences that neither produces alone.
+8. **Composition gain and bundle construction**: Build bundles strictly under the bundle rules below.
+9. **AUTO target nomination**: When `route` is `AUTO`, nominate exactly one target (a promoted perspective or a bundle).
 
-Every candidate must receive categorical judgments on two orthogonal dimensions:
+## Judging Dimensions
+
+Candidates are addressed by composite ref `passNN:cMM`. All frozen passes of the accumulated field are judged together; a later pass's candidate is judged on equal terms with an earlier pass's candidate.
 
 ### Standalone Quality (Core-aligned enum: `strong|borderline|weak`)
 - `strong`: Coherent, grounded, materially insightful mechanism with clear boundaries and implications.
@@ -21,70 +29,69 @@ Every candidate must receive categorical judgments on two orthogonal dimensions:
 
 Decorative, redundant, and noise-like candidates are all mapped to `weak`; the reason field (and the disposition) distinguishes them.
 
-### Marginal Contribution (Core-aligned enum: `high|medium|low|none`)
-- `high`: Explores genuinely new semantic territory or an independent causal mechanism not covered by others.
-- `medium`: Adds meaningful variation, nuance, or complementary facet to another candidate without fully overlapping it.
-- `low`: Minor incremental variation or localized refinement that mostly duplicates another candidate's core claim or mechanism.
-- `none`: Substantially duplicates another candidate, adds confusion, ungrounded speculation, or non-actionable clutter.
+### Unique Residue and Nearest Overlap
+- `unique_residue`: The irreducible contribution this candidate adds to the field — a mechanism, variable, boundary, consequence, or question no other candidate carries. Empty residue is a legitimate finding, not a defect to paper over.
+- `nearest_overlap`: Composite ref of the most structurally similar other candidate, or null when the residue is genuinely alone. Overlap is judged on mechanism and claim structure, not topic vocabulary.
 
-Redundant and noise-like candidates receive `low` or `none`; the reason field (and the disposition) disambiguates.
+**Failure to avoid**: a uniform outcome — every candidate marked strong with no structural distinctions drawn between them — is itself a judging failure, not evidence of an exceptionally good pool. If no distinctions exist, say so explicitly per candidate instead of inflating uniform praise.
 
 ### Categorical Dispositions
 Assign exactly one disposition to each candidate:
-- `KEEP`: Candidate has `strong` standalone quality and `high` or `medium` marginal contribution. Promoted to a visible perspective.
-- `BORDERLINE`: Candidate has `borderline` standalone quality, or `strong` quality with only `low` marginal contribution. Kept only if the pool lacks better coverage in that territory.
-- `MERGE`: Combines with one or more related candidates when they share a core mechanism but offer complementary facets (typically `medium` marginal contribution but overlapping core claims). The unified perspective retains one primary `target` candidate.
-- `DROP`: Candidate has `weak` standalone quality or `none` marginal contribution. Excluded from visible output.
+- `KEEP`: Candidate carries real unique residue and stands on its own. Promoted to a visible perspective.
+- `BORDERLINE`: Viable but unresolved — noticeable gaps, or real residue entangled with weak grounding. Kept visible as open territory, without promotion pressure.
+- `MERGE`: Obvious duplicate sharing a core mechanism with another candidate while contributing complementary facets. The unified perspective retains one primary target candidate.
+- `DROP`: Weak standalone quality or empty unique residue. Excluded from visible output.
+
+There is no rejection quota and no forced distribution. A high count of positive dispositions is acceptable when the unique residues are genuinely real; the failure mode to avoid is uniformity without structural distinctions, not generosity.
 
 **Strict Prohibition**: Do NOT use numeric scores, score arithmetic, percentages, ranking formulas, or top-N quotas. Evaluation must be entirely categorical.
 
-## Mode-Specific Selection Criteria
+## Bundles
 
-### NORMAL
-- Filter for practically useful, materially distinct perspectives that shift the user's framing.
-- Drop generic advice, superficial summaries, and platitudes.
-- Merge perspectives that describe the same core mechanism under different angles.
+A bundle groups members whose combination produces something beyond any listing of parts.
 
-### 360
-- Explicitly judge novelty relative to prior visible territory and reconstructed prior semantic cores.
-- Verify `difference_from_prior`: reject candidates that merely re-hash previously explored perspectives under new names.
-- Ensure survivors represent distinct outer-shell semantic territories.
+1. **Composition gain is mandatory**: A bundle is valid only when it asserts, explains, predicts, or reveals something not recoverable by listing members with "and". State the gain explicitly in `composition_gain`.
+2. **Not a topic cluster**: Bundles are not tag groups, shared-subject collections, or "similar ideas" bins. Similarity is grounds for MERGE or DROP, never for bundling.
+3. **Membership**: At least 2 members; soft preference for 2–4. Larger bundles must justify their size through the composition gain itself.
+4. **Member ablation is required**: `member_ablation` states what breaks or disappears when each member is removed. If removing a member loses nothing, that member is a passenger: remove the passenger or dissolve the bundle.
+5. **Productive tension**: `internal_tension` names the live contradiction or trade-off between members that keeps the bundle honest rather than decorative.
+6. **Consequence**: `new_consequence_or_prediction` states one testable consequence the bundle implies and no lone member does.
+7. **Do not force bundles**: Zero bundles is a valid outcome. A field of independent perspectives with no composition gains needs no bundles.
 
-### RIFT
-- Evaluate actual functional transfer and structural shift from the donor domain, not just vocabulary or poetic analogy.
-- Verify that `functional_mapping` and `return_path` hold under scrutiny.
-- Ensure the `break_condition` identifies the genuine failure boundary of the analogy/shift.
+**Late promotion**: A candidate left unselected by an earlier judgment may enter a later portfolio or bundle. Raw history stays untouched: earlier records are never rewritten, and promotion never retroactively changes past outputs.
 
-## Selection Output Schema (selection.json)
+## Bundle ID Determinism
 
-The selector produces a compact JSON record conforming to `pizm-selection-v1`:
+Bundle ids are host-assigned, never judge-invented. The judge proposes temporary bundle candidates only; the deterministic host step inside the checkpoint flow canonicalizes memberships, assigns the next free `B<n>`, validates, and freezes. Reusing a prior bundle preserves its existing id. User-visible bundle ids are never renumbered after assignment, and re-running the assignment over identical inputs yields byte-identical results.
+
+## Portfolio Output Schema (pizm-portfolio-selection-v1)
+
+The judge freezes its decision as one portfolio record conforming to `pizm-portfolio-selection-v1`:
 
 ```json
 {
-  "schema_version": "pizm-selection-v1",
-  "stage": "explore",
-  "mode": "NORMAL|360|RIFT",
-  "frozen_hash": "string",
-  "dispositions": [
-    {
-      "candidate_id": "string",
-      "disposition": "KEEP|BORDERLINE|MERGE|DROP",
-      "standalone_quality": "strong|borderline|weak",
-      "marginal_contribution": "high|medium|low|none",
-      "reason": "string (compact)"
-    }
+  "schema_version": "pizm-portfolio-selection-v1",
+  "route": "MANUAL|AUTO",
+  "field_hash": "...",
+  "candidate_assessments": [
+    {"candidate_ref": "pass01:c06", "disposition": "KEEP|BORDERLINE|MERGE|DROP", "standalone_quality": "strong|borderline|weak", "unique_residue": "...", "nearest_overlap": "pass02:c03|null", "reason": "..."}
   ],
-  "kept": ["candidate_id"],
-  "merged": [{"target": "candidate_id", "sources": ["candidate_id"]}],
-  "next_free_p": "P<n>"
+  "bundles": [
+    {"bundle_id": "B1", "member_refs": ["pass01:c02","pass01:c08"], "bundle_thesis": "...", "composition_gain": "...", "member_roles": {}, "member_ablation": {}, "internal_tension": "...", "weakest_link": "...", "new_consequence_or_prediction": "..."}
+  ],
+  "auto_target": {"target_type": "P|B", "target_id": "..."}
 }
 ```
 
+Routing rules:
+- `MANUAL`: `auto_target` may be null. The user chooses what to deepen.
+- `AUTO`: exactly one `auto_target`, pointing at a promoted perspective (`target_type` `P`) or at a proposed bundle id (`target_type` `B`).
+
 ## User-Visible Presentation Rules
 
-1. **Tool-only selection.json write**: From the checkpoint `ARTIFACT` path, use its parent run directory and write `<ARTIFACT-parent>/selection.json` via tool call (not visible to user). Never write a cwd-global `selection.json` and never render the selection JSON in chat prose.
+1. **Tool-only portfolio record write**: From the checkpoint `ARTIFACT` path of the last frozen pass, use its parent run directory and freeze the portfolio record via tool call with stage `portfolio` (written as `<ARTIFACT-parent>/portfolio.json`). Never write a cwd-global `portfolio.json` and never render the portfolio JSON in chat prose.
 2. **Hide raw pool and internal records**: Never show the raw candidate pool, unselected/dropped candidate data, internal evaluation notes, or JSON schema artifacts to the user.
-3. **Present only kept and merged perspective cards**: Render only survivors (KEPT and MERGED perspectives) in clean, readable markdown cards.
+3. **Present only kept and merged perspective cards**: Render only survivors (promoted perspectives and merged perspectives) plus any nominated bundles, in clean, readable markdown cards.
 4. **Card Structure**:
    - `### P<n>: <Title>`
    - **Core claim / structural shift**: what changes in the model
@@ -94,7 +101,8 @@ The selector produces a compact JSON record conforming to `pizm-selection-v1`:
    - **Boundary / assumption**: load-bearing limit
    - **Epistemics**: distinguish supported facts from inferences/speculation
    - *(For RIFT)* **Break condition**: where the model stops working
-   - *(For 360)* **Difference from prior**: how this differs from earlier territory
+   - *(For residual)* **Difference from prior**: how this differs from earlier territory
+   - *(For a bundle)* **Bundle thesis**, **Composition gain**, **Members and roles**, **Weakest link**
 5. **A5 P-ID Monotonicity Guard**:
    - Derive the current maximum P-ID from all visible prior conversation outputs (e.g., if P1..P4 exist, current max is 4; if starting fresh, current max is 0).
    - Assign strictly increasing P-IDs to surviving perspectives (e.g., P5, P6, ...).
@@ -102,6 +110,10 @@ The selector produces a compact JSON record conforming to `pizm-selection-v1`:
    - Determine `next_free_p` as the next unused P-ID (e.g., `P7`).
    - The user-visible response MUST conclude with the exact line:
      `Next free P: P<n>`
+
+## Legacy Single-Pool Record (pizm-selection-v1)
+
+Runs made before the portfolio contract recorded their judgments as a flat pool record (`pizm-selection-v1`: `frozen_hash`, per-candidate entries with the same categorical enums above, `kept`, `merged` targets, `next_free_p`). Read such artifacts historically; do not emit them for new selections except through the legacy AUTO path below.
 
 ---
 
