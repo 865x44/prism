@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import json
 """
 pizm-session-bundle: Archive Prism same-host staged reasoning sessions and
 render deterministic AUTO run.md reports.
@@ -10,7 +11,7 @@ and renders a readable run.md from a frozen AUTO run directory
 """
 import argparse
 import hashlib
-import json
+
 import os
 import random
 import re
@@ -27,11 +28,51 @@ _STAGE_LABEL_RE = re.compile(
     r"(?:pass-[0-9]{2}-(?:normal|rift|360|residual)|(?:deep|lever)-(?:P[1-9][0-9]*|B[1-9][0-9]*|DIRECT_SEED)|search-field|portfolio|comparison(?:-review)?)\Z"
 )
 
-_EXPLORE_REQUIRED = {"candidates.json", "candidates.sha256", "selection.json"}
-_DEEP_REQUIRED = {"development.json", "development.sha256", "review.json"}
-_LEVER_REQUIRED = {"design.json", "design.sha256", "review.json"}
+_ALLOWED_ACCOUNTING_KEYS = {
+    "host_inference_count",
+    "model_repair_count",
+    "checkpoint_retry_count",
+    "semantic_stage_count",
+    "candidate_bytes",
+    "development_bytes",
+}
+
+_EXPLORE_ALLOWLIST_RE = re.compile(
+    r"^(?:candidates(?:-pass[0-9]{2})?|selection(?:-pass[0-9]{2})?)\.(?:json|sha256|meta\.json)$"
+)
+_SEARCH_FIELD_ALLOWLIST_RE = re.compile(
+    r"^search-field(?:-pass[0-9]{2})?\.(?:json|sha256|meta\.json)$"
+)
+_PORTFOLIO_ALLOWLIST_RE = re.compile(
+    r"^(?:portfolio(?:-pass[0-9]{2})?|selection)\.(?:json|sha256|meta\.json)$"
+)
+_DEEP_ALLOWLIST_RE = re.compile(
+    r"^(?:development(?:-v2)?(?:-(?:P[0-9]+|B[0-9]+|DIRECT_SEED))?|deep-review(?:-v2)?(?:-(?:P[0-9]+|B[0-9]+|DIRECT_SEED))?|review)\.(?:json|sha256|meta\.json)$"
+)
+_COMPARISON_ALLOWLIST_RE = re.compile(
+    r"^(?:comparison-review(?:-v1)?|review)\.(?:json|sha256|meta\.json)$"
+)
+_LEVER_ALLOWLIST_RE = re.compile(
+    r"^(?:(?:lever-)?design|(?:lever-)?review)\.(?:json|sha256|meta\.json)$"
+)
 
 
+def _is_allowlisted_stage_artifact(stage_type: str, filename: str) -> bool:
+    if filename.startswith("."):
+        return False
+    if stage_type == "explore":
+        return bool(_EXPLORE_ALLOWLIST_RE.match(filename))
+    elif stage_type == "search-field":
+        return bool(_SEARCH_FIELD_ALLOWLIST_RE.match(filename))
+    elif stage_type == "portfolio":
+        return bool(_PORTFOLIO_ALLOWLIST_RE.match(filename))
+    elif stage_type == "deep":
+        return bool(_DEEP_ALLOWLIST_RE.match(filename))
+    elif stage_type == "comparison":
+        return bool(_COMPARISON_ALLOWLIST_RE.match(filename))
+    elif stage_type == "lever":
+        return bool(_LEVER_ALLOWLIST_RE.match(filename))
+    return False
 def _die(msg: str, code: int = 1) -> int:
     print(f"ERROR: {msg}", file=sys.stderr)
     return code
@@ -232,6 +273,7 @@ def create_bundle(
     model: str,
     repo_commit: str,
     evidence_kind: str,
+    accounting: str = None,
 ) -> int:
     # Validate slug
     try:
@@ -302,70 +344,81 @@ def create_bundle(
             return _die(f"transcript file does not exist: {transcript_path}")
 
     # Verify all stage sources before creating anything
+    is_standalone_explore = (
+        len(stage_specs) == 1
+        and not any(st in ("portfolio", "search-field", "comparison") for _, _, st in stage_specs)
+    )
+
     for label, run_dir, stage_type in stage_specs:
-        if stage_type == "explore":
-            required = _EXPLORE_REQUIRED
-        elif stage_type == "deep":
-            required = _DEEP_REQUIRED
-        elif stage_type == "lever":
-            required = _LEVER_REQUIRED
-        elif stage_type == "comparison":
-            required = {"review.json"} if (run_dir / "review.json").exists() else {"comparison-review-v1.json"}
-        elif stage_type == "portfolio":
-            required = {"selection.json"} if (run_dir / "selection.json").exists() else {"portfolio.json"}
-        elif stage_type == "search-field":
-            required = {"search-field.json"}
-        else:
-            return _die(f"stage {label}: unknown stage type {stage_type!r}")
+        allowlisted_files = [
+            f for f in sorted(run_dir.iterdir())
+            if not f.name.startswith(".") and _is_allowlisted_stage_artifact(stage_type, f.name)
+        ]
+        allowlisted_names = {f.name for f in allowlisted_files}
 
-        for fname in required:
-            if not (run_dir / fname).exists():
-                return _die(f"stage {label}: missing required file {fname} in {run_dir}")
-
-        # Verify sha sidecars
+        # Check required files
         if stage_type == "explore":
-            try:
-                _verify_sha_sidecar(run_dir, "candidates.json", "candidates.sha256")
-            except ValueError as e:
-                return _die(f"stage {label}: {e}")
+            has_cand = any(f.name.startswith("candidates") and f.name.endswith(".json") and "meta" not in f.name for f in allowlisted_files)
+            if not has_cand:
+                return _die(f"stage {label}: missing required candidates.json in {run_dir}")
+            if is_standalone_explore and not any(f.name.startswith("candidates-pass") for f in allowlisted_files):
+                if "selection.json" not in allowlisted_names:
+                    return _die(f"stage {label}: missing required selection.json in {run_dir}")
         elif stage_type == "deep":
-            art_name = "development.json" if (run_dir / "development.json").exists() else "development-v2.json"
-            if not (run_dir / art_name).exists() and (run_dir / f"{label}.json").exists():
-                art_name = f"{label}.json"
-            sha_name = art_name.replace(".json", ".sha256")
-            try:
-                _verify_sha_sidecar(run_dir, art_name, sha_name)
-            except ValueError as e:
-                return _die(f"stage {label}: {e}")
-        elif stage_type == "lever":
-            try:
-                _verify_sha_sidecar(run_dir, "design.json", "design.sha256")
-            except ValueError as e:
-                return _die(f"stage {label}: {e}")
-            if (run_dir / "review.sha256").exists():
-                try:
-                    _verify_sha_sidecar(run_dir, "review.json", "review.sha256")
-                except ValueError as e:
-                    return _die(f"stage {label}: {e}")
-        elif stage_type == "comparison":
-            art_name = "review.json" if (run_dir / "review.json").exists() else "comparison-review-v1.json"
-            sha_name = art_name.replace(".json", ".sha256")
-            try:
-                _verify_sha_sidecar(run_dir, art_name, sha_name)
-            except ValueError as e:
-                return _die(f"stage {label}: {e}")
-        elif stage_type == "portfolio":
-            art_name = "selection.json" if (run_dir / "selection.json").exists() else "portfolio.json"
-            sha_name = art_name.replace(".json", ".sha256")
-            try:
-                _verify_sha_sidecar(run_dir, art_name, sha_name)
-            except ValueError as e:
-                return _die(f"stage {label}: {e}")
+            has_dev = any(f.name.startswith("development") and f.name.endswith(".json") and "meta" not in f.name for f in allowlisted_files)
+            if not has_dev:
+                return _die(f"stage {label}: missing required development.json in {run_dir}")
+            has_rev = any((f.name.startswith("deep-review") or f.name == "review.json") and f.name.endswith(".json") and "meta" not in f.name for f in allowlisted_files)
+            if not has_rev:
+                return _die(f"stage {label}: missing required review.json in {run_dir}")
         elif stage_type == "search-field":
-            try:
-                _verify_sha_sidecar(run_dir, "search-field.json", "search-field.sha256")
-            except ValueError as e:
-                return _die(f"stage {label}: {e}")
+            has_sf = any(f.name.startswith("search-field") and f.name.endswith(".json") and "meta" not in f.name for f in allowlisted_files)
+            if not has_sf:
+                return _die(f"stage {label}: missing required search-field.json in {run_dir}")
+        elif stage_type == "portfolio":
+            has_port = any(f.name in ("portfolio.json", "selection.json") for f in allowlisted_files)
+            if not has_port:
+                return _die(f"stage {label}: missing required portfolio.json in {run_dir}")
+        elif stage_type == "comparison":
+            has_comp = any((f.name.startswith("comparison-review") or f.name == "review.json") and f.name.endswith(".json") and "meta" not in f.name for f in allowlisted_files)
+            if not has_comp:
+                return _die(f"stage {label}: missing required comparison review in {run_dir}")
+        elif stage_type == "lever":
+            has_des = any((f.name.startswith("design") or f.name.startswith("lever-design")) and f.name.endswith(".json") and "meta" not in f.name for f in allowlisted_files)
+            has_rev = any((f.name.startswith("review") or f.name.startswith("lever-review")) and f.name.endswith(".json") and "meta" not in f.name for f in allowlisted_files)
+            if not has_des:
+                return _die(f"stage {label}: missing required design.json in {run_dir}")
+            if not has_rev:
+                return _die(f"stage {label}: missing required review.json in {run_dir}")
+
+        # Verify sidecars for allowlisted files
+        for f in allowlisted_files:
+            fname = f.name
+            if fname.endswith(".json") and not fname.endswith(".meta.json"):
+                sha_name = fname[:-len(".json")] + ".sha256"
+                requires_sidecar = (
+                    fname.startswith("candidates")
+                    or fname.startswith("development")
+                    or fname.startswith("deep-review")
+                    or fname.startswith("search-field")
+                    or fname.startswith("portfolio")
+                    or fname.startswith("comparison-review")
+                    or fname.startswith("design")
+                    or fname.startswith("lever-design")
+                )
+                if requires_sidecar or (run_dir / sha_name).exists():
+                    try:
+                        _verify_sha_sidecar(run_dir, fname, sha_name)
+                    except ValueError as e:
+                        return _die(f"stage {label}: {e}")
+            elif fname.endswith(".sha256"):
+                json_name = fname[:-len(".sha256")] + ".json"
+                if not (run_dir / json_name).exists():
+                    return _die(f"stage {label}: sha sidecar {fname} exists but missing json {json_name}")
+            elif fname.endswith(".meta.json"):
+                json_name = fname[:-len(".meta.json")] + ".json"
+                if not (run_dir / json_name).exists():
+                    return _die(f"stage {label}: metadata {fname} exists but missing json {json_name}")
         # Terminal-state validation: when bundling a review artifact with terminal_state
         review_path = run_dir / "review.json"
         if review_path.exists():
@@ -388,14 +441,12 @@ def create_bundle(
                 try:
                     sel_data = json.loads(sel_path.read_text(encoding="utf-8"))
                     if isinstance(sel_data, dict) and sel_data.get("schema_version") == "pizm-auto-selection-v1":
-                        # Validate auto_primary_candidate_id
                         if "auto_primary_candidate_id" not in sel_data:
                             return _die(f"BAD_AUTO_SELECTION: stage {label}: missing required auto_primary_candidate_id")
                         primary_id = sel_data["auto_primary_candidate_id"]
                         if not isinstance(primary_id, str) or not primary_id.strip():
                             return _die(f"BAD_AUTO_SELECTION: stage {label}: auto_primary_candidate_id must be non-empty string")
 
-                        # Disallow multi-candidate or fallback candidate keys
                         for forbidden_key in (
                             "secondary_candidate",
                             "secondary_candidate_id",
@@ -423,7 +474,6 @@ def create_bundle(
                         if primary_disp != "KEEP":
                             return _die(f"BAD_AUTO_SELECTION: stage {label}: auto_primary_candidate_id {primary_id!r} does not have disposition KEEP (got {primary_disp!r})")
 
-                        # Validate task_orientation
                         if "task_orientation" not in sel_data:
                             return _die(f"BAD_AUTO_SELECTION: stage {label}: missing required task_orientation")
                         task_or = sel_data["task_orientation"]
@@ -431,18 +481,17 @@ def create_bundle(
                             return _die(f"BAD_AUTO_SELECTION: stage {label}: invalid task_orientation {task_or!r}. Must be ANALYTICAL or ACTION_OR_DECISION")
                 except (json.JSONDecodeError, OSError) as e:
                     return _die(f"BAD_AUTO_SELECTION: stage {label}: failed to parse selection.json: {e}")
+
     # --- All validation passed, create bundle atomically ---
     temp_dir = None
     final_path = out_root / f"session-{slug}"
     reserved_final = False
     try:
-        # Create temporary directory for atomic publish
         temp_dir = tempfile.mkdtemp(prefix=".pizm-bundle-", dir=str(out_root))
         bundle_dir = Path(temp_dir)
-        
-        # Create subdirectories
+
         (bundle_dir / "inputs").mkdir()
-        
+
         manifest = {
             "schema_version": _SCHEMA_VERSION,
             "identity_scope": "archive_only",
@@ -459,7 +508,7 @@ def create_bundle(
         if repo_commit:
             manifest["repo_commit"] = repo_commit
 
-        # Copy stages
+        # Copy allowlisted stage files
         stage_labels = []
         artifacts = {}  # relative path -> sha256
         diagnostics = {}
@@ -469,35 +518,17 @@ def create_bundle(
             stage_dir.mkdir()
             stage_labels.append(label)
 
-            if stage_type == "explore":
-                required = _EXPLORE_REQUIRED
-            elif stage_type == "deep":
-                required = _DEEP_REQUIRED
-            else:
-                required = _LEVER_REQUIRED
+            allowlisted_files = [
+                f for f in sorted(run_dir.iterdir())
+                if not f.name.startswith(".") and _is_allowlisted_stage_artifact(stage_type, f.name)
+            ]
 
-            # Copy required files
-            for fname in sorted(required):
-                src = run_dir / fname
+            for src in allowlisted_files:
+                fname = src.name
                 dst = stage_dir / fname
                 sha = _copy_file(src, dst)
                 artifacts[f"{label}/{fname}"] = sha
 
-            # Copy optional meta JSON or sidecars if present
-            if stage_type == "explore":
-                meta_names = ("candidates.meta.json",)
-            elif stage_type == "deep":
-                meta_names = ("development.meta.json", "review.sha256", "review.meta.json")
-            else:
-                meta_names = ("design.meta.json", "review.sha256", "review.meta.json")
-
-            for meta_name in meta_names:
-                meta_src = run_dir / meta_name
-                if meta_src.exists():
-                    dst = stage_dir / meta_name
-                    sha = _copy_file(meta_src, dst)
-                    artifacts[f"{label}/{meta_name}"] = sha
-            # R1.6: compute and record diagnostics for explore stages
             if stage_type == "explore":
                 cand_file = stage_dir / "candidates.json"
                 sel_file = stage_dir / "selection.json"
@@ -512,6 +543,7 @@ def create_bundle(
         manifest["stages"] = stage_labels
         if diagnostics:
             manifest["diagnostics"] = diagnostics
+
         # Copy inputs
         input_records = []
         for p in input_paths:
@@ -543,6 +575,104 @@ def create_bundle(
                 "minimal_next_experiment": "supply --transcript with OMP session JSONL path",
             }
 
+        # Calculate accounting derived values
+        candidate_bytes = sum(
+            [
+                Path(bundle_dir / k).stat().st_size
+                for k in artifacts
+                if Path(k).name.startswith("candidates")
+                and k.endswith(".json")
+                and "meta" not in k
+            ]
+        )
+        development_bytes = sum(
+            [
+                Path(bundle_dir / k).stat().st_size
+                for k in artifacts
+                if Path(k).name.startswith("development")
+                and k.endswith(".json")
+                and "meta" not in k
+            ]
+        )
+        semantic_stage_count = len(stage_labels)
+
+        # Check AUTO/FORGE requirement
+        is_auto_or_forge = False
+        for label, run_dir, stage_type in stage_specs:
+            if stage_type in ("search-field", "comparison"):
+                is_auto_or_forge = True
+            if label in ("deep-B1", "deep-B2"):
+                is_auto_or_forge = True
+            p_path = run_dir / "portfolio.json"
+            if p_path.exists():
+                try:
+                    p_data = json.loads(p_path.read_text(encoding="utf-8"))
+                    if p_data.get("route") == "AUTO" or p_data.get("schema_version") == "pizm-portfolio-selection-v2":
+                        is_auto_or_forge = True
+                except Exception:
+                    pass
+            s_path = run_dir / "selection.json"
+            if s_path.exists():
+                try:
+                    s_data = json.loads(s_path.read_text(encoding="utf-8"))
+                    if s_data.get("schema_version") == "pizm-auto-selection-v1" or s_data.get("route") == "AUTO":
+                        is_auto_or_forge = True
+                except Exception:
+                    pass
+
+        if is_auto_or_forge and not accounting:
+            return _die("accounting input is required for AUTO/FORGE contracts")
+
+        if accounting:
+            acc_path = Path(accounting)
+            if not acc_path.is_file():
+                return _die(f"accounting input file does not exist: {accounting}")
+            try:
+                acc_data = json.loads(acc_path.read_text(encoding="utf-8"))
+            except Exception as e:
+                return _die(f"failed to read accounting json: {e}")
+            if not isinstance(acc_data, dict):
+                return _die("accounting input must be a JSON object")
+
+            extra_keys = set(acc_data.keys()) - _ALLOWED_ACCOUNTING_KEYS
+            if extra_keys:
+                return _die(f"accounting input contains extra keys: {sorted(extra_keys)}")
+
+            for key in ("host_inference_count", "model_repair_count", "checkpoint_retry_count"):
+                if key not in acc_data:
+                    return _die(f"accounting input missing required counter: {key}")
+                val = acc_data[key]
+                if type(val) is not int or isinstance(val, bool) or val < 0:
+                    return _die(f"accounting {key} must be a non-negative integer, got {val!r}")
+
+            if "semantic_stage_count" in acc_data:
+                sc = acc_data["semantic_stage_count"]
+                if type(sc) is not int or isinstance(sc, bool) or sc != semantic_stage_count:
+                    return _die(
+                        f"accounting semantic_stage_count mismatch: provided {sc}, derived {semantic_stage_count}"
+                    )
+            if "candidate_bytes" in acc_data:
+                cb = acc_data["candidate_bytes"]
+                if type(cb) is not int or isinstance(cb, bool) or cb != candidate_bytes:
+                    return _die(
+                        f"accounting candidate_bytes mismatch: provided {cb}, derived {candidate_bytes}"
+                    )
+            if "development_bytes" in acc_data:
+                db = acc_data["development_bytes"]
+                if type(db) is not int or isinstance(db, bool) or db != development_bytes:
+                    return _die(
+                        f"accounting development_bytes mismatch: provided {db}, derived {development_bytes}"
+                    )
+
+            manifest["accounting"] = {
+                "semantic_stage_count": semantic_stage_count,
+                "host_inference_count": acc_data["host_inference_count"],
+                "model_repair_count": acc_data["model_repair_count"],
+                "checkpoint_retry_count": acc_data["checkpoint_retry_count"],
+                "candidate_bytes": candidate_bytes,
+                "development_bytes": development_bytes,
+            }
+
         # Artifacts manifest (ordered)
         manifest["artifacts"] = artifacts
 
@@ -569,7 +699,7 @@ def create_bundle(
         print(f"ARTIFACTS {len(artifacts)}")
         print(f"INPUTS {len(input_records)}")
         return 0
-        
+
     except FileExistsError:
         if temp_dir and Path(temp_dir).exists():
             shutil.rmtree(temp_dir, ignore_errors=True)
@@ -651,13 +781,14 @@ def _ref_sort_key(ref: str):
 
 
 def _derive_promoted_p_ids(portfolio: dict) -> dict:
-    """Deterministic P-ID map for promoted perspectives (KEEP dispositions).
+    """Deterministic P-ID map for promoted perspectives (KEEP dispositions)."""
+    # V2 explicitly provides perspectives map
+    if "perspectives" in portfolio:
+        # portfolio["perspectives"] is {p_id: ref}
+        # return {ref: p_id}
+        return {v: k for k, v in portfolio["perspectives"].items()}
 
-    Mirrors the selector's presentation rules for a fresh AUTO field: surviving
-    perspectives receive strictly increasing P-IDs in ascending composite-ref
-    order (P1, P2, ...). AUTO v1 executes exactly one Search pass, so every
-    composite ref resolves against the single frozen candidates.json.
-    """
+    # V1 fresh fallback
     assessments = portfolio.get("candidate_assessments") or []
     kept_refs = [
         a["candidate_ref"]
@@ -670,11 +801,11 @@ def _derive_promoted_p_ids(portfolio: dict) -> dict:
     return {ref: f"P{i}" for i, ref in enumerate(kept_refs, start=1)}
 
 
-def _validate_auto_portfolio(portfolio: dict):
+def _validate_auto_portfolio(portfolio: dict, cand_index: dict = None):
     """Fail-closed AUTO routing validation. Returns (auto_target, p_map)."""
-    if portfolio.get("schema_version") != _PORTFOLIO_SCHEMA:
+    if portfolio.get("schema_version") not in ("pizm-portfolio-selection-v1", "pizm-portfolio-selection-v2"):
         raise ValueError(
-            f"portfolio.json schema_version must be {_PORTFOLIO_SCHEMA!r}, "
+            f"portfolio.json schema_version must be v1 or v2, "
             f"got {portfolio.get('schema_version')!r}"
         )
     if portfolio.get("route") != "AUTO":
@@ -699,6 +830,61 @@ def _validate_auto_portfolio(portfolio: dict):
         )
     if not isinstance(tid, str) or not tid.strip():
         raise ValueError("BAD_AUTO_TARGET: auto_target.target_id must be non-empty string")
+
+    # Validate candidate assessments
+    seen_assessments = set()
+    for a in portfolio.get("candidate_assessments") or []:
+        if not isinstance(a, dict):
+            continue
+        ref = a.get("candidate_ref")
+        if not isinstance(ref, str) or not ref.strip():
+            raise ValueError("candidate_assessment missing candidate_ref")
+        if ref in seen_assessments:
+            raise ValueError(f"duplicate candidate assessment for {ref!r}")
+        seen_assessments.add(ref)
+        if cand_index is not None:
+            _candidate_by_ref(ref, cand_index)
+            overlap = a.get("nearest_overlap")
+            if isinstance(overlap, str) and overlap.strip():
+                _candidate_by_ref(overlap, cand_index)
+
+    # Validate perspectives
+    if "perspectives" in portfolio:
+        if not isinstance(portfolio["perspectives"], dict):
+            raise ValueError("portfolio perspectives must be an object")
+        seen_persp_refs = set()
+        for p_id, ref in portfolio["perspectives"].items():
+            if not re.fullmatch(r"P[1-9][0-9]*", p_id):
+                raise ValueError(f"invalid perspective id: {p_id!r}")
+            if ref in seen_persp_refs:
+                raise ValueError(f"duplicate candidate ref {ref!r} in perspectives")
+            seen_persp_refs.add(ref)
+            if cand_index is not None:
+                _candidate_by_ref(ref, cand_index)
+
+    # Validate bundles
+    seen_bids = set()
+    for b in portfolio.get("bundles") or []:
+        if not isinstance(b, dict):
+            continue
+        bid = b.get("bundle_id")
+        if not isinstance(bid, str) or not bid.strip():
+            raise ValueError("bundle missing bundle_id")
+        if bid in seen_bids:
+            raise ValueError(f"duplicate bundle id: {bid!r}")
+        seen_bids.add(bid)
+        m_refs = b.get("member_refs") or []
+        if not isinstance(m_refs, list) or not m_refs:
+            raise ValueError(f"bundle {bid} member_refs must be non-empty list")
+        for m in m_refs:
+            if cand_index is not None:
+                _candidate_by_ref(m, cand_index)
+        for m in (b.get("member_roles") or {}):
+            if cand_index is not None:
+                _candidate_by_ref(m, cand_index)
+        for m in (b.get("member_ablation") or {}):
+            if cand_index is not None:
+                _candidate_by_ref(m, cand_index)
 
     p_map = _derive_promoted_p_ids(portfolio)
     if ttype == "P":
@@ -752,22 +938,32 @@ def _validate_target_consistency(auto_target: dict, development: dict, review: d
         )
 
 
-def _candidate_index(candidates_data: dict) -> dict:
+def _candidate_index(candidates_data: dict, pass_id: str = "pass01") -> dict:
     index = {}
     for c in candidates_data.get("candidates") or []:
         if isinstance(c, dict) and isinstance(c.get("candidate_id"), str):
-            index[c["candidate_id"]] = c
+            cid = c["candidate_id"]
+            ref = f"{pass_id}:{cid}" if ":" not in cid else cid
+            if ref in index:
+                raise ValueError(f"duplicate composite candidate key: {ref!r}")
+            index[ref] = c
     return index
 
 
 def _candidate_by_ref(ref: str, cand_index: dict) -> dict:
-    """Resolve a composite ref against the single frozen initial pass."""
-    local_id = ref.split(":", 1)[1] if ":" in ref else ref
-    cand = cand_index.get(local_id)
-    if cand is None and ref in cand_index:
-        cand = cand_index[ref]
-    return cand or {}
-
+    """Resolve a composite ref against the multi-pass index."""
+    if not isinstance(ref, str) or not ref.strip():
+        raise ValueError(f"invalid candidate ref: {ref!r}")
+    if ":" in ref:
+        if ref not in cand_index:
+            raise ValueError(f"unknown candidate ref: {ref!r}")
+        return cand_index[ref]
+    # Unsuffixed local ID (legacy v1 compatibility only)
+    if f"pass01:{ref}" in cand_index:
+        return cand_index[f"pass01:{ref}"]
+    if ref in cand_index:
+        return cand_index[ref]
+    raise ValueError(f"unknown candidate ref: {ref!r}")
 
 def _c_title(cand: dict) -> str:
     return str(cand.get("title") or "(untitled candidate)")
@@ -1430,7 +1626,8 @@ def _render_auto_run_md(
         development = artifacts["development-v2.json"]
         review = artifacts["deep-review-v2.json"]
 
-        auto_target, p_map = _validate_auto_portfolio(portfolio)
+        cand_index = _candidate_index(candidates_data, 'pass01')
+        auto_target, p_map = _validate_auto_portfolio(portfolio, cand_index)
         _validate_target_consistency(auto_target, development, review)
 
         design = None
@@ -1447,10 +1644,19 @@ def _render_auto_run_md(
             _verify_frozen_sidecar(run_dir, _LEVER_REVIEW_NAME)
 
         search_field_name = _SEARCH_FIELD_NAME if (run_dir / _SEARCH_FIELD_NAME).is_file() else None
+        if search_field_name:
+            _verify_frozen_sidecar(run_dir, search_field_name)
+            sf_data = _load_frozen_json(run_dir, search_field_name)
+            seen_sf_entries = set()
+            for entry in sf_data.get("entries") or []:
+                if entry in seen_sf_entries:
+                    raise ValueError(f"duplicate search field entry: {entry!r}")
+                seen_sf_entries.add(entry)
+                if entry not in cand_index:
+                    raise ValueError(f"unknown search field entry: {entry!r}")
     except ValueError as e:
         return _die(str(e))
 
-    cand_index = _candidate_index(candidates_data)
     sections = [
         "# Prism AUTO",
         "## Task\n\n" + task.strip(),
@@ -1524,6 +1730,26 @@ def _render_forge_run_md(
         if search_field_name:
             _verify_frozen_sidecar(run_dir, search_field_name)
 
+        cand_index = _candidate_index(pass1_data, 'pass01')
+        if pass2_data:
+            p2_index = _candidate_index(pass2_data, 'pass02')
+            for k, v in p2_index.items():
+                if k in cand_index:
+                    raise ValueError(f"duplicate composite candidate key across passes: {k!r}")
+                cand_index[k] = v
+
+        if search_field_name:
+            sf_data = _load_frozen_json(run_dir, search_field_name)
+            seen_sf_entries = set()
+            for entry in sf_data.get("entries") or []:
+                if entry in seen_sf_entries:
+                    raise ValueError(f"duplicate search field entry: {entry!r}")
+                seen_sf_entries.add(entry)
+                if entry not in cand_index:
+                    raise ValueError(f"unknown search field entry: {entry!r}")
+
+        auto_target, p_map = _validate_auto_portfolio(portfolio, cand_index)
+
         # Load Deep B1
         dev_b1 = None
         dev_b1_file = None
@@ -1579,13 +1805,6 @@ def _render_forge_run_md(
 
     except ValueError as e:
         return _die(str(e))
-
-    cand_index = _candidate_index(pass1_data)
-    if pass2_data:
-        for i, c in enumerate(pass2_data.get("candidates") or [], start=1):
-            cid = str(c.get("candidate_id") or f"c{i:02d}")
-            cand_index[f"pass02:{cid}"] = c
-            cand_index[f"pass02:{cid.lower()}"] = c
 
     p_map = _derive_promoted_p_ids(portfolio)
 
@@ -1714,6 +1933,11 @@ def main() -> int:
     cp.add_argument("--model", default=None, help="Model identifier")
     cp.add_argument("--repo-commit", default=None, help="Repository commit hash")
     cp.add_argument(
+        "--accounting",
+        default=None,
+        help="Ephemeral accounting input (JSON file path)",
+    )
+    cp.add_argument(
         "--evidence-kind",
         default="offline_fixture",
         choices=["offline_fixture", "live"],
@@ -1754,6 +1978,7 @@ def main() -> int:
             model=args.model or "",
             repo_commit=args.repo_commit or "",
             evidence_kind=args.evidence_kind,
+            accounting=args.accounting,
         )
 
     if args.command == "render":

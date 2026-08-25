@@ -38,7 +38,9 @@ AUTO TASK → Search(initial) GENERATE → freeze explore pass + search-field ma
      Execute the same manual LEVER primitive (`references/lever.md` and `references/lever-reviewer.md`) using identical prompts and review logic as `/pizm lever`, with zero duplication.
    - Otherwise (if `task_orientation == "ANALYTICAL"` or `terminal_state != "MODEL_READY"`):
      Do not invoke LEVER.
-8. **FINAL Assembly + run.md**: Assemble the final output deterministically from frozen artifacts (Section 3), then render the readable `run.md` deterministically with the session-bundle tool (`bin/pizm-session-bundle render --run-dir <run-dir> --task "<original task>"`). The renderer reads ONLY frozen checkpoint artifacts, emits byte-identical output for identical inputs, and performs zero model calls.
+8. **FINAL Assembly + run.md**: Assemble the final output deterministically from frozen artifacts (Section 3). You must archive the run via `bin/pizm-session-bundle create` providing the required ephemeral accounting input (`--accounting`). Then render the readable `run.md` deterministically with the session-bundle tool (`bin/pizm-session-bundle render --run-dir <run-dir> --task "<original task>"`). The renderer reads ONLY frozen checkpoint artifacts, emits byte-identical output for identical inputs, and performs zero model calls.
+   - **Artifact & Suffix Chain**: Checkpoint artifacts follow the standard freeze chain: `candidates.json` (or `candidates-pass01.json`), `search-field.json` (or `search-field-pass01.json`), `portfolio.json`, `development-v2.json`, `deep-review-v2.json` (and optional `design.json` / `review.json`).
+   - **Ephemeral Accounting Contract**: `--accounting <path>` supplies caller-provided bounded non-derived counts (`host_inference_count`, `model_repair_count`, `checkpoint_retry_count`). The bundle computes and validates derived counts (`semantic_stage_count`, `candidate_bytes`, `development_bytes`). The archive manifest records the normalized six-counter object; the ephemeral accounting file is never archived into inputs.
 
 ---
 
@@ -115,13 +117,22 @@ After presenting FINAL, render `run.md` for the reading record: all candidate id
 - Optional LEVER: Design + Review add 2 semantic stages = 6 semantic stages total.
 - FINAL assembly and `run.md` rendering are deterministic: they add zero semantic stages.
 
+### Accounting and Counters
+
+The bundle archive manifest records all six normalized counters:
+1. `semantic_stage_count` (derived from stage collection)
+2. `host_inference_count` (caller-supplied non-derived counter)
+3. `model_repair_count` (caller-supplied non-derived counter)
+4. `checkpoint_retry_count` (caller-supplied non-derived counter)
+5. `candidate_bytes` (derived from frozen candidate JSON byte sizes)
+6. `development_bytes` (derived from frozen development JSON byte sizes)
+
 ### Repair Accounting
 
 - Repairs and tool-loop continuations are accounted separately from the semantic stage budget.
 - max 1 model repair per stage.
 - max 2 model repairs across the entire AUTO run.
 - No unbounded retries.
-
 ### Fail-Closed Budget Enforcement
 
 If semantic stage or model repair ceilings are exhausted at any point:

@@ -52,8 +52,8 @@ deterministic run.md rendering (zero model calls)
 
 ### Stage 1: Search Pass 1 (initial)
 - Run broad initial Search adhering to `references/explore.md` (soft target 12–16 candidates when supported; hard bounds 1..20 candidates, ≤ 192 KiB payload, ≤ 12 KiB per candidate).
-- Freeze the raw pass as `pass01` via `bin/pizm-checkpoint freeze --stage explore --run-id <slug> --input <path>`.
-- Register `pass01` in the append-only search-field manifest conforming to `pizm-search-field-v1` and freeze via `bin/pizm-checkpoint freeze --stage search-field --run-id <slug> --input <path>`.
+- Freeze the raw pass as `pass01` via `bin/pizm-checkpoint freeze --stage explore --run-id <slug> --artifact-suffix pass01 --input <path>` -> creates `candidates-pass01.{json,sha256,meta.json}` (or unsuffixed `candidates.{json,sha256,meta.json}`).
+- Register `pass01` in the append-only search-field manifest conforming to `pizm-search-field-v1` and freeze via `bin/pizm-checkpoint freeze --stage search-field --run-id <slug> --artifact-suffix pass01 --input <path>` -> creates `search-field-pass01.{json,sha256,meta.json}` (or `search-field.{json,sha256,meta.json}`).
 - **No judging after Pass 1.** Do not filter, rank, or evaluate candidates at this stage.
 
 ### Stage 2: Search Pass 2 (residual)
@@ -66,13 +66,16 @@ deterministic run.md rendering (zero model calls)
   - Seek new load-bearing dimensions, system boundaries, and causal families.
   - Allow honest exhaustion if no new structural territory exists (do not pad).
   - Soft ceiling: ~28 candidates across the accumulated field.
-- Freeze raw `pass02` and update the append-only search-field manifest (`pizm-search-field-v1`).
+- Freeze raw `pass02` via `bin/pizm-checkpoint freeze --stage explore --run-id <slug> --artifact-suffix pass02 --input <path>` -> creates `candidates-pass02.{json,sha256,meta.json}`.
+- Update the append-only search-field manifest (`pizm-search-field-v1`) naming `search-field-pass01.json` as `prior_ref` with its verified `prior_hash`, and freeze via `bin/pizm-checkpoint freeze --stage search-field --run-id <slug> --artifact-suffix pass02 --input <path>` -> creates `search-field-pass02.{json,sha256,meta.json}`.
 - **No automatic third Search.** FORGE v1 executes exactly two automatic Search passes.
 
 ### Stage 3: Portfolio Judge over Accumulated Field
 - Reveal `references/explore-selector.md`.
-- Evaluate all accumulated candidates from both passes categorical and structurally.
+- Evaluate all accumulated candidates from both passes categorically and structurally.
 - Freeze one portfolio record conforming to `pizm-portfolio-selection-v2`:
+  - Enforce `field_ref` (pointing to the exact frozen search field JSON) and `field_hash` (matching its frozen SHA-256 sidecar).
+  - Provide canonical `perspectives` mapping (`{"P1": "pass01:c01", "P2": "pass01:c02", "P3": "pass02:c01", ...}`) which strictly controls rendered perspective labels and continued P-IDs across passes.
   - Enforce `competition_status`: `"TWO_DEFENSIBLE_BUNDLES"` or `"NO_SECOND_DEFENSIBLE_BUNDLE"`.
   - When two defensible bundles exist:
     - `recommended_competition` specifies `bundle_a: "B1"`, `bundle_b: "B2"`, `competition_axis`, `discriminating_observation`, and optional `discriminating_question`.
@@ -82,7 +85,6 @@ deterministic run.md rendering (zero model calls)
     - `competition_status = "NO_SECOND_DEFENSIBLE_BUNDLE"`.
     - `recommended_competition = null`.
     - Do not invent or force an artificial B2.
-
 ### Stage 4: Deep(B1) & Deep(B2)
 - When two defensible bundles exist:
   - **Sequential execution:** Develop B1 → freeze → Develop B2 → freeze.
@@ -98,6 +100,7 @@ deterministic run.md rendering (zero model calls)
 ### Stage 5: Critic and Comparative Review
 - Revealed only after BOTH Deep B1 and Deep B2 are frozen and hash-verified.
 - Execute adversarial critique and comparative reasoning under `pizm-comparison-review-v1` (`references/deep-reviewer.md`):
+  - Declare explicit B1 and B2 development artifact references and verified frozen hashes (`review_B1.development_ref`, `review_B1.frozen_hash`, `review_B2.development_ref`, `review_B2.frozen_hash`), verifying target matching `B1` and `B2`.
   - Act as critic of B1, critic of B2, and comparative reasoner using the 8-move Critic arsenal.
   - Formulate independent countermodels, audit load-bearing claims, flag unsupported specificity and epistemic laundering, and identify shared evidence debt.
   - Determine `current_preference`: `B1 | B2 | CONDITIONAL | UNRESOLVED`.
@@ -105,7 +108,6 @@ deterministic run.md rendering (zero model calls)
   - Specify `competition_axis`, `strongest_reason_for_B1`, `strongest_reason_for_B2`, `discriminating_observation`, and `what_would_change_the_decision`.
   - **Decision rule:** An unresolved load-bearing contradiction or `RETURN_TO_EXPLORE` state in a bundle's review blocks preference for that bundle.
 - Freeze artifact via `bin/pizm-checkpoint freeze --stage comparison-review-v1 --run-id <slug> --input <path>`.
-
 ### Stage 6: Optional LEVER
 - Automatically runs ONLY when:
   - Task orientation is `ACTION_OR_DECISION` (classified during judging).
@@ -116,9 +118,17 @@ deterministic run.md rendering (zero model calls)
 
 ### Stage 7: Deterministic FINAL Assembly and run.md
 - Assemble the final user-facing summary from frozen artifacts with zero model calls.
+- You must archive the run via `bin/pizm-session-bundle create` providing the required ephemeral accounting input (`--accounting <path>`) and allowlisted stage labels:
+  - `pass-01-normal` (or `pass-01-rift` / `pass-01-360`)
+  - `pass-02-residual`
+  - `search-field`
+  - `portfolio`
+  - `deep-B1`
+  - `deep-B2`
+  - `comparison-review`
+- The bundle derives and verifies `semantic_stage_count`, `candidate_bytes`, and `development_bytes`; caller supplies bounded non-derived counts (`host_inference_count`, `model_repair_count`, `checkpoint_retry_count`). The archive manifest records the normalized six-counter object; the accounting file is ephemeral and never copied into inputs.
 - Render the readable `run.md` deterministically using `bin/pizm-session-bundle render --run-dir <run-dir> --task "<task>"`.
 - Output is a pure, byte-identical function of frozen inputs.
-
 ---
 
 ## 4. Degraded Path (Single Defensible Bundle)
@@ -141,6 +151,15 @@ If Portfolio records `competition_status: NO_SECOND_DEFENSIBLE_BUNDLE`:
 - **Action FORGE with LEVER (2 Bundles):** 6 + Lever Design + Lever Review = **8 semantic stages**.
 - **Degraded Single-Bundle Path:** 5 stages (analytical) or 7 stages (with LEVER).
 - Final assembly and `run.md` rendering add **zero** semantic stages.
+
+### Accounting and Counters
+The archive manifest records all six normalized counters:
+1. `semantic_stage_count` (derived from stage collection)
+2. `host_inference_count` (caller-supplied non-derived counter)
+3. `model_repair_count` (caller-supplied non-derived counter)
+4. `checkpoint_retry_count` (caller-supplied non-derived counter)
+5. `candidate_bytes` (derived from frozen candidate JSON byte sizes)
+6. `development_bytes` (derived from frozen development JSON byte sizes)
 
 ### Bounded Repair Limits
 - Max 1 model repair per stage.

@@ -37,21 +37,24 @@ def run_render(run_dir, task, output):
     )
 
 
-def freeze_stage(project_root: Path, stage: str, run_id: str, payload: dict) -> None:
+def freeze_stage(project_root: Path, stage: str, run_id: str, payload: dict, target: str = None, artifact_suffix: str = None) -> None:
     """Freeze one stage through the real checkpoint CLI."""
     import tempfile
 
-    fd_input = project_root / f"_input_{stage}.json"
+    fd_input = project_root / f"_input_{stage}_{target or 'main'}_{artifact_suffix or 'none'}.json"
     fd_input.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-    res = subprocess.run(
-        [sys.executable, CHECKPOINT_CLI, "freeze", "--stage", stage,
-         "--run-id", run_id, "--input", str(fd_input),
-         "--project-root", str(project_root), "--skill-root", str(SKILL_ROOT)],
-        capture_output=True, text=True,
-    )
+    cmd = [
+        sys.executable, CHECKPOINT_CLI, "freeze", "--stage", stage,
+        "--run-id", run_id, "--input", str(fd_input),
+        "--project-root", str(project_root), "--skill-root", str(SKILL_ROOT),
+    ]
+    if target:
+        cmd.extend(["--target", target])
+    if artifact_suffix:
+        cmd.extend(["--artifact-suffix", artifact_suffix])
+    res = subprocess.run(cmd, capture_output=True, text=True)
     assert res.returncode == 0, f"{stage} freeze failed: {res.stderr}"
     fd_input.unlink()
-
 
 # ---------------------------------------------------------------------------
 # Frozen artifact payloads (checkpoint-schema-valid)
@@ -96,24 +99,55 @@ def candidates_payload():
     }
 
 
-def search_field_payload(candidates_sha: str):
+def pass2_candidates_payload():
+    return {
+        "schema_version": "pizm-candidates-v1",
+        "stage": "explore",
+        "mode": "360",
+        "candidates": [
+            {
+                "candidate_id": "c01",
+                "title": "Ownership Diffusion Boundary",
+                "semantic_core": {
+                    "claim": "Shared ownership creates tragedy of review queue",
+                    "structural_shift": "Shift from queue length to accountability location",
+                    "mechanism": "No single owner for multi-service changes",
+                    "grounding_anchor": "PRs touching multiple repos stall longest",
+                    "what_becomes_visible": "Cross-boundary coordination cost",
+                    "boundary": "Mono-repo vs multi-repo architecture",
+                },
+                "difference_from_prior": "Attacks ownership locus rather than latency or meetings.",
+                "epistemics": {"supported": ["stall data"], "inferred": ["agency diffusion"], "speculative": [], "unknown": []},
+            }
+        ],
+    }
+
+def search_field_payload(candidates_sha1: str, candidates_sha2: str = None):
+    passes = [
+        {"pass_id": "pass01", "candidates_ref": "candidates.json", "frozen_hash": candidates_sha1}
+    ]
+    entries = ["pass01:c01", "pass01:c02"]
+    if candidates_sha2:
+        passes.append({
+            "pass_id": "pass02",
+            "candidates_ref": "candidates-pass02.json",
+            "frozen_hash": candidates_sha2,
+        })
+        entries.append("pass02:c01")
     return {
         "schema_version": "pizm-search-field-v1",
         "stage": "search-field",
-        "passes": [
-            {"pass_id": "pass01", "candidates_ref": "candidates.json",
-             "frozen_hash": candidates_sha}
-        ],
-        "entries": ["pass01:c01", "pass01:c02"],
+        "passes": passes,
+        "entries": entries,
     }
 
 
-def portfolio_payload(target_type="P", target_id="P1"):
+def portfolio_payload(field_hash: str, target_type="P", target_id="P1"):
     data = {
         "schema_version": "pizm-portfolio-selection-v1",
         "stage": "portfolio",
         "route": "AUTO",
-        "field_hash": "a" * 64,
+        "field_hash": field_hash,
         "candidate_assessments": [
             {
                 "candidate_ref": "pass01:c01",
@@ -300,22 +334,34 @@ def _freeze_full_run(project_root: Path, target_type="P", with_lever=True,
                      terminal_state="MODEL_READY"):
     run_id = f"render{target_type.lower()}"
     tid = "P1" if target_type == "P" else "B1"
-    candidates_sha = __import__("hashlib").sha256(
-        json.dumps(candidates_payload(), indent=2).encode("utf-8")
-    ).hexdigest()
-    freeze_stage(project_root, "explore", run_id, candidates_payload())
-    freeze_stage(project_root, "search-field", run_id, search_field_payload(candidates_sha))
-    freeze_stage(project_root, "portfolio", run_id, portfolio_payload(target_type, tid))
-    freeze_stage(project_root, "development-v2", run_id, development_payload(target_type, tid))
+    cand_data = candidates_payload()
+    freeze_stage(project_root, "explore", run_id, cand_data)
+    candidates_sha = (project_root / ".ai" / "pizm" / f"run-{run_id}" / "candidates.sha256").read_text().strip()
+
+    search_field_data = search_field_payload(candidates_sha)
+    freeze_stage(project_root, "search-field", run_id, search_field_data)
+    field_hash = (project_root / ".ai" / "pizm" / f"run-{run_id}" / "search-field.sha256").read_text().strip()
+
+    freeze_stage(project_root, "portfolio", run_id, portfolio_payload(field_hash, target_type, tid))
+
+    dev_data = development_payload(target_type, tid)
+    freeze_stage(project_root, "development-v2", run_id, dev_data)
+    dev_sha = (project_root / ".ai" / "pizm" / f"run-{run_id}" / "development-v2.sha256").read_text().strip()
+
     review = review_payload(target_type, tid)
     review["terminal_state"] = terminal_state
+    review["frozen_hash"] = dev_sha
     freeze_stage(project_root, "deep-review-v2", run_id, review)
+
     if with_lever:
-        freeze_stage(project_root, "lever-design", run_id, lever_design_payload())
-        freeze_stage(project_root, "lever-review", run_id, lever_review_payload())
+        lever_data = lever_design_payload()
+        freeze_stage(project_root, "lever-design", run_id, lever_data)
+        lever_sha = (project_root / ".ai" / "pizm" / f"run-{run_id}" / "design.sha256").read_text().strip()
+        lever_rev = lever_review_payload()
+        lever_rev["frozen_hash"] = lever_sha
+        freeze_stage(project_root, "lever-review", run_id, lever_rev)
+
     return project_root / ".ai" / "pizm" / f"run-{run_id}"
-
-
 @pytest.fixture
 def frozen_run_p(tmp_path):
     return _freeze_full_run(tmp_path, "P")
@@ -581,3 +627,251 @@ def test_renderer_source_has_no_provider_or_network_calls():
         "model_invoke",
     ):
         assert term not in source, f"forbidden provider/network term: {term}"
+
+
+# ---------------------------------------------------------------------------
+# Strict composite candidate index and reference validation tests (§1.4)
+# ---------------------------------------------------------------------------
+
+
+def test_exact_pass02_lookup_on_local_id_collision(tmp_path):
+    """When pass01 and pass02 share local candidate ID 'c01', lookup resolves exact composite pass02:c01."""
+    run_id = "test-collision"
+    p1 = {
+        "schema_version": "pizm-candidates-v1",
+        "stage": "explore",
+        "mode": "NORMAL",
+        "candidates": [
+            {
+                "candidate_id": "c01",
+                "title": "Pass 1 Title",
+                "semantic_core": {"claim": "Pass 1 Claim", "structural_shift": "Shift 1", "mechanism": "Mech 1", "grounding_anchor": "Anchor 1", "what_becomes_visible": "Vis 1", "boundary": "Bound 1"},
+                "epistemics": {"supported": ["t1"], "inferred": [], "speculative": [], "unknown": []},
+            }
+        ],
+    }
+    freeze_stage(tmp_path, "explore", run_id, p1)
+    sha1 = (tmp_path / ".ai" / "pizm" / f"run-{run_id}" / "candidates.sha256").read_text().strip()
+
+    p2 = {
+        "schema_version": "pizm-candidates-v1",
+        "stage": "explore",
+        "mode": "360",
+        "candidates": [
+            {
+                "candidate_id": "c01",
+                "title": "Pass 2 Title",
+                "semantic_core": {"claim": "Pass 2 Claim", "structural_shift": "Shift 2", "mechanism": "Mech 2", "grounding_anchor": "Anchor 2", "what_becomes_visible": "Vis 2", "boundary": "Bound 2"},
+                "difference_from_prior": "Diff 2",
+                "epistemics": {"supported": ["t2"], "inferred": [], "speculative": [], "unknown": []},
+            }
+        ],
+    }
+    freeze_stage(tmp_path, "explore", run_id, p2, artifact_suffix="pass02")
+    sha2 = (tmp_path / ".ai" / "pizm" / f"run-{run_id}" / "candidates-pass02.sha256").read_text().strip()
+
+    sf = {
+        "schema_version": "pizm-search-field-v1",
+        "stage": "search-field",
+        "passes": [
+            {"pass_id": "pass01", "candidates_ref": "candidates.json", "frozen_hash": sha1},
+            {"pass_id": "pass02", "candidates_ref": "candidates-pass02.json", "frozen_hash": sha2},
+        ],
+        "entries": ["pass01:c01", "pass02:c01"],
+    }
+    freeze_stage(tmp_path, "search-field", run_id, sf)
+    sf_sha = (tmp_path / ".ai" / "pizm" / f"run-{run_id}" / "search-field.sha256").read_text().strip()
+
+    port = {
+        "schema_version": "pizm-portfolio-selection-v2",
+        "stage": "portfolio",
+        "route": "AUTO",
+        "field_ref": "search-field.json",
+        "field_hash": sf_sha,
+        "perspectives": {"P1": "pass02:c01"},
+        "competition_status": "NO_SECOND_DEFENSIBLE_BUNDLE",
+        "candidate_assessments": [
+            {
+                "candidate_ref": "pass02:c01",
+                "disposition": "KEEP",
+                "standalone_quality": "strong",
+                "unique_residue": "Pass 2 residue",
+                "nearest_overlap": None,
+                "reason": "Pass 2 selected",
+            }
+        ],
+        "bundles": [],
+        "auto_target": {"target_type": "P", "target_id": "P1"},
+    }
+    freeze_stage(tmp_path, "portfolio", run_id, port)
+
+    dev = development_payload("P", "P1")
+    dev["identity_lock"]["title"] = "Pass 2 Title"
+    dev["identity_lock"]["core_claim"] = "Pass 2 Claim"
+    freeze_stage(tmp_path, "development-v2", run_id, dev)
+    dev_sha = (tmp_path / ".ai" / "pizm" / f"run-{run_id}" / "development-v2.sha256").read_text().strip()
+
+    rev = review_payload("P", "P1")
+    rev["frozen_hash"] = dev_sha
+    freeze_stage(tmp_path, "deep-review-v2", run_id, rev)
+
+    run_dir = tmp_path / ".ai" / "pizm" / f"run-{run_id}"
+    out = tmp_path / "collision.md"
+    res = run_render(run_dir, TASK_TEXT, out)
+    assert res.returncode == 0, res.stderr
+    content = out.read_text(encoding="utf-8")
+    # Must render Pass 2 Title under Portfolio for P1
+    assert "### P1 — Pass 2 Title (`pass02:c01`)" in content
+    assert "Pass 1 Title" not in content.split("## Portfolio")[1].split("## Machine artifacts")[0]
+
+
+def test_duplicate_composite_candidate_keys_fails_closed(tmp_path):
+    """Duplicate composite candidate keys within candidate payload fail closed."""
+    run_dir = tmp_path / "run-dup"
+    run_dir.mkdir(parents=True)
+    p1 = {
+        "schema_version": "pizm-candidates-v1",
+        "stage": "explore",
+        "mode": "NORMAL",
+        "candidates": [
+            {"candidate_id": "c01", "title": "First", "semantic_core": {"claim": "A"}},
+            {"candidate_id": "c01", "title": "Second", "semantic_core": {"claim": "B"}},
+        ],
+    }
+    (run_dir / "candidates.json").write_text(json.dumps(p1))
+    (run_dir / "candidates.sha256").write_text(__import__("hashlib").sha256(json.dumps(p1).encode()).hexdigest())
+
+    port = {
+        "schema_version": "pizm-portfolio-selection-v1",
+        "stage": "portfolio",
+        "route": "AUTO",
+        "candidate_assessments": [{"candidate_ref": "pass01:c01", "disposition": "KEEP"}],
+        "auto_target": {"target_type": "P", "target_id": "P1"},
+    }
+    (run_dir / "portfolio.json").write_text(json.dumps(port))
+    (run_dir / "portfolio.sha256").write_text(__import__("hashlib").sha256(json.dumps(port).encode()).hexdigest())
+
+    dev = {"schema_version": "pizm-development-v2", "stage": "development-v2", "target": {"target_type": "P", "target_id": "P1"}}
+    (run_dir / "development-v2.json").write_text(json.dumps(dev))
+    (run_dir / "development-v2.sha256").write_text(__import__("hashlib").sha256(json.dumps(dev).encode()).hexdigest())
+
+    rev = {"schema_version": "pizm-deep-review-v2", "stage": "deep-review-v2", "target_type": "P", "target_id": "P1", "terminal_state": "MODEL_READY"}
+    (run_dir / "deep-review-v2.json").write_text(json.dumps(rev))
+    (run_dir / "deep-review-v2.sha256").write_text(__import__("hashlib").sha256(json.dumps(rev).encode()).hexdigest())
+
+    out = tmp_path / "dup.md"
+    res = run_render(run_dir, TASK_TEXT, out)
+    assert res.returncode != 0
+    assert "duplicate composite candidate key" in res.stderr
+
+
+def test_unknown_candidate_reference_fails_closed(frozen_run_p, tmp_path):
+    """Portfolio referencing an unknown candidate fails closed."""
+    port = json.loads((frozen_run_p / "portfolio.json").read_text())
+    port["candidate_assessments"].append({
+        "candidate_ref": "pass01:c99",
+        "disposition": "KEEP",
+        "standalone_quality": "strong",
+        "reason": "Ghost candidate",
+    })
+    raw = json.dumps(port, indent=2).encode("utf-8")
+    (frozen_run_p / "portfolio.json").write_bytes(raw)
+    (frozen_run_p / "portfolio.sha256").write_text(
+        __import__("hashlib").sha256(raw).hexdigest(), encoding="ascii"
+    )
+    res = run_render(frozen_run_p, TASK_TEXT, tmp_path / "run.md")
+    assert res.returncode != 0
+    assert "unknown candidate ref" in res.stderr
+
+
+def test_colon_bearing_ref_no_fallback_fails_closed(frozen_run_p, tmp_path):
+    """Colon-bearing ref 'pass02:c01' when only pass01 is present must NOT fallback to local c01."""
+    port = json.loads((frozen_run_p / "portfolio.json").read_text())
+    port["candidate_assessments"][0]["candidate_ref"] = "pass02:c01"
+    raw = json.dumps(port, indent=2).encode("utf-8")
+    (frozen_run_p / "portfolio.json").write_bytes(raw)
+    (frozen_run_p / "portfolio.sha256").write_text(
+        __import__("hashlib").sha256(raw).hexdigest(), encoding="ascii"
+    )
+    res = run_render(frozen_run_p, TASK_TEXT, tmp_path / "run.md")
+    assert res.returncode != 0
+    assert "unknown candidate ref" in res.stderr
+
+
+def test_canonical_perspectives_controls_rendered_labels_and_continued_p_id(tmp_path):
+    """V2 portfolio 'perspectives' map defines canonical P-IDs across passes, controlling bundle labels."""
+    run_id = "test-canon-persp"
+    p1 = candidates_payload()
+    freeze_stage(tmp_path, "explore", run_id, p1)
+    sha1 = (tmp_path / ".ai" / "pizm" / f"run-{run_id}" / "candidates.sha256").read_text().strip()
+
+    p2 = pass2_candidates_payload()
+    freeze_stage(tmp_path, "explore", run_id, p2, artifact_suffix="pass02")
+    sha2 = (tmp_path / ".ai" / "pizm" / f"run-{run_id}" / "candidates-pass02.sha256").read_text().strip()
+
+    sf = search_field_payload(sha1, sha2)
+    freeze_stage(tmp_path, "search-field", run_id, sf)
+    sf_sha = (tmp_path / ".ai" / "pizm" / f"run-{run_id}" / "search-field.sha256").read_text().strip()
+
+    # Canonical portfolio perspectives mapping P1 -> pass01:c01, P2 -> pass01:c02, P3 -> pass02:c01
+    port = {
+        "schema_version": "pizm-portfolio-selection-v2",
+        "stage": "portfolio",
+        "route": "AUTO",
+        "field_ref": "search-field.json",
+        "field_hash": sf_sha,
+        "competition_status": "NO_SECOND_DEFENSIBLE_BUNDLE",
+        "perspectives": {
+            "P1": "pass01:c01",
+            "P2": "pass01:c02",
+            "P3": "pass02:c01",
+        },
+        "candidate_assessments": [
+            {"candidate_ref": "pass01:c01", "disposition": "KEEP", "standalone_quality": "strong", "unique_residue": "Res 1", "nearest_overlap": None, "reason": "R1"},
+            {"candidate_ref": "pass01:c02", "disposition": "KEEP", "standalone_quality": "strong", "unique_residue": "Res 2", "nearest_overlap": None, "reason": "R2"},
+            {"candidate_ref": "pass02:c01", "disposition": "KEEP", "standalone_quality": "strong", "unique_residue": "Res 3", "nearest_overlap": None, "reason": "R3"},
+        ],
+        "bundles": [
+            {
+                "bundle_id": "B1",
+                "member_refs": ["pass01:c02", "pass02:c01"],
+                "bundle_thesis": "Thesis B1",
+                "composition_gain": "Gain B1",
+                "internal_tension": "Tension B1",
+                "weakest_link": "Link B1",
+                "new_consequence_or_prediction": "Pred B1",
+                "member_roles": {"pass01:c02": "Role 1", "pass02:c01": "Role 2"},
+                "member_ablation": {"pass01:c02": "Abl 1", "pass02:c01": "Abl 2"},
+            }
+        ],
+        "auto_target": {"target_type": "B", "target_id": "B1"},
+    }
+    freeze_stage(tmp_path, "portfolio", run_id, port)
+
+    dev = development_payload("B", "B1")
+    dev["identity_lock"]["member_refs"] = ["pass01:c02", "pass02:c01"]
+    dev["developed_model"]["member_contributions"] = {
+        "pass01:c02": "Contribution 1",
+        "pass02:c01": "Contribution 2",
+    }
+    dev["developed_model"]["member_ablation"] = {
+        "pass01:c02": "Ablation 1",
+        "pass02:c01": "Ablation 2",
+    }
+    freeze_stage(tmp_path, "development-v2", run_id, dev, target="B1")
+    dev_sha = (tmp_path / ".ai" / "pizm" / f"run-{run_id}" / "development-v2-B1.sha256").read_text().strip()
+
+    rev = review_payload("B", "B1")
+    rev["frozen_hash"] = dev_sha
+    freeze_stage(tmp_path, "deep-review-v2", run_id, rev)
+
+    run_dir = tmp_path / ".ai" / "pizm" / f"run-{run_id}"
+    out = tmp_path / "persp.md"
+    res = run_render(run_dir, TASK_TEXT, out)
+    assert res.returncode == 0, res.stderr
+    content = out.read_text(encoding="utf-8")
+
+    # Canonical continued P-ID rendered in Portfolio
+    assert "### P3 — Ownership Diffusion Boundary (`pass02:c01`)" in content
+    # Bundle members labeled with canonical P-IDs P2 + P3
+    assert "### B1 — P2 + P3" in content

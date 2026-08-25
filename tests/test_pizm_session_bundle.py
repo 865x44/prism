@@ -1151,6 +1151,8 @@ class TestAutoSelectionValidation:
             "task_orientation": "ACTION_OR_DECISION",
         }
         (workspace["explore"] / "selection.json").write_text(json.dumps(sel_data))
+        acc_file = workspace["tmp"] / "auto_acc.json"
+        acc_file.write_text(json.dumps({"host_inference_count": 1, "model_repair_count": 0, "checkpoint_retry_count": 0}))
 
         r = run_bundle(
             "create",
@@ -1158,6 +1160,7 @@ class TestAutoSelectionValidation:
             "--slug", "auto-sel-valid-test",
             "--skill-root", str(workspace["skill"]),
             "--stage", f"pass-01-normal={workspace['explore']}",
+            "--accounting", str(acc_file),
         )
         assert r.returncode == 0, r.stderr
 
@@ -1235,3 +1238,296 @@ class TestAutoSelectionValidation:
         )
         assert r.returncode != 0
         assert "BAD_AUTO_SELECTION" in r.stderr
+
+
+# ---------------------------------------------------------------------------
+# 6-counter accounting contract and validation tests (§1.6)
+# ---------------------------------------------------------------------------
+
+
+class TestAccountingValidation:
+    def test_six_counter_manifest_and_ephemeral_accounting(self, workspace):
+        """Accounting produces exact 6-counter manifest and is NOT copied to archive inputs."""
+        acc_file = workspace["tmp"] / "accounting.json"
+        acc_data = {
+            "host_inference_count": 5,
+            "model_repair_count": 1,
+            "checkpoint_retry_count": 0,
+        }
+        acc_file.write_text(json.dumps(acc_data), encoding="utf-8")
+
+        r = run_bundle(
+            "create",
+            "--output-root", str(workspace["output"]),
+            "--slug", "acc-test",
+            "--skill-root", str(workspace["skill"]),
+            "--stage", f"pass-01-normal={workspace['explore']}",
+            "--accounting", str(acc_file),
+        )
+        assert r.returncode == 0, r.stderr
+        bundle = workspace["output"] / "session-acc-test"
+        manifest = json.loads((bundle / "manifest.json").read_text())
+
+        # Exact 6 keys in accounting manifest
+        assert "accounting" in manifest
+        acc_manifest = manifest["accounting"]
+        expected_keys = {
+            "semantic_stage_count",
+            "host_inference_count",
+            "model_repair_count",
+            "checkpoint_retry_count",
+            "candidate_bytes",
+            "development_bytes",
+        }
+        assert set(acc_manifest.keys()) == expected_keys
+        assert acc_manifest["semantic_stage_count"] == 1
+        assert acc_manifest["host_inference_count"] == 5
+        assert acc_manifest["model_repair_count"] == 1
+        assert acc_manifest["checkpoint_retry_count"] == 0
+        cand_bytes = (workspace["explore"] / "candidates.json").stat().st_size
+        assert acc_manifest["candidate_bytes"] == cand_bytes
+        assert acc_manifest["development_bytes"] == 0
+
+        # Ephemeral accounting file is NOT copied into inputs/
+        assert not (bundle / "inputs" / "accounting.json").exists()
+        for inp in manifest.get("inputs", []):
+            assert "accounting" not in inp["filename"]
+
+    def test_derived_counter_mismatch_fails(self, workspace):
+        """Caller supplying mismatched derived counter (e.g. semantic_stage_count) causes failure."""
+        acc_file = workspace["tmp"] / "bad_acc.json"
+        acc_data = {
+            "host_inference_count": 3,
+            "model_repair_count": 0,
+            "checkpoint_retry_count": 0,
+            "semantic_stage_count": 99,  # Mismatch: actual is 1
+        }
+        acc_file.write_text(json.dumps(acc_data), encoding="utf-8")
+
+        r = run_bundle(
+            "create",
+            "--output-root", str(workspace["output"]),
+            "--slug", "acc-mismatch",
+            "--skill-root", str(workspace["skill"]),
+            "--stage", f"pass-01-normal={workspace['explore']}",
+            "--accounting", str(acc_file),
+        )
+        assert r.returncode != 0
+        assert "semantic_stage_count mismatch" in r.stderr
+
+    def test_invalid_external_counter_values_fail(self, workspace):
+        """Negative integer or boolean in accounting counter triggers failure."""
+        acc_file = workspace["tmp"] / "neg_acc.json"
+        acc_data = {
+            "host_inference_count": -1,
+            "model_repair_count": 0,
+            "checkpoint_retry_count": 0,
+        }
+        acc_file.write_text(json.dumps(acc_data), encoding="utf-8")
+
+        r = run_bundle(
+            "create",
+            "--output-root", str(workspace["output"]),
+            "--slug", "acc-neg",
+            "--skill-root", str(workspace["skill"]),
+            "--stage", f"pass-01-normal={workspace['explore']}",
+            "--accounting", str(acc_file),
+        )
+        assert r.returncode != 0
+        assert "non-negative integer" in r.stderr
+
+    def test_extra_unknown_accounting_keys_fail(self, workspace):
+        """Extra unrecognized keys in accounting JSON cause failure."""
+        acc_file = workspace["tmp"] / "extra_acc.json"
+        acc_data = {
+            "host_inference_count": 1,
+            "model_repair_count": 0,
+            "checkpoint_retry_count": 0,
+            "unrecognized_counter": 123,
+        }
+        acc_file.write_text(json.dumps(acc_data), encoding="utf-8")
+
+        r = run_bundle(
+            "create",
+            "--output-root", str(workspace["output"]),
+            "--slug", "acc-extra",
+            "--skill-root", str(workspace["skill"]),
+            "--stage", f"pass-01-normal={workspace['explore']}",
+            "--accounting", str(acc_file),
+        )
+        assert r.returncode != 0
+        assert "extra keys" in r.stderr
+
+    def test_auto_requires_accounting(self, workspace):
+        """AUTO stage without --accounting fails closed."""
+        sel_data = {
+            "schema_version": "pizm-auto-selection-v1",
+            "stage": "explore",
+            "mode": "NORMAL",
+            "auto_primary_candidate_id": "c1",
+            "kept": ["c1"],
+            "dispositions": [{"candidate_id": "c1", "disposition": "KEEP"}],
+            "task_orientation": "ANALYTICAL",
+        }
+        (workspace["explore"] / "selection.json").write_text(json.dumps(sel_data))
+
+        r = run_bundle(
+            "create",
+            "--output-root", str(workspace["output"]),
+            "--slug", "auto-no-acc",
+            "--skill-root", str(workspace["skill"]),
+            "--stage", f"pass-01-normal={workspace['explore']}",
+        )
+        assert r.returncode != 0
+        assert "accounting input is required for AUTO/FORGE" in r.stderr
+
+
+# ---------------------------------------------------------------------------
+# Forge v2 archive layout and allowlisted collection tests (§1.6)
+# ---------------------------------------------------------------------------
+
+
+class TestForgeV2ArchiveCollection:
+    def test_forge_v2_target_layout_and_sidecar_meta_coverage(self, workspace):
+        """Forge v2 target layout collects all allowlisted artifacts and excludes arbitrary lookalikes."""
+        # Setup Forge stages
+        # 1. Pass 1
+        p1_dir = workspace["tmp"] / "pass01"
+        p1_dir.mkdir()
+        c1 = {"schema_version": "pizm-candidates-v1", "stage": "explore", "mode": "NORMAL", "candidates": [{"candidate_id": "c01", "content": "P1"}]}
+        c1_bytes = json.dumps(c1).encode()
+        (p1_dir / "candidates.json").write_bytes(c1_bytes)
+        (p1_dir / "candidates.sha256").write_text(_sha256_hex(c1_bytes))
+        (p1_dir / "candidates.meta.json").write_text('{"stage":"explore"}')
+        (p1_dir / "junk.txt").write_text("should not be copied")
+        (p1_dir / "candidates_fake.json").write_text("fake candidate")
+
+        # 2. Pass 2
+        p2_dir = workspace["tmp"] / "pass02"
+        p2_dir.mkdir()
+        c2 = {"schema_version": "pizm-candidates-v1", "stage": "explore", "mode": "360", "candidates": [{"candidate_id": "c01", "content": "P2"}]}
+        c2_bytes = json.dumps(c2).encode()
+        (p2_dir / "candidates-pass02.json").write_bytes(c2_bytes)
+        (p2_dir / "candidates-pass02.sha256").write_text(_sha256_hex(c2_bytes))
+        (p2_dir / "candidates-pass02.meta.json").write_text('{"stage":"explore","suffix":"pass02"}')
+
+        # 3. Search field
+        sf_dir = workspace["tmp"] / "sf"
+        sf_dir.mkdir()
+        sf = {"schema_version": "pizm-search-field-v1", "stage": "search-field", "passes": [], "entries": []}
+        sf_bytes = json.dumps(sf).encode()
+        (sf_dir / "search-field.json").write_bytes(sf_bytes)
+        (sf_dir / "search-field.sha256").write_text(_sha256_hex(sf_bytes))
+        (sf_dir / "search-field.meta.json").write_text('{"stage":"search-field"}')
+
+        # 4. Portfolio
+        port_dir = workspace["tmp"] / "port"
+        port_dir.mkdir()
+        port = {"schema_version": "pizm-portfolio-selection-v2", "stage": "portfolio", "route": "AUTO", "auto_target": {"target_type": "B", "target_id": "B1"}}
+        port_bytes = json.dumps(port).encode()
+        (port_dir / "portfolio.json").write_bytes(port_bytes)
+        (port_dir / "portfolio.sha256").write_text(_sha256_hex(port_bytes))
+        (port_dir / "portfolio.meta.json").write_text('{"stage":"portfolio"}')
+
+        # 5. Deep B1
+        db1_dir = workspace["tmp"] / "db1"
+        db1_dir.mkdir()
+        db1 = {"schema_version": "pizm-development-v2", "stage": "development-v2", "target": {"target_type": "B", "target_id": "B1"}}
+        db1_bytes = json.dumps(db1).encode()
+        (db1_dir / "development-v2-B1.json").write_bytes(db1_bytes)
+        (db1_dir / "development-v2-B1.sha256").write_text(_sha256_hex(db1_bytes))
+        (db1_dir / "development-v2-B1.meta.json").write_text('{"stage":"development-v2","target":"B1"}')
+        (db1_dir / "review.json").write_text('{"terminal_state":"MODEL_READY"}')
+        (db1_dir / "review.sha256").write_text(_sha256_hex(b'{"terminal_state":"MODEL_READY"}'))
+
+        # 6. Deep B2
+        db2_dir = workspace["tmp"] / "db2"
+        db2_dir.mkdir()
+        db2 = {"schema_version": "pizm-development-v2", "stage": "development-v2", "target": {"target_type": "B", "target_id": "B2"}}
+        db2_bytes = json.dumps(db2).encode()
+        (db2_dir / "development-v2-B2.json").write_bytes(db2_bytes)
+        (db2_dir / "development-v2-B2.sha256").write_text(_sha256_hex(db2_bytes))
+        (db2_dir / "development-v2-B2.meta.json").write_text('{"stage":"development-v2","target":"B2"}')
+        (db2_dir / "review.json").write_text('{"terminal_state":"MODEL_READY"}')
+        (db2_dir / "review.sha256").write_text(_sha256_hex(b'{"terminal_state":"MODEL_READY"}'))
+
+        # 7. Comparison Review
+        comp_dir = workspace["tmp"] / "comp"
+        comp_dir.mkdir()
+        comp = {"schema_version": "pizm-comparison-review-v1", "stage": "comparison-review-v1"}
+        comp_bytes = json.dumps(comp).encode()
+        (comp_dir / "comparison-review-v1.json").write_bytes(comp_bytes)
+        (comp_dir / "comparison-review-v1.sha256").write_text(_sha256_hex(comp_bytes))
+        (comp_dir / "comparison-review-v1.meta.json").write_text('{"stage":"comparison-review-v1"}')
+
+        acc_file = workspace["tmp"] / "forge_acc.json"
+        acc_file.write_text(json.dumps({
+            "host_inference_count": 7,
+            "model_repair_count": 0,
+            "checkpoint_retry_count": 0,
+        }))
+
+        r = run_bundle(
+            "create",
+            "--output-root", str(workspace["output"]),
+            "--slug", "forge-v2-bundle",
+            "--skill-root", str(workspace["skill"]),
+            "--stage", f"pass-01-normal={p1_dir}",
+            "--stage", f"pass-02-residual={p2_dir}",
+            "--stage", f"search-field={sf_dir}",
+            "--stage", f"portfolio={port_dir}",
+            "--stage", f"deep-B1={db1_dir}",
+            "--stage", f"deep-B2={db2_dir}",
+            "--stage", f"comparison-review={comp_dir}",
+            "--accounting", str(acc_file),
+        )
+        assert r.returncode == 0, r.stderr
+        bundle = workspace["output"] / "session-forge-v2-bundle"
+        assert bundle.is_dir()
+
+        # Verify all expected artifacts, sidecars, and metadata exist in bundle
+        assert (bundle / "pass-01-normal" / "candidates.json").exists()
+        assert (bundle / "pass-01-normal" / "candidates.sha256").exists()
+        assert (bundle / "pass-01-normal" / "candidates.meta.json").exists()
+        assert (bundle / "pass-02-residual" / "candidates-pass02.json").exists()
+        assert (bundle / "pass-02-residual" / "candidates-pass02.sha256").exists()
+        assert (bundle / "pass-02-residual" / "candidates-pass02.meta.json").exists()
+        assert (bundle / "search-field" / "search-field.json").exists()
+        assert (bundle / "portfolio" / "portfolio.json").exists()
+        assert (bundle / "deep-B1" / "development-v2-B1.json").exists()
+        assert (bundle / "deep-B2" / "development-v2-B2.json").exists()
+        assert (bundle / "comparison-review" / "comparison-review-v1.json").exists()
+
+        # Verify arbitrary lookalike / non-allowlisted files are NOT copied
+        assert not (bundle / "pass-01-normal" / "junk.txt").exists()
+        assert not (bundle / "pass-01-normal" / "candidates_fake.json").exists()
+
+        # Verify 6 accounting counters in manifest
+        manifest = json.loads((bundle / "manifest.json").read_text())
+        assert manifest["accounting"]["semantic_stage_count"] == 7
+        assert manifest["accounting"]["candidate_bytes"] == len(c1_bytes) + len(c2_bytes)
+        assert manifest["accounting"]["development_bytes"] == len(db1_bytes) + len(db2_bytes)
+
+    def test_missing_or_tampered_sidecar_fails_before_publish(self, workspace):
+        """Tampered sidecar fails bundle creation and leaves no published bundle directory."""
+        p1_dir = workspace["tmp"] / "tampered_pass01"
+        p1_dir.mkdir()
+        c1 = {"schema_version": "pizm-candidates-v1", "stage": "explore"}
+        (p1_dir / "candidates.json").write_text(json.dumps(c1))
+        (p1_dir / "candidates.sha256").write_text("bad" * 21 + "a")
+        (p1_dir / "selection.json").write_text('{"selected":"c1"}')
+
+        acc_file = workspace["tmp"] / "acc.json"
+        acc_file.write_text(json.dumps({"host_inference_count": 1, "model_repair_count": 0, "checkpoint_retry_count": 0}))
+
+        r = run_bundle(
+            "create",
+            "--output-root", str(workspace["output"]),
+            "--slug", "tampered-bundle",
+            "--skill-root", str(workspace["skill"]),
+            "--stage", f"pass-01-normal={p1_dir}",
+            "--accounting", str(acc_file),
+        )
+        assert r.returncode != 0
+        assert "hash mismatch" in r.stderr.lower()
+        assert not (workspace["output"] / "session-tampered-bundle").exists()
