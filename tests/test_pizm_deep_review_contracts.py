@@ -271,6 +271,32 @@ def valid_review_v2(**overrides):
         else:
             review[key] = value
     return review
+def freeze_dev(workspace, dev_payload=None, run_id="critic-test", target=None):
+    project, skill = workspace
+    if dev_payload is None:
+        target_type = "B" if (target and target.startswith("B")) else "P"
+        target_id = target or ("B1" if target_type == "B" else "P7")
+        dev_payload = valid_dev_v2(target_type=target_type, target_id=target_id)
+    path = write_json(project / f"pending-dev-{target or 'main'}.json", dev_payload)
+    cmd = [
+        "freeze", "--stage", "development-v2", "--run-id", run_id,
+        "--input", path,
+        "--project-root", str(project),
+        "--skill-root", str(skill),
+    ]
+    if target:
+        cmd.extend(["--target", target])
+    res = run_ck(*cmd)
+    if res.returncode != 0:
+        raise RuntimeError(f"freeze_dev failed: {res.stderr}")
+    sha = None
+    for line in res.stdout.splitlines():
+        if line.startswith("FREEZE_OK "):
+            sha = line.split()[1].strip()
+            break
+    artifact_ref = f"development-v2-{target}.json" if target else "development-v2.json"
+    return artifact_ref, sha
+
 
 
 def freeze_review(workspace, review, run_id="critic-test"):
@@ -286,7 +312,8 @@ def freeze_review(workspace, review, run_id="critic-test"):
 
 class TestReviewFreezeHappyPath:
     def test_review_freeze_success(self, workspace):
-        result = freeze_review(workspace, valid_review_v2())
+        dev_ref, sha = freeze_dev(workspace, run_id="critic-test")
+        result = freeze_review(workspace, valid_review_v2(frozen_hash=sha, target_ref=dev_ref))
         assert result.returncode == 0, result.stderr
         assert "FREEZE_OK" in result.stdout
         run_dir = workspace[0] / ".ai" / "pizm" / "run-critic-test"
@@ -296,29 +323,34 @@ class TestReviewFreezeHappyPath:
 
     def test_terminal_stage_reveals_nothing(self, workspace):
         """deep-review-v2 is terminal: no NEXT CONTRACT section."""
-        result = freeze_review(workspace, valid_review_v2())
+        dev_ref, sha = freeze_dev(workspace, run_id="critic-test")
+        result = freeze_review(workspace, valid_review_v2(frozen_hash=sha, target_ref=dev_ref))
         assert result.returncode == 0
         assert "NEXT CONTRACT" not in result.stdout
 
     @pytest.mark.parametrize("terminal_state", sorted(VALID_TERMINALS))
     def test_all_three_terminals_accepted(self, workspace, terminal_state):
-        review = valid_review_v2(terminal_state=terminal_state)
+        run_id = "term-" + terminal_state.lower().replace("_", "-")
+        dev_ref, sha = freeze_dev(workspace, run_id=run_id)
+        review = valid_review_v2(terminal_state=terminal_state, frozen_hash=sha, target_ref=dev_ref)
         if terminal_state != "RETURN_TO_EXPLORE":
             review["identity_verified"] = True
         result = freeze_review(
             workspace, review,
-            run_id="term-" + terminal_state.lower().replace("_", "-"),
+            run_id=run_id,
         )
-
         assert result.returncode == 0, result.stderr
 
     def test_bundle_target_with_ablation_finding_accepted(self, workspace):
+        dev_ref, sha = freeze_dev(workspace, target="B1", run_id="bundle-ablation")
         review = valid_review_v2(
             target_type="B",
             target_id="B1",
+            frozen_hash=sha,
+            target_ref=dev_ref,
             findings_merge={"member_ablation": "No member is a passenger; each ablation removes distinct support."},
         )
-        result = freeze_review(workspace, review)
+        result = freeze_review(workspace, review, run_id="bundle-ablation")
         assert result.returncode == 0, result.stderr
 
 
@@ -330,8 +362,11 @@ class TestReviewFreezeHappyPath:
 class TestDecisionCouplings:
     def test_contradiction_blocks_model_ready(self, workspace):
         """Unresolved load-bearing contradiction forbids MODEL_READY."""
+        dev_ref, sha = freeze_dev(workspace, run_id="contradiction")
         review = valid_review_v2(
-            findings_merge={"unresolved_load_bearing_contradiction": True}
+            frozen_hash=sha,
+            target_ref=dev_ref,
+            findings_merge={"unresolved_load_bearing_contradiction": True},
         )
         result = freeze_review(workspace, review, run_id="contradiction")
         assert result.returncode != 0
@@ -340,14 +375,18 @@ class TestDecisionCouplings:
         assert not (run_dir / "deep-review-v2.json").exists()
 
     def test_identity_false_requires_return_to_explore(self, workspace):
-        review = valid_review_v2(identity_verified=False)
+        dev_ref1, sha1 = freeze_dev(workspace, run_id="drift-ready")
+        review = valid_review_v2(identity_verified=False, frozen_hash=sha1, target_ref=dev_ref1)
         result = freeze_review(workspace, review, run_id="drift-ready")
         assert result.returncode != 0
         assert "RETURN_TO_EXPLORE" in result.stderr
 
+        dev_ref2, sha2 = freeze_dev(workspace, run_id="drift-rte")
         review_ok = valid_review_v2(
             identity_verified=False,
             terminal_state="RETURN_TO_EXPLORE",
+            frozen_hash=sha2,
+            target_ref=dev_ref2,
             verdict_rationale="Identity drift: developed model substitutes another model.",
         )
         result_ok = freeze_review(workspace, review_ok, run_id="drift-rte")
@@ -359,16 +398,20 @@ class TestDecisionCouplings:
         flagged["unsupported_specificity"] = [
             "Mechanism chain asserts a named actor and a 3-week lag absent from sources."
         ]
-        review_bad = valid_review_v2(findings_merge={})
+        dev_ref1, sha1 = freeze_dev(workspace, run_id="specificity-nodebt")
+        review_bad = valid_review_v2(findings_merge={}, frozen_hash=sha1, target_ref=dev_ref1)
         review_bad["findings"] = flagged
         # evidence_debt empty -> rejection
         result_bad = freeze_review(workspace, review_bad, run_id="specificity-nodebt")
         assert result_bad.returncode != 0
         assert "evidence_debt" in result_bad.stderr
 
+        dev_ref2, sha2 = freeze_dev(workspace, run_id="specificity-debt")
         review_good = valid_review_v2(
             terminal_state="NEED_EVIDENCE",
             findings_merge={},
+            frozen_hash=sha2,
+            target_ref=dev_ref2,
             evidence_debt=["Source the claimed actor and lag or demote the mechanism step."],
         )
         review_good["findings"] = flagged
@@ -376,15 +419,18 @@ class TestDecisionCouplings:
         assert result_good.returncode == 0, result_good.stderr
 
     def test_bundle_requires_member_ablation_finding(self, workspace):
-        review = valid_review_v2(target_type="B", target_id="B1")
+        dev_ref, sha = freeze_dev(workspace, target="B1", run_id="bundle-noablation")
+        review = valid_review_v2(target_type="B", target_id="B1", frozen_hash=sha, target_ref=dev_ref)
         result = freeze_review(workspace, review, run_id="bundle-noablation")
         assert result.returncode != 0
         assert "member_ablation" in result.stderr
 
     @pytest.mark.parametrize("bad_state", ["READY", "BLOCKED", "MODEL_READY ", "REVISE"])
     def test_no_fourth_terminal_state(self, workspace, bad_state):
-        review = valid_review_v2(terminal_state=bad_state)
-        result = freeze_review(workspace, review, run_id="fourth-status")
+        run_id = f"fourth-status-{bad_state.strip().lower().replace('_', '-')}"
+        dev_ref, sha = freeze_dev(workspace, run_id=run_id)
+        review = valid_review_v2(terminal_state=bad_state, frozen_hash=sha, target_ref=dev_ref)
+        result = freeze_review(workspace, review, run_id=run_id)
         assert result.returncode != 0
         assert "terminal_state" in result.stderr
 
@@ -397,7 +443,8 @@ class TestDecisionCouplings:
 class TestCriticIndependence:
     def test_missing_reassessment_rejected(self, workspace):
         """Developer census alone is not acceptable: independent reassessment is mandatory."""
-        review = valid_review_v2()
+        dev_ref, sha = freeze_dev(workspace, run_id="no-reassess")
+        review = valid_review_v2(frozen_hash=sha, target_ref=dev_ref)
         del review["load_bearing_reassessment"]
         result = freeze_review(workspace, review, run_id="no-reassess")
         assert result.returncode != 0
@@ -405,12 +452,14 @@ class TestCriticIndependence:
         assert "not authority" in result.stderr
 
     def test_empty_reassessment_rejected(self, workspace):
-        review = valid_review_v2(load_bearing_reassessment=[])
+        dev_ref, sha = freeze_dev(workspace, run_id="empty-reassess")
+        review = valid_review_v2(load_bearing_reassessment=[], frozen_hash=sha, target_ref=dev_ref)
         result = freeze_review(workspace, review, run_id="empty-reassess")
         assert result.returncode != 0
 
     def test_critic_may_override_developer_labels(self, workspace):
         """Dogfood: developer marks a claim SUPPORTED; critic independently demotes it."""
+        dev_ref, sha = freeze_dev(workspace, run_id="override")
         review = valid_review_v2(
             load_bearing_reassessment=[
                 {"claim": "Portal adoption is driven by tacit-knowledge gaps",
@@ -418,40 +467,49 @@ class TestCriticIndependence:
             ],
             terminal_state="NEED_EVIDENCE",
             evidence_debt=["Interview recent hires to test the tacit-knowledge gap claim."],
+            frozen_hash=sha,
+            target_ref=dev_ref,
         )
         result = freeze_review(workspace, review, run_id="override")
         assert result.returncode == 0, result.stderr
 
     def test_invalid_critic_status_enum_rejected(self, workspace):
+        dev_ref, sha = freeze_dev(workspace, run_id="bad-enum")
         review = valid_review_v2(
             load_bearing_reassessment=[
                 {"claim": "x", "critic_epistemic_status": "PROBABLY_TRUE"},
-            ]
+            ],
+            frozen_hash=sha,
+            target_ref=dev_ref,
         )
         result = freeze_review(workspace, review, run_id="bad-enum")
         assert result.returncode != 0
         assert "critic_epistemic_status" in result.stderr
 
     def test_countermodel_required(self, workspace):
-        review = valid_review_v2(independent_countermodel="")
+        dev_ref, sha = freeze_dev(workspace, run_id="no-countermodel")
+        review = valid_review_v2(independent_countermodel="", frozen_hash=sha, target_ref=dev_ref)
         result = freeze_review(workspace, review, run_id="no-countermodel")
         assert result.returncode != 0
         assert "independent_countermodel" in result.stderr
 
     def test_cheapest_test_required(self, workspace):
-        review = valid_review_v2(cheapest_discriminating_test=None)
+        dev_ref, sha = freeze_dev(workspace, run_id="no-cheapest")
+        review = valid_review_v2(cheapest_discriminating_test=None, frozen_hash=sha, target_ref=dev_ref)
         result = freeze_review(workspace, review, run_id="no-cheapest")
         assert result.returncode != 0
 
     def test_round_trip_skeleton_required(self, workspace):
-        review = valid_review_v2()
+        dev_ref, sha = freeze_dev(workspace, run_id="no-skeleton")
+        review = valid_review_v2(frozen_hash=sha, target_ref=dev_ref)
         del review["findings"]["round_trip_skeleton"]
         result = freeze_review(workspace, review, run_id="no-skeleton")
         assert result.returncode != 0
         assert "round_trip_skeleton" in result.stderr
 
     def test_frozen_hash_required(self, workspace):
-        review = valid_review_v2(frozen_hash="")
+        dev_ref, sha = freeze_dev(workspace, run_id="no-hash")
+        review = valid_review_v2(frozen_hash="", target_ref=dev_ref)
         result = freeze_review(workspace, review, run_id="no-hash")
         assert result.returncode != 0
 
@@ -463,8 +521,11 @@ class TestCriticIndependence:
 
 class TestPayloadCeiling:
     def test_oversized_review_rejected_and_cleaned_up(self, workspace):
+        dev_ref, sha = freeze_dev(workspace, run_id="review-too-big")
         review = valid_review_v2(
             independent_countermodel="x" * 131073,
+            frozen_hash=sha,
+            target_ref=dev_ref,
         )
         result = freeze_review(workspace, review, run_id="review-too-big")
         assert result.returncode != 0

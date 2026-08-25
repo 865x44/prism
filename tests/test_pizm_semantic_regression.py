@@ -280,6 +280,7 @@ def make_deep_review_v2_payload(
     frozen_hash: str,
     target_type: str = "P",
     target_id: str = "P1",
+    target_ref: str = None,
     terminal_state: str = "MODEL_READY",
     identity_verified: bool = True,
     countermodel: str = None,
@@ -320,7 +321,7 @@ def make_deep_review_v2_payload(
     if unsupported_specificity and not debt:
         debt.append("Empirical evidence required for asserted specificity")
 
-    return {
+    payload = {
         "schema_version": "pizm-deep-review-v2",
         "stage": "deep-review-v2",
         "frozen_hash": frozen_hash,
@@ -344,6 +345,9 @@ def make_deep_review_v2_payload(
         "evidence_debt": debt,
         "verdict_rationale": verdict_rationale or "Model structure is sound and epistemic boundaries are clear.",
     }
+    if target_ref is not None:
+        payload["target_ref"] = target_ref
+    return payload
 
 
 def make_comparison_review_payload(
@@ -1646,25 +1650,15 @@ class TestForgeEndToEndFixtures:
         with_lever: bool = False,
     ):
         p1 = make_candidates_payload(pass_num=1)
-        freeze_stage(tmp_path, "explore", run_id, p1)
+        res1 = freeze_stage(tmp_path, "explore", run_id, p1, artifact_suffix="pass01")
+        assert res1.returncode == 0, res1.stderr
         run_dir = tmp_path / ".ai" / "pizm" / f"run-{run_id}"
-        p1_hash = (run_dir / "candidates.sha256").read_text().strip()
-        p1_bytes = (run_dir / "candidates.json").read_bytes()
-
-        (run_dir / "candidates-pass01.json").write_bytes(p1_bytes)
-        (run_dir / "candidates-pass01.sha256").write_text(p1_hash, encoding="utf-8")
-        (run_dir / "candidates.json").unlink()
-        (run_dir / "candidates.sha256").unlink()
-        (run_dir / "candidates.meta.json").unlink()
+        p1_hash = (run_dir / "candidates-pass01.sha256").read_text().strip()
 
         p2 = make_candidates_payload(pass_num=2)
-        freeze_stage(tmp_path, "explore", run_id, p2)
-        p2_hash = (run_dir / "candidates.sha256").read_text().strip()
-        (run_dir / "candidates-pass02.json").write_bytes((run_dir / "candidates.json").read_bytes())
-        (run_dir / "candidates-pass02.sha256").write_text(p2_hash, encoding="utf-8")
-        (run_dir / "candidates.json").write_bytes(p1_bytes)
-        (run_dir / "candidates.sha256").write_text(p1_hash, encoding="utf-8")
-
+        res2 = freeze_stage(tmp_path, "explore", run_id, p2, artifact_suffix="pass02")
+        assert res2.returncode == 0, res2.stderr
+        p2_hash = (run_dir / "candidates-pass02.sha256").read_text().strip()
         sf = make_search_field_payload(
             passes=[
                 {"pass_id": "pass01", "candidates_ref": "candidates-pass01.json", "frozen_hash": p1_hash},
@@ -1765,9 +1759,9 @@ class TestForgeEndToEndFixtures:
                 frozen_hash=dev_hash,
                 target_type="B",
                 target_id="B1",
+                target_ref="development-v2-B1.json",
                 terminal_state="MODEL_READY",
             )
-            single_rev["target_ref"] = "development-v2-B1.json"
             freeze_stage(tmp_path, "deep-review-v2", run_id, single_rev)
         if with_lever and comp_preference in ("B1", "B2"):
             ld = make_lever_design_payload()

@@ -21,9 +21,11 @@ CHECKPOINT_CLI = str(REPO_ROOT / "bin" / "pizm-checkpoint")
 SKILL_ROOT = str(REPO_ROOT / "docs" / "pizm-skill-staged-2026-08-24")
 
 
-def valid_review_b1():
+def valid_review_b1(dev_ref="development-v2-B1.json", dev_hash=None):
     return {
         "target_id": "B1",
+        "development_ref": dev_ref,
+        "frozen_hash": dev_hash or ("a" * 64),
         "terminal_state": "MODEL_READY",
         "independent_countermodel": "Review capacity is sufficient but batching is culturally incentivized.",
         "load_bearing_reassessment": [
@@ -42,9 +44,11 @@ def valid_review_b1():
     }
 
 
-def valid_review_b2():
+def valid_review_b2(dev_ref="development-v2-B2.json", dev_hash=None):
     return {
         "target_id": "B2",
+        "development_ref": dev_ref,
+        "frozen_hash": dev_hash or ("b" * 64),
         "terminal_state": "MODEL_READY",
         "independent_countermodel": "Tooling and CI overhead dominates coordination cost.",
         "load_bearing_reassessment": [
@@ -63,13 +67,19 @@ def valid_review_b2():
     }
 
 
-def valid_comparison_payload(preference="B1"):
+def valid_comparison_payload(
+    preference="B1",
+    b1_ref="development-v2-B1.json",
+    b1_hash=None,
+    b2_ref="development-v2-B2.json",
+    b2_hash=None,
+):
     return {
         "schema_version": "pizm-comparison-review-v1",
         "stage": "comparison-review-v1",
         "task_summary": "Reduce PR cycle time in platform team",
-        "review_B1": valid_review_b1(),
-        "review_B2": valid_review_b2(),
+        "review_B1": valid_review_b1(dev_ref=b1_ref, dev_hash=b1_hash),
+        "review_B2": valid_review_b2(dev_ref=b2_ref, dev_hash=b2_hash),
         "comparison": {
             "current_preference": preference,
             "competition_axis": "Feedback loop latency vs Coordination overhead tax",
@@ -80,6 +90,13 @@ def valid_comparison_payload(preference="B1"):
             "what_would_change_the_decision": "If first review latency is <2 hours, coordination overhead model B2 is primary.",
         },
     }
+
+
+def extract_freeze_hash(res):
+    for line in res.stdout.splitlines():
+        if line.startswith("FREEZE_OK "):
+            return line.split()[1].strip()
+    return None
 
 
 def valid_development_payload(target_id="B1", member_refs=None):
@@ -161,11 +178,17 @@ class TestComparisonContracts:
         # Freeze B1 and B2 developments first to satisfy seam
         res1 = freeze_file(tmp_path, "development-v2", run_id, valid_development_payload("B1"), target="B1")
         assert res1.returncode == 0, res1.stderr
+        hash_b1 = extract_freeze_hash(res1)
         res2 = freeze_file(tmp_path, "development-v2", run_id, valid_development_payload("B2"), target="B2")
         assert res2.returncode == 0, res2.stderr
+        hash_b2 = extract_freeze_hash(res2)
 
         # Freeze comparison review
-        comp_payload = valid_comparison_payload(preference=pref)
+        comp_payload = valid_comparison_payload(
+            preference=pref,
+            b1_hash=hash_b1,
+            b2_hash=hash_b2,
+        )
         res_comp = freeze_file(tmp_path, "comparison-review-v1", run_id, comp_payload)
         assert res_comp.returncode == 0, res_comp.stderr
         assert "FREEZE_OK" in res_comp.stdout
@@ -173,11 +196,15 @@ class TestComparisonContracts:
     def test_fg_c5_discriminating_observation_required(self, tmp_path):
         """FG-C5: Discriminating observation is required."""
         run_id = "comp-disc-obs"
-        freeze_file(tmp_path, "development-v2", run_id, valid_development_payload("B1"), target="B1")
-        freeze_file(tmp_path, "development-v2", run_id, valid_development_payload("B2"), target="B2")
+        res1 = freeze_file(tmp_path, "development-v2", run_id, valid_development_payload("B1"), target="B1")
+        assert res1.returncode == 0, res1.stderr
+        hash_b1 = extract_freeze_hash(res1)
+        res2 = freeze_file(tmp_path, "development-v2", run_id, valid_development_payload("B2"), target="B2")
+        assert res2.returncode == 0, res2.stderr
+        hash_b2 = extract_freeze_hash(res2)
 
         # Empty discriminating observation
-        payload = valid_comparison_payload()
+        payload = valid_comparison_payload(b1_hash=hash_b1, b2_hash=hash_b2)
         payload["comparison"]["discriminating_observation"] = ""
         res = freeze_file(tmp_path, "comparison-review-v1", run_id, payload)
         assert res.returncode != 0
@@ -186,11 +213,15 @@ class TestComparisonContracts:
     def test_fg_c6_unresolved_contradiction_blocks_preference(self, tmp_path):
         """FG-C6: Unresolved load-bearing problem blocks preference."""
         run_id = "comp-block-pref"
-        freeze_file(tmp_path, "development-v2", run_id, valid_development_payload("B1"), target="B1")
-        freeze_file(tmp_path, "development-v2", run_id, valid_development_payload("B2"), target="B2")
+        res1 = freeze_file(tmp_path, "development-v2", run_id, valid_development_payload("B1"), target="B1")
+        assert res1.returncode == 0, res1.stderr
+        hash_b1 = extract_freeze_hash(res1)
+        res2 = freeze_file(tmp_path, "development-v2", run_id, valid_development_payload("B2"), target="B2")
+        assert res2.returncode == 0, res2.stderr
+        hash_b2 = extract_freeze_hash(res2)
 
         # B1 has unresolved contradiction but preference claims B1
-        payload = valid_comparison_payload(preference="B1")
+        payload = valid_comparison_payload(preference="B1", b1_hash=hash_b1, b2_hash=hash_b2)
         payload["review_B1"]["findings"]["unresolved_load_bearing_contradiction"] = True
         payload["review_B1"]["terminal_state"] = "NEED_EVIDENCE"  # cannot be MODEL_READY with contradiction
         res = freeze_file(tmp_path, "comparison-review-v1", run_id, payload)
@@ -198,7 +229,7 @@ class TestComparisonContracts:
         assert "preference B1 is forbidden while B1 review has unresolved_load_bearing_contradiction" in res.stderr
 
         # Return to explore on B1 also blocks preference B1
-        payload2 = valid_comparison_payload(preference="B1")
+        payload2 = valid_comparison_payload(preference="B1", b1_hash=hash_b1, b2_hash=hash_b2)
         payload2["review_B1"]["terminal_state"] = "RETURN_TO_EXPLORE"
         res2 = freeze_file(tmp_path, "comparison-review-v1", run_id, payload2)
         assert res2.returncode != 0
@@ -207,24 +238,35 @@ class TestComparisonContracts:
     def test_fg_d3_seam_enforcement_missing_developments(self, tmp_path):
         """FG-D3: Fail closed when either B1 or B2 freeze is missing."""
         run_id = "comp-seam-missing"
-        # Neither B1 nor B2 frozen
+        # Neither B1 nor B2 frozen - valid syntactic payload referencing missing files
         res = freeze_file(tmp_path, "comparison-review-v1", run_id, valid_comparison_payload())
         assert res.returncode != 0
-        assert "seam check failed" in res.stderr
+        assert "references missing file" in res.stderr
 
         # Only B1 frozen
-        freeze_file(tmp_path, "development-v2", run_id, valid_development_payload("B1"), target="B1")
-        res2 = freeze_file(tmp_path, "comparison-review-v1", run_id, valid_comparison_payload())
+        res1 = freeze_file(tmp_path, "development-v2", run_id, valid_development_payload("B1"), target="B1")
+        assert res1.returncode == 0, res1.stderr
+        hash_b1 = extract_freeze_hash(res1)
+        res2 = freeze_file(
+            tmp_path,
+            "comparison-review-v1",
+            run_id,
+            valid_comparison_payload(b1_hash=hash_b1),
+        )
         assert res2.returncode != 0
-        assert "seam check failed" in res2.stderr
+        assert "references missing file" in res2.stderr
 
     def test_payload_ceiling_exceeded(self, tmp_path):
         """Payload ceiling >128 KiB (131072 bytes) causes fail-closed rejection."""
         run_id = "comp-ceiling"
-        freeze_file(tmp_path, "development-v2", run_id, valid_development_payload("B1"), target="B1")
-        freeze_file(tmp_path, "development-v2", run_id, valid_development_payload("B2"), target="B2")
+        res1 = freeze_file(tmp_path, "development-v2", run_id, valid_development_payload("B1"), target="B1")
+        assert res1.returncode == 0, res1.stderr
+        hash_b1 = extract_freeze_hash(res1)
+        res2 = freeze_file(tmp_path, "development-v2", run_id, valid_development_payload("B2"), target="B2")
+        assert res2.returncode == 0, res2.stderr
+        hash_b2 = extract_freeze_hash(res2)
 
-        payload = valid_comparison_payload()
+        payload = valid_comparison_payload(b1_hash=hash_b1, b2_hash=hash_b2)
         payload["task_summary"] = "x" * 140000
         res = freeze_file(tmp_path, "comparison-review-v1", run_id, payload)
         assert res.returncode != 0
