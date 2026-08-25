@@ -24,7 +24,7 @@ from pathlib import Path
 _SCHEMA_VERSION = "pizm-session-bundle-v1"
 
 _STAGE_LABEL_RE = re.compile(
-    r"(?:pass-[0-9]{2}-(?:normal|rift|360)|(?:deep|lever)-(?:P[1-9][0-9]*|DIRECT_SEED))\Z"
+    r"(?:pass-[0-9]{2}-(?:normal|rift|360|residual)|(?:deep|lever)-(?:P[1-9][0-9]*|B[1-9][0-9]*|DIRECT_SEED)|search-field|portfolio|comparison(?:-review)?)\Z"
 )
 
 _EXPLORE_REQUIRED = {"candidates.json", "candidates.sha256", "selection.json"}
@@ -57,13 +57,19 @@ def _validate_slug(slug: str) -> None:
 
 
 def _classify_stage(label: str) -> str:
-    """Return 'explore' for pass-NN-* labels, 'deep' for deep-* labels, 'lever' for lever-* labels."""
+    """Return stage category for a given label."""
     if label.startswith("pass-"):
         return "explore"
     elif label.startswith("deep-"):
         return "deep"
     elif label.startswith("lever-") or "lever" in label:
         return "lever"
+    elif "comparison" in label:
+        return "comparison"
+    elif label == "portfolio":
+        return "portfolio"
+    elif label == "search-field":
+        return "search-field"
     raise ValueError(f"cannot classify stage label: {label!r}")
 
 
@@ -303,6 +309,12 @@ def create_bundle(
             required = _DEEP_REQUIRED
         elif stage_type == "lever":
             required = _LEVER_REQUIRED
+        elif stage_type == "comparison":
+            required = {"review.json"} if (run_dir / "review.json").exists() else {"comparison-review-v1.json"}
+        elif stage_type == "portfolio":
+            required = {"selection.json"} if (run_dir / "selection.json").exists() else {"portfolio.json"}
+        elif stage_type == "search-field":
+            required = {"search-field.json"}
         else:
             return _die(f"stage {label}: unknown stage type {stage_type!r}")
 
@@ -317,8 +329,12 @@ def create_bundle(
             except ValueError as e:
                 return _die(f"stage {label}: {e}")
         elif stage_type == "deep":
+            art_name = "development.json" if (run_dir / "development.json").exists() else "development-v2.json"
+            if not (run_dir / art_name).exists() and (run_dir / f"{label}.json").exists():
+                art_name = f"{label}.json"
+            sha_name = art_name.replace(".json", ".sha256")
             try:
-                _verify_sha_sidecar(run_dir, "development.json", "development.sha256")
+                _verify_sha_sidecar(run_dir, art_name, sha_name)
             except ValueError as e:
                 return _die(f"stage {label}: {e}")
         elif stage_type == "lever":
@@ -331,7 +347,25 @@ def create_bundle(
                     _verify_sha_sidecar(run_dir, "review.json", "review.sha256")
                 except ValueError as e:
                     return _die(f"stage {label}: {e}")
-
+        elif stage_type == "comparison":
+            art_name = "review.json" if (run_dir / "review.json").exists() else "comparison-review-v1.json"
+            sha_name = art_name.replace(".json", ".sha256")
+            try:
+                _verify_sha_sidecar(run_dir, art_name, sha_name)
+            except ValueError as e:
+                return _die(f"stage {label}: {e}")
+        elif stage_type == "portfolio":
+            art_name = "selection.json" if (run_dir / "selection.json").exists() else "portfolio.json"
+            sha_name = art_name.replace(".json", ".sha256")
+            try:
+                _verify_sha_sidecar(run_dir, art_name, sha_name)
+            except ValueError as e:
+                return _die(f"stage {label}: {e}")
+        elif stage_type == "search-field":
+            try:
+                _verify_sha_sidecar(run_dir, "search-field.json", "search-field.sha256")
+            except ValueError as e:
+                return _die(f"stage {label}: {e}")
         # Terminal-state validation: when bundling a review artifact with terminal_state
         review_path = run_dir / "review.json"
         if review_path.exists():
@@ -1108,24 +1142,291 @@ def _render_final_section(auto_target: dict, development: dict, review: dict,
     return "\n".join(lines).rstrip("\n")
 
 
-def render_run_md(
-    run_dir_str: str,
+def _render_search_pass(candidates_data: dict, pass_num: int) -> str:
+    lines = [f"## Search Pass {pass_num}", ""]
+    mode = candidates_data.get("mode")
+    if isinstance(mode, str):
+        policy_label = "residual" if pass_num == 2 else "initial"
+        lines.append(f"Search policy: {policy_label} pass ({mode}).")
+        lines.append("")
+    cands = [c for c in candidates_data.get("candidates") or [] if isinstance(c, dict)]
+    if not cands:
+        raise ValueError(f"Pass {pass_num} candidates contains no readable candidates")
+    pass_prefix = f"pass{pass_num:02d}"
+    for i, c in enumerate(cands, start=1):
+        cid = str(c.get("candidate_id") or f"c{i:02d}")
+        lines.append(f"### Candidate: {_c_title(c)} (`{pass_prefix}:{cid}`)")
+        core = c.get("semantic_core") or {}
+        if isinstance(core, dict):
+            for label, field in (
+                ("Core claim", "claim"),
+                ("Structural shift", "structural_shift"),
+                ("Mechanism", "mechanism"),
+                ("Grounding anchor", "grounding_anchor"),
+                ("Becomes visible", "what_becomes_visible"),
+                ("Boundary", "boundary"),
+            ):
+                val = core.get(field)
+                if isinstance(val, str) and val.strip():
+                    lines.append(_bullet(label, val))
+        diff = c.get("difference_from_prior")
+        if isinstance(diff, str) and diff.strip():
+            lines.append(_bullet("Difference from prior", diff))
+        epi = c.get("epistemics") or {}
+        if isinstance(epi, dict):
+            parts = [
+                f"{k}: {', '.join(v)}"
+                for k, v in sorted(epi.items())
+                if isinstance(v, list) and v
+            ]
+            if parts:
+                lines.append(_bullet("Epistemics", "; ".join(parts)))
+        lines.append("")
+    return "\n".join(lines).rstrip("\n")
+
+
+def _render_why_models_compete(portfolio: dict) -> str:
+    lines = ["## Why these models compete", ""]
+    comp_status = portfolio.get("competition_status")
+    rec = portfolio.get("recommended_competition")
+    if comp_status == "NO_SECOND_DEFENSIBLE_BUNDLE" or rec is None:
+        lines.append(
+            "No second defensible bundle identified (competition_status: NO_SECOND_DEFENSIBLE_BUNDLE); "
+            "Compare stage skipped."
+        )
+    else:
+        axis = rec.get("competition_axis") or ""
+        disc = rec.get("discriminating_question") or rec.get("discriminating_observation") or ""
+        lines.append(f"Competition axis: {axis}")
+        lines.append(f"Discriminating question: {disc}")
+    return "\n".join(lines).rstrip("\n")
+
+
+def _render_forge_deep_section(development: dict, target_id: str) -> str:
+    model = development.get("developed_model") or {}
+    lines = [f"## Deep {target_id}", ""]
+    thesis = model.get("thesis")
+    if isinstance(thesis, str) and thesis.strip():
+        lines += [f"**Thesis.** {thesis}", ""]
+    synthesis = model.get("synthesis")
+    if isinstance(synthesis, str) and synthesis.strip():
+        lines += [synthesis.strip(), ""]
+    implications = [i for i in model.get("implications") or [] if isinstance(i, str)]
+    if implications:
+        lines.append("Implications:")
+        lines.extend(f"- {i}" for i in implications)
+        lines.append("")
+
+    lines += ["### Mechanism and dynamics", ""]
+    dynamics = model.get("dynamics")
+    if isinstance(dynamics, str) and dynamics.strip():
+        lines += [dynamics.strip(), ""]
+    chain = [s for s in model.get("mechanism_chain") or [] if isinstance(s, str)]
+    if chain:
+        lines.append("Causal chain:")
+        lines.extend(f"{i}. {step}" for i, step in enumerate(chain, start=1))
+        lines.append("")
+    contributions = model.get("member_contributions")
+    if isinstance(contributions, dict) and contributions:
+        lines.append("Member contributions (bundle):")
+        for k in sorted(contributions):
+            lines.append(f"- {k}: {contributions[k]}")
+        lines.append("")
+    ablation = model.get("member_ablation")
+    if isinstance(ablation, dict) and ablation:
+        lines.append("Member ablation (bundle):")
+        for k in sorted(ablation):
+            lines.append(f"- {k}: {ablation[k]}")
+        lines.append("")
+
+    lines += ["### Load-bearing claims", ""]
+    census = [c for c in model.get("load_bearing_claims") or [] if isinstance(c, dict)]
+    if census:
+        for c in census:
+            status = c.get("epistemic_status") or "?"
+            claim = c.get("claim") or ""
+            lines.append(
+                f"- **{claim}** (`{status}`) — role: {c.get('role_in_model', '')}; "
+                f"weakened/refuted by: {c.get('what_would_weaken_or_refute', '')}"
+            )
+    else:
+        lines.append("(no load-bearing claims recorded)")
+    tensions = [t for t in model.get("unresolved_tensions") or [] if isinstance(t, str)]
+    if tensions:
+        lines.append("")
+        lines.append("Unresolved tensions:")
+        lines.extend(f"- {t}" for t in tensions)
+    lines.append("")
+
+    lines += ["### Predictions", ""]
+    preds = [p for p in model.get("predictions_or_observables") or [] if isinstance(p, str)]
+    breaks = [b for b in model.get("break_conditions") or [] if isinstance(b, str)]
+    if preds:
+        lines.extend(f"- {p}" for p in preds)
+    else:
+        lines.append("(no predictions recorded)")
+    if breaks:
+        lines.append("")
+        lines.append("Break conditions:")
+        lines.extend(f"- {b}" for b in breaks)
+    lines.append("")
+
+    lines += ["### Evidence debt", ""]
+    debt = [d for d in model.get("evidence_debt") or [] if isinstance(d, str)]
+    if debt:
+        lines.extend(f"- {d}" for d in debt)
+    else:
+        lines.append("(no recorded evidence debt)")
+    return "\n".join(lines).rstrip("\n")
+
+
+def _render_forge_comparison_section(comp_artifact: dict) -> str:
+    lines = ["## Critic and Comparison", ""]
+
+    # B1 review
+    r1 = comp_artifact.get("review_B1") or {}
+    lines.append("### B1 review")
+    term1 = r1.get("terminal_state")
+    if term1:
+        lines.append(f"Terminal state: **{term1}**")
+    rat1 = r1.get("verdict_rationale")
+    if isinstance(rat1, str) and rat1.strip():
+        lines.append(rat1.strip())
+    cm1 = r1.get("independent_countermodel")
+    if isinstance(cm1, str) and cm1.strip():
+        lines.extend(["**Independent countermodel.**", cm1.strip()])
+    reass1 = [r for r in r1.get("load_bearing_reassessment") or [] if isinstance(r, dict)]
+    if reass1:
+        lines.append("Load-bearing claim reassessment:")
+        for r in reass1:
+            lines.append(f"- {r.get('claim', '')} (`{r.get('critic_epistemic_status', '?')}`)")
+    findings1 = r1.get("findings")
+    if isinstance(findings1, dict):
+        for label, field in (
+            ("Cross-field contradictions", "cross_field_contradictions"),
+            ("Unsupported specificity", "unsupported_specificity"),
+            ("Epistemic laundering", "epistemic_laundering"),
+        ):
+            items = [x for x in findings1.get(field) or [] if isinstance(x, str)]
+            for x in items:
+                lines.append(f"- {label}: {x}")
+        if findings1.get("unresolved_load_bearing_contradiction") is True:
+            lines.append("- Unresolved load-bearing contradiction: yes")
+    debt1 = [d for d in r1.get("evidence_debt") or [] if isinstance(d, str)]
+    if debt1:
+        lines.append("Evidence debt:")
+        lines.extend(f"- {d}" for d in debt1)
+    lines.append("")
+
+    # B2 review
+    r2 = comp_artifact.get("review_B2") or {}
+    lines.append("### B2 review")
+    term2 = r2.get("terminal_state")
+    if term2:
+        lines.append(f"Terminal state: **{term2}**")
+    rat2 = r2.get("verdict_rationale")
+    if isinstance(rat2, str) and rat2.strip():
+        lines.append(rat2.strip())
+    cm2 = r2.get("independent_countermodel")
+    if isinstance(cm2, str) and cm2.strip():
+        lines.extend(["**Independent countermodel.**", cm2.strip()])
+    reass2 = [r for r in r2.get("load_bearing_reassessment") or [] if isinstance(r, dict)]
+    if reass2:
+        lines.append("Load-bearing claim reassessment:")
+        for r in reass2:
+            lines.append(f"- {r.get('claim', '')} (`{r.get('critic_epistemic_status', '?')}`)")
+    findings2 = r2.get("findings")
+    if isinstance(findings2, dict):
+        for label, field in (
+            ("Cross-field contradictions", "cross_field_contradictions"),
+            ("Unsupported specificity", "unsupported_specificity"),
+            ("Epistemic laundering", "epistemic_laundering"),
+        ):
+            items = [x for x in findings2.get(field) or [] if isinstance(x, str)]
+            for x in items:
+                lines.append(f"- {label}: {x}")
+        if findings2.get("unresolved_load_bearing_contradiction") is True:
+            lines.append("- Unresolved load-bearing contradiction: yes")
+    debt2 = [d for d in r2.get("evidence_debt") or [] if isinstance(d, str)]
+    if debt2:
+        lines.append("Evidence debt:")
+        lines.extend(f"- {d}" for d in debt2)
+    lines.append("")
+
+    # Comparison
+    comp = comp_artifact.get("comparison") or {}
+    lines.append("### Comparison")
+    pref = comp.get("current_preference") or "UNRESOLVED"
+    lines.append(f"- Current preference: **{pref}**")
+    axis = comp.get("competition_axis") or ""
+    lines.append(f"- Competition axis: {axis}")
+    r_b1 = comp.get("strongest_reason_for_B1") or ""
+    lines.append(f"- Strongest reason for B1: {r_b1}")
+    r_b2 = comp.get("strongest_reason_for_B2") or ""
+    lines.append(f"- Strongest reason for B2: {r_b2}")
+    shared = comp.get("shared_evidence_debt") or []
+    if isinstance(shared, list):
+        shared_str = "; ".join(shared)
+    else:
+        shared_str = str(shared)
+    lines.append(f"- Shared evidence debt: {shared_str}")
+    disc = comp.get("discriminating_observation") or ""
+    lines.append(f"- Discriminating observation: {disc}")
+    what = comp.get("what_would_change_the_decision") or ""
+    lines.append(f"- What would change the decision: {what}")
+
+    return "\n".join(lines).rstrip("\n")
+
+
+def _render_forge_final_section(
+    portfolio: dict,
+    comp_artifact: dict,
+    single_review: dict,
+    lever_review: dict,
+) -> str:
+    lines = ["## Final", ""]
+    if comp_artifact:
+        comp = comp_artifact.get("comparison") or {}
+        pref = comp.get("current_preference") or "UNRESOLVED"
+        lines.append(f"- Current preference: {pref}")
+        lines.append(f"- Competition axis: {comp.get('competition_axis', '')}")
+        lines.append(f"- Discriminating observation: {comp.get('discriminating_observation', '')}")
+    else:
+        lines.append("- Outcome: NO_SECOND_DEFENSIBLE_BUNDLE")
+        if single_review:
+            lines.append(f"- Terminal state: {single_review.get('terminal_state', '')}")
+
+    if lever_review is not None:
+        outcome = lever_review.get("outcome")
+        accepted = sum(
+            1
+            for v in lever_review.get("verdicts") or []
+            if isinstance(v, dict) and v.get("verdict") == "ACCEPT"
+        )
+        if outcome == "LEVER":
+            lines.append(f"- Lever: LEVER ({accepted} accepted of {len(lever_review.get('verdicts') or [])})")
+        else:
+            lines.append(f"- Lever: {outcome}")
+    else:
+        lines.append("- Lever: not executed (orientation/terminal-state gate not met)")
+
+    return "\n".join(lines).rstrip("\n")
+
+
+def _render_auto_run_md(
+    run_dir: Path,
     task: str,
     output_path: str,
+    portfolio: dict,
 ) -> int:
-    run_dir = Path(run_dir_str)
-    if not run_dir.is_dir():
-        return _die(f"run directory does not exist: {run_dir}")
-    if not task.strip():
-        return _die("--task must be non-empty")
-
     try:
         artifacts = {}
         for name in _RENDER_REQUIRED:
-            artifacts[name] = _load_frozen_json(run_dir, name)
-            _verify_frozen_sidecar(run_dir, name)
+            if name != "portfolio.json":
+                artifacts[name] = _load_frozen_json(run_dir, name)
+                _verify_frozen_sidecar(run_dir, name)
+        artifacts["portfolio.json"] = portfolio
         candidates_data = artifacts["candidates.json"]
-        portfolio = artifacts["portfolio.json"]
         development = artifacts["development-v2.json"]
         review = artifacts["deep-review-v2.json"]
 
@@ -1190,6 +1491,187 @@ def render_run_md(
     print(f"RENDER_OK {out}")
     return 0
 
+
+def _render_forge_run_md(
+    run_dir: Path,
+    task: str,
+    output_path: str,
+    portfolio: dict,
+) -> int:
+    try:
+        # Load Pass 1 candidates
+        pass1_file = "candidates.json"
+        if not (run_dir / pass1_file).is_file():
+            if (run_dir / "candidates-pass01.json").is_file():
+                pass1_file = "candidates-pass01.json"
+            else:
+                return _die("missing artifact: candidates.json")
+        pass1_data = _load_frozen_json(run_dir, pass1_file)
+        _verify_frozen_sidecar(run_dir, pass1_file)
+
+        # Load Pass 2 candidates if present
+        pass2_data = None
+        pass2_file = None
+        for p2_cand in ("candidates-pass02.json", "search-pass02.json"):
+            if (run_dir / p2_cand).is_file():
+                pass2_file = p2_cand
+                pass2_data = _load_frozen_json(run_dir, p2_cand)
+                _verify_frozen_sidecar(run_dir, p2_cand)
+                break
+
+        # Search field manifest if present
+        search_field_name = "search-field.json" if (run_dir / "search-field.json").is_file() else None
+        if search_field_name:
+            _verify_frozen_sidecar(run_dir, search_field_name)
+
+        # Load Deep B1
+        dev_b1 = None
+        dev_b1_file = None
+        for b1_cand in ("development-v2-B1.json", "development-v2.json"):
+            if (run_dir / b1_cand).is_file():
+                dev_b1_file = b1_cand
+                dev_b1 = _load_frozen_json(run_dir, b1_cand)
+                _verify_frozen_sidecar(run_dir, b1_cand)
+                break
+        if dev_b1 is None:
+            return _die("missing artifact: development-v2-B1.json or development-v2.json")
+
+        # Load Deep B2 if present
+        dev_b2 = None
+        dev_b2_file = None
+        if (run_dir / "development-v2-B2.json").is_file():
+            dev_b2_file = "development-v2-B2.json"
+            dev_b2 = _load_frozen_json(run_dir, "development-v2-B2.json")
+            _verify_frozen_sidecar(run_dir, "development-v2-B2.json")
+
+        # Load Comparison review or single-model review
+        comp_review = None
+        comp_file = None
+        if (run_dir / "comparison-review-v1.json").is_file():
+            comp_file = "comparison-review-v1.json"
+            comp_review = _load_frozen_json(run_dir, "comparison-review-v1.json")
+            _verify_frozen_sidecar(run_dir, "comparison-review-v1.json")
+
+        single_review = None
+        single_review_file = None
+        if (run_dir / "deep-review-v2.json").is_file():
+            single_review_file = "deep-review-v2.json"
+            single_review = _load_frozen_json(run_dir, "deep-review-v2.json")
+            _verify_frozen_sidecar(run_dir, "deep-review-v2.json")
+
+        # Validate that if TWO_DEFENSIBLE_BUNDLES, comparison review exists
+        comp_status = portfolio.get("competition_status")
+        if comp_status == "TWO_DEFENSIBLE_BUNDLES" and comp_review is None:
+            return _die("missing artifact: comparison-review-v1.json for TWO_DEFENSIBLE_BUNDLES")
+        # Optional Lever
+        design = None
+        lever_review = None
+        has_design = (run_dir / _LEVER_DESIGN_NAME).is_file()
+        has_lreview = (run_dir / _LEVER_REVIEW_NAME).is_file()
+        if has_design != has_lreview:
+            missing = _LEVER_REVIEW_NAME if has_design else _LEVER_DESIGN_NAME
+            return _die(f"incomplete lever stage: missing artifact: {missing}")
+        if has_design:
+            design = _load_frozen_json(run_dir, _LEVER_DESIGN_NAME)
+            lever_review = _load_frozen_json(run_dir, _LEVER_REVIEW_NAME)
+            _verify_frozen_sidecar(run_dir, _LEVER_DESIGN_NAME)
+            _verify_frozen_sidecar(run_dir, _LEVER_REVIEW_NAME)
+
+    except ValueError as e:
+        return _die(str(e))
+
+    cand_index = _candidate_index(pass1_data)
+    if pass2_data:
+        for i, c in enumerate(pass2_data.get("candidates") or [], start=1):
+            cid = str(c.get("candidate_id") or f"c{i:02d}")
+            cand_index[f"pass02:{cid}"] = c
+            cand_index[f"pass02:{cid.lower()}"] = c
+
+    p_map = _derive_promoted_p_ids(portfolio)
+
+    sections = [
+        "# Prism FORGE",
+        "## Task\n\n" + task.strip(),
+    ]
+    sections.append(_render_search_pass(pass1_data, 1))
+    if pass2_data:
+        sections.append(_render_search_pass(pass2_data, 2))
+    sections.append(_render_portfolio_section(portfolio, cand_index, p_map))
+    bundles_sec = _render_bundles_section(portfolio, cand_index, p_map)
+    if bundles_sec:
+        sections.append(bundles_sec)
+    sections.append(_render_why_models_compete(portfolio))
+    sections.append(_render_forge_deep_section(dev_b1, "B1"))
+    if dev_b2:
+        sections.append(_render_forge_deep_section(dev_b2, "B2"))
+    if comp_review:
+        sections.append(_render_forge_comparison_section(comp_review))
+    elif single_review:
+        sections.append(_render_critic_section(single_review))
+    if design is not None and lever_review is not None:
+        sections.append(_render_lever_section(design, lever_review))
+    sections.append(_render_forge_final_section(portfolio, comp_review, single_review, lever_review))
+
+    machine_names = [
+        n for n in (
+            pass1_file,
+            pass2_file,
+            search_field_name,
+            "portfolio.json",
+            dev_b1_file,
+            dev_b2_file,
+            comp_file,
+            single_review_file,
+            _LEVER_DESIGN_NAME if design else None,
+            _LEVER_REVIEW_NAME if lever_review else None,
+        )
+        if n
+    ]
+    machine_lines = ["## Machine artifacts", ""]
+    machine_lines.extend(f"- {n}" for n in sorted(machine_names))
+    sections.append("\n".join(machine_lines))
+
+    document = "\n\n".join(sections) + "\n"
+    out = Path(output_path)
+    try:
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(document, encoding="utf-8")
+    except OSError as e:
+        return _die(f"cannot write output: {e}")
+    print(f"RENDER_OK {out}")
+    return 0
+
+
+def render_run_md(
+    run_dir_str: str,
+    task: str,
+    output_path: str,
+) -> int:
+    run_dir = Path(run_dir_str)
+    if not run_dir.is_dir():
+        return _die(f"run directory does not exist: {run_dir}")
+    if not task.strip():
+        return _die("--task must be non-empty")
+
+    if not (run_dir / "portfolio.json").is_file():
+        return _die("missing artifact: portfolio.json")
+
+    try:
+        portfolio = _load_frozen_json(run_dir, "portfolio.json")
+        _verify_frozen_sidecar(run_dir, "portfolio.json")
+    except ValueError as e:
+        return _die(str(e))
+
+    is_forge = (
+        portfolio.get("schema_version") == "pizm-portfolio-selection-v2"
+        or (run_dir / "comparison-review-v1.json").is_file()
+        or (run_dir / "development-v2-B1.json").is_file()
+    )
+
+    if not is_forge:
+        return _render_auto_run_md(run_dir, task, output_path, portfolio)
+    else:
+        return _render_forge_run_md(run_dir, task, output_path, portfolio)
 
 def main() -> int:
     parser = argparse.ArgumentParser(
