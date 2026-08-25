@@ -113,13 +113,13 @@ Routing rules:
 
 ## Legacy Single-Pool Record (pizm-selection-v1)
 
-Runs made before the portfolio contract recorded their judgments as a flat pool record (`pizm-selection-v1`: `frozen_hash`, per-candidate entries with the same categorical enums above, `kept`, `merged` targets, `next_free_p`). Read such artifacts historically; do not emit them for new selections except through the legacy AUTO path below.
+Runs made before the portfolio contract recorded their judgments as a flat pool record (`pizm-selection-v1`: `frozen_hash`, per-candidate entries with categorical enums, `kept`, `merged` targets, `next_free_p`). Read such artifacts historically; do not emit them for new selections except through the legacy AUTO path below.
 
 ---
 
 ## AUTO Mode Selection Extension
 
-When executing in AUTO mode (`/pizm auto <task>`), the selector evaluates candidates categorically using the same rubric, but emits the extended schema `pizm-auto-selection-v1`.
+When executing in AUTO mode (`/pizm auto <task>`), the selector evaluates candidates categorically using the same rubric, but emits the extended schema `pizm-auto-selection-v1` for legacy single-pool executions (superseded in vNext by `pizm-portfolio-selection-v1` where `route: "AUTO"` and `auto_target` point to P or B).
 
 ### AUTO Selection Schema (`pizm-auto-selection-v1`)
 
@@ -131,9 +131,8 @@ The AUTO selection artifact inherits all fields from `pizm-selection-v1` and add
    - *Ambiguity rule*: If the task orientation is genuinely ambiguous, default to `ANALYTICAL`.
 
 ### Strict AUTO Routing Constraints
-- **Sole Routing Authority**: `selection.json` is the sole routing record for AUTO mode. No secondary routing file is ever created.
+- **Sole Routing Authority**: `selection.json` is the sole routing record for legacy AUTO mode. No secondary routing file is ever created.
 - **Single Primary Only**: Only one primary candidate is nominated (`auto_primary_candidate_id`). There is no second branch candidate, no alternative candidate, and no ranked ordering.
-
 ### AUTO Selection Example (`selection.json`)
 
 ```json

@@ -1,8 +1,8 @@
-# Pizm Explore
+# Pizm Search (Explore)
 
-Explore is the divergence primitive. Expand the space of materially distinct, grounded models of the situation, then stop before fully developing one branch.
+Search is the divergence primitive (invoked as Search or Explore). Expand the space of materially distinct, grounded models of the situation, then stop before fully developing one branch.
 
-In staged execution, Explore operates as a generator: it produces a structured candidate pool, writes the candidate JSON to a temporary file, and freezes the artifact via the checkpoint tool.
+In staged execution, Search operates as a generator: it produces a structured candidate pool, writes the candidate JSON to a temporary file, and freezes the artifact via the checkpoint tool.
 
 ## Generator Workflow
 
@@ -33,10 +33,9 @@ In staged execution, Explore operates as a generator: it produces a structured c
 
 ## Search Policies
 
-Every Explore pass runs exactly one deliberate search policy: `initial`, `residual`, or `rift`. The policy names how this pass searches; it is not a quality grade. Candidate count is never a quality metric, and no policy has a fixed quota.
+Every Search pass runs exactly one deliberate search policy: `initial`, `residual`, or `rift`. The policy names how this pass searches; it is not a quality grade. Candidate count is never a quality metric, and no policy has a fixed quota.
 
-Legacy mode strings remain parseable on read for compatibility: NORMAL = initial policy, 360 = residual policy (deprecated alias), RIFT = rift policy.
-
+Legacy mode strings remain parseable on read for compatibility: `NORMAL` = initial policy, `360` = residual policy (deprecated alias retained for one release), `RIFT` = rift policy. "Breadth" is superseded terminology and is not a user mode.
 ### NORMAL
 
 Candidate = compact search seed, not final Perspective.
@@ -87,8 +86,7 @@ For each residual candidate, populate `difference_from_prior` along with the sem
 
 ### 360
 
-Deprecated compatibility alias. A request for 360 executes the residual search policy above; the mode string stays accepted on read. Removal is deferred to a later plan. A 360 request never runs implicitly and never means "a larger NORMAL".
-
+Deprecated compatibility alias. Retained for one release solely as a compatibility alias. A request for 360 executes the residual search policy (`Search(residual)`) above; the mode string stays accepted on read. Removal is deferred to a later plan. A 360 request never runs implicitly, is not a distinct semantic pipeline, and never means "a larger NORMAL".
 ### RIFT
 
 Rift is MANUAL-ONLY. It starts solely from an explicit `/pizm rift` user request. AUTO and FORGE never auto-trigger a rift pass, and there is no hidden auto-trigger.

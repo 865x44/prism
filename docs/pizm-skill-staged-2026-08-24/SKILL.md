@@ -1,6 +1,6 @@
 ---
 name: pizm
-description: Use Pizm as an interactive cognitive tool for exploring a problem through materially distinct perspectives and deepening one or several selected perspectives. Trigger when the user invokes /pizm or /prism, asks for Pizm/Beerlight Explore, NORMAL, RIFT, 360, asks to deepen a P-ID, selects several P-IDs to deepen together, or asks for another Pizm exploration pass. This native skill uses the current host model directly; it does not call an external model provider or the offline AUTO/runtime harness.
+description: Use Pizm as an interactive cognitive tool for exploring a problem through materially distinct perspectives and deepening one or several selected perspectives. Trigger when the user invokes /pizm or /prism, asks for Pizm Search / Explore, NORMAL, RIFT, 360, asks to deepen a P-ID, selects several P-IDs to deepen together, or asks for another Pizm exploration pass. This native skill uses the current host model directly; it does not call an external model provider or the offline AUTO/runtime harness.
 ---
 
 # Pizm
@@ -8,7 +8,7 @@ description: Use Pizm as an interactive cognitive tool for exploring a problem t
 Use the current host model as the Pizm reasoning subject. Do not call a separate model/provider, the Prism runtime, `LiveRunSession`, AUTO harness, evaluator, or regression suite for ordinary use.
 
 Read only the reference needed for the requested primitive:
-- Explore / NORMAL / residual search / RIFT / 360 / another Explore pass: read `references/explore.md`.
+- Search (manual Search / Explore / NORMAL / residual / RIFT / 360 alias): read `references/explore.md`.
 - Deep on one P-ID, one composed Bundle B-ID, or a direct seed: read `references/deep.md` (v2 contract).
 - LEVER on a MODEL_READY Deep perspective (single P-ID or Bundle B-ID): read `references/lever.md`.
 - AUTO pipeline: read `references/auto.md`.
@@ -17,9 +17,9 @@ Follow the staged tool sequence defined in the loaded reference file exactly. Ea
 
 ## Route the request
 
-- `/pizm <task>` (legacy alias `/prism <task>`) with no explicit mode → Explore NORMAL.
+- `/pizm <task>` (legacy alias `/prism <task>`) with no explicit mode → Explore NORMAL (Search(initial)).
 - `normal`, `explore`, or equivalent → Explore NORMAL.
-- `rift` → Explore RIFT. Manual-only trigger: rift starts solely from an explicit `/pizm rift` user request; AUTO/FORGE never auto-trigger it and there is no hidden auto-trigger.
+- `rift` → Explore RIFT (Search(rift); manual-only trigger: rift starts solely from an explicit `/pizm rift` user request; AUTO/FORGE never auto-trigger it and there is no hidden auto-trigger).
 - `360` → Explore 360 — deprecated compatibility alias that executes the residual search policy (Search(residual)); explicit only, never triggered implicitly just because the input is rich.
 - `deep P7` → single-focus Deep (v2 contract: one target per developed artifact).
 - `deep B1` → Deep on one composed Bundle: one Bundle = one Deep, never per-member mini-Deeps.
@@ -27,8 +27,15 @@ Follow the staged tool sequence defined in the loaded reference file exactly. Ea
 - `/pizm lever P<n>|B<n>` (or bare `/pizm lever`) → read `references/lever.md`. Bare `/pizm lever` is allowed only when exactly one unambiguous MODEL_READY branch exists; otherwise return a deterministic refusal listing ready branches. Blocked cases (unknown/stale target ID, non-ready Deep status) produce zero lever semantic stages.
 - `/pizm auto <task>` → read `references/auto.md`. One Search pass → Portfolio → one nominated target (P or B) → Deep → Critic → optional LEVER; the final report and the readable `run.md` are assembled deterministically from frozen artifacts with zero model calls (`bin/pizm-session-bundle render`).
 - `/pizm forge <task>` → read `references/forge.md`. Two-pass Search (initial + residual) → Portfolio over accumulated field → two competing Bundles developed separately (Deep B1 then Deep B2) → Critic/Compare → optional LEVER → deterministic final + `run.md` (`bin/pizm-session-bundle render`).
-- `another 360`, `ещё 360`, or equivalent → another Explore pass with the residual search policy, using accessible prior Pizm territory.
-- A direct Deep seed without an Explore P-ID is allowed when the user explicitly asks to deepen that seed.
+- `another 360`, `ещё 360`, or equivalent → another Search pass with the residual search policy, using accessible prior Pizm territory.
+- A direct Deep seed without a Search P-ID is allowed when the user explicitly asks to deepen that seed.
+
+### Canonical Concepts & Legacy Aliases
+
+- **Canonical manual primitives**: Search (`references/explore.md`), Deep (`references/deep.md`), LEVER (`references/lever.md`), RIFT (`references/explore.md`).
+- **Canonical automatic pipelines**: AUTO (`references/auto.md`), FORGE (`references/forge.md`).
+- **Internal Search policies**: `initial` (broad structural search), `residual` (novelty against accumulated field), `rift` (manual-only far structural shift).
+- **Superseded / deprecated terms**: `360` is retained for one release solely as a deprecated compatibility alias to `Search(residual)`; "Breadth" is superseded as a user mode (Search is the manual divergence primitive); "MAX" is superseded and eliminated as a product route; raw-P-only AUTO is superseded by Portfolio target nomination (P or B); compact-card Deep is superseded by mature analytical prose synthesis (~900–1600 words for P, ~1400–2400 words for B); full rubric-blindness is operationalized as same-host staged contract separation post-freeze.
 
 AUTO executes only via explicit `/pizm auto <task>` user delegation; manual modes never trigger it; discussing AUTO remains possible without executing it.
 
