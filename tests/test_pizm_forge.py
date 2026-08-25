@@ -214,7 +214,7 @@ def portfolio_v2_payload(competition_status="TWO_DEFENSIBLE_BUNDLES", field_hash
     return {
         "schema_version": "pizm-portfolio-selection-v2",
         "stage": "portfolio",
-        "route": "AUTO",
+        "route": "MANUAL",
         "field_ref": field_ref,
         "field_hash": field_hash,
         "perspectives": {"P1": "pass01:c01", "P2": "pass01:c02"},
@@ -247,7 +247,6 @@ def portfolio_v2_payload(competition_status="TWO_DEFENSIBLE_BUNDLES", field_hash
             },
         ],
         "bundles": bundles,
-        "auto_target": {"target_type": "B", "target_id": "B1"},
     }
 
 
@@ -706,3 +705,80 @@ class TestForgeRendering:
         assert "Compare stage skipped" in content
         assert "## Deep B1" in content
         assert "## Critic" in content
+
+    def test_forge_render_rejects_auto_route(self, tmp_path):
+        """FORGE render rejects route=AUTO in portfolio.json (fails closed without coercion)."""
+        run_id = "forge-neg-auto"
+        run_dir = tmp_path / ".ai" / "pizm" / f"run-{run_id}"
+
+        p1 = pass1_candidates_payload()
+        res_p1 = freeze_stage(tmp_path, "explore", run_id, p1)
+        sha1 = res_p1.stdout.split()[1]
+
+        p2 = pass2_candidates_payload()
+        res_p2 = freeze_stage(tmp_path, "explore", run_id, p2, artifact_suffix="pass02")
+        sha2 = res_p2.stdout.split()[1]
+
+        sf = search_field_payload(sha1, sha2)
+        res_sf = freeze_stage(tmp_path, "search-field", run_id, sf)
+        sha_sf = res_sf.stdout.split()[1]
+
+        pv2 = portfolio_v2_payload("TWO_DEFENSIBLE_BUNDLES", field_hash=sha_sf, field_ref="search-field.json")
+        pv2["route"] = "AUTO"
+        pv2["auto_target"] = {"target_type": "B", "target_id": "B1"}
+        freeze_stage(tmp_path, "portfolio", run_id, pv2)
+
+        res_b1 = freeze_stage(tmp_path, "development-v2", run_id, development_v2_payload("B1", ["pass01:c01", "pass01:c02"]), target="B1")
+        sha_b1 = res_b1.stdout.split()[1]
+        res_b2 = freeze_stage(tmp_path, "development-v2", run_id, development_v2_payload("B2", ["pass01:c02", "pass02:c01"]), target="B2")
+        sha_b2 = res_b2.stdout.split()[1]
+
+        freeze_stage(
+            tmp_path, "comparison-review-v1", run_id,
+            comparison_review_payload("B1", b1_ref="development-v2-B1.json", b1_hash=sha_b1, b2_ref="development-v2-B2.json", b2_hash=sha_b2),
+        )
+
+        out = tmp_path / "neg_auto.md"
+        res = run_render(run_dir, TASK_TEXT, out)
+        assert res.returncode != 0
+        assert "FORGE portfolio requires route=MANUAL" in res.stderr
+
+    def test_forge_render_rejects_v1_portfolio(self, tmp_path):
+        """FORGE render rejects pizm-portfolio-selection-v1 (fails closed without coercion)."""
+        run_id = "forge-neg-v1"
+        run_dir = tmp_path / ".ai" / "pizm" / f"run-{run_id}"
+
+        p1 = pass1_candidates_payload()
+        res_p1 = freeze_stage(tmp_path, "explore", run_id, p1)
+        sha1 = res_p1.stdout.split()[1]
+
+        p2 = pass2_candidates_payload()
+        res_p2 = freeze_stage(tmp_path, "explore", run_id, p2, artifact_suffix="pass02")
+        sha2 = res_p2.stdout.split()[1]
+
+        sf = search_field_payload(sha1, sha2)
+        res_sf = freeze_stage(tmp_path, "search-field", run_id, sf)
+        sha_sf = res_sf.stdout.split()[1]
+
+        pv1 = portfolio_v2_payload("TWO_DEFENSIBLE_BUNDLES", field_hash=sha_sf, field_ref="search-field.json")
+        pv1["schema_version"] = "pizm-portfolio-selection-v1"
+        del pv1["competition_status"]
+        del pv1["perspectives"]
+        del pv1["recommended_competition"]
+        del pv1["field_ref"]
+        freeze_stage(tmp_path, "portfolio", run_id, pv1)
+
+        res_b1 = freeze_stage(tmp_path, "development-v2", run_id, development_v2_payload("B1", ["pass01:c01", "pass01:c02"]), target="B1")
+        sha_b1 = res_b1.stdout.split()[1]
+        res_b2 = freeze_stage(tmp_path, "development-v2", run_id, development_v2_payload("B2", ["pass01:c02", "pass02:c01"]), target="B2")
+        sha_b2 = res_b2.stdout.split()[1]
+
+        freeze_stage(
+            tmp_path, "comparison-review-v1", run_id,
+            comparison_review_payload("B1", b1_ref="development-v2-B1.json", b1_hash=sha_b1, b2_ref="development-v2-B2.json", b2_hash=sha_b2),
+        )
+
+        out = tmp_path / "neg_v1.md"
+        res = run_render(run_dir, TASK_TEXT, out)
+        assert res.returncode != 0
+        assert "FORGE portfolio requires pizm-portfolio-selection-v2" in res.stderr
