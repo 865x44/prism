@@ -30,6 +30,8 @@ _CONTRACT_MAP = {
     "portfolio": "references/explore-selector.md",
     "development-v2": "references/deep-reviewer.md",
     "deep-review-v2": None,
+    "comparison-review-v1": None,
+    "comparison": None,
 }
 
 _SCHEMA_VERSIONS = {
@@ -41,6 +43,8 @@ _SCHEMA_VERSIONS = {
     "portfolio": "pizm-portfolio-selection-v1",
     "development-v2": "pizm-development-v2",
     "deep-review-v2": "pizm-deep-review-v2",
+    "comparison-review-v1": "pizm-comparison-review-v1",
+    "comparison": "pizm-comparison-review-v1",
 }
 
 
@@ -53,13 +57,15 @@ _SEARCH_FIELD_MAX_TOTAL_BYTES = 32768  # 32 KiB
 _PORTFOLIO_MAX_TOTAL_BYTES = 163840  # 160 KiB
 _DEVELOPMENT_V2_MAX_TOTAL_BYTES = 196608  # 192 KiB
 _DEEP_REVIEW_V2_MAX_TOTAL_BYTES = 131072  # 128 KiB
+_COMPARISON_REVIEW_MAX_TOTAL_BYTES = 131072  # 128 KiB
 
 # Deep v2 load-bearing claim census: authoritative epistemic status enum
 _EPISTEMIC_STATUSES = ("SUPPORTED", "INFERRED", "SPECULATIVE", "UNKNOWN")
 
 # Critic v2 terminal states — identical set to the v1 deep review (no fourth status)
 _DEEP_REVIEW_TERMINAL_STATES = ("MODEL_READY", "NEED_EVIDENCE", "RETURN_TO_EXPLORE")
-
+_COMPARISON_PREFERENCE_STATES = ("B1", "B2", "CONDITIONAL", "UNRESOLVED")
+_COMPETITION_STATUSES = ("TWO_DEFENSIBLE_BUNDLES", "NO_SECOND_DEFENSIBLE_BUNDLE")
 _DEEP_IDENTITY_FIELDS = (
     "title",
     "core_claim",
@@ -100,6 +106,8 @@ def _cleanup_stage(run_dir: Path, stage: str) -> None:
         prefix = "design"
     elif stage == "lever-review":
         prefix = "review"
+    elif stage in ("comparison-review-v1", "comparison"):
+        prefix = "comparison-review-v1"
     else:
         prefix = stage
     for suffix in (".json", ".sha256", ".meta.json"):
@@ -520,6 +528,110 @@ def _validate_deep_review_v2(data: dict, raw_bytes_len: int = 0) -> None:
         )
 
 
+def _validate_comparison_review(data: dict, raw_bytes_len: int = 0) -> None:
+    """Validate pizm-comparison-review-v1 artifact."""
+    if not isinstance(data, dict):
+        raise ValueError("root must be a JSON object")
+    if data.get("schema_version") != "pizm-comparison-review-v1":
+        raise ValueError("schema_version must be 'pizm-comparison-review-v1'")
+    if data.get("stage") not in ("comparison-review-v1", "comparison"):
+        raise ValueError("stage field must be 'comparison-review-v1' or 'comparison'")
+
+    if raw_bytes_len > _COMPARISON_REVIEW_MAX_TOTAL_BYTES:
+        raise ValueError(
+            f"PAYLOAD_TOO_LARGE: comparison-review artifact size {raw_bytes_len} bytes "
+            f"exceeds maximum {_COMPARISON_REVIEW_MAX_TOTAL_BYTES} bytes (128 KiB)"
+        )
+
+    # Validate review_B1 and review_B2
+    for b_key, expected_target in (("review_B1", "B1"), ("review_B2", "B2")):
+        review = data.get(b_key)
+        if not isinstance(review, dict):
+            raise ValueError(f"{b_key} must be an object")
+        target_id = review.get("target_id")
+        if target_id != expected_target:
+            raise ValueError(f"{b_key}.target_id must be {expected_target!r}, got {target_id!r}")
+        terminal_state = review.get("terminal_state")
+        if terminal_state not in _DEEP_REVIEW_TERMINAL_STATES:
+            raise ValueError(
+                f"{b_key}.terminal_state must be one of {list(_DEEP_REVIEW_TERMINAL_STATES)}, got {terminal_state!r}"
+            )
+        findings = review.get("findings")
+        if not isinstance(findings, dict):
+            raise ValueError(f"{b_key}.findings must be an object")
+        unresolved = findings.get("unresolved_load_bearing_contradiction", False)
+        if not isinstance(unresolved, bool):
+            raise ValueError(f"{b_key}.findings.unresolved_load_bearing_contradiction must be boolean")
+        if unresolved and terminal_state == "MODEL_READY":
+            raise ValueError(
+                f"{b_key}: MODEL_READY is forbidden while unresolved_load_bearing_contradiction is true"
+            )
+        reassessment = review.get("load_bearing_reassessment")
+        if not isinstance(reassessment, list) or len(reassessment) == 0:
+            raise ValueError(f"{b_key}.load_bearing_reassessment must be a non-empty list")
+        for idx, item in enumerate(reassessment):
+            if not isinstance(item, dict):
+                raise ValueError(f"{b_key}.load_bearing_reassessment[{idx}] must be an object")
+            if not isinstance(item.get("claim"), str) or not item.get("claim").strip():
+                raise ValueError(f"{b_key}.load_bearing_reassessment[{idx}].claim must be non-empty string")
+            st = item.get("critic_epistemic_status")
+            if st not in _EPISTEMIC_STATUSES:
+                raise ValueError(
+                    f"{b_key}.load_bearing_reassessment[{idx}].critic_epistemic_status must be one of {list(_EPISTEMIC_STATUSES)}"
+                )
+        countermodel = review.get("independent_countermodel")
+        if not isinstance(countermodel, str) or not countermodel.strip():
+            raise ValueError(f"{b_key}.independent_countermodel must be non-empty string")
+
+    # Validate comparison block
+    comp = data.get("comparison")
+    if not isinstance(comp, dict):
+        raise ValueError("comparison must be an object")
+
+    pref = comp.get("current_preference")
+    if pref not in _COMPARISON_PREFERENCE_STATES:
+        raise ValueError(
+            f"comparison.current_preference must be one of {list(_COMPARISON_PREFERENCE_STATES)}, got {pref!r}"
+        )
+
+    for field in (
+        "competition_axis",
+        "strongest_reason_for_B1",
+        "strongest_reason_for_B2",
+        "discriminating_observation",
+        "what_would_change_the_decision",
+    ):
+        v = comp.get(field)
+        if not isinstance(v, str) or not v.strip():
+            raise ValueError(f"comparison.{field} must be non-empty string")
+
+    shared_debt = comp.get("shared_evidence_debt")
+    if not isinstance(shared_debt, (list, str)):
+        raise ValueError("comparison.shared_evidence_debt must be a list or string")
+
+    # Decision-rule couplings
+    review_b1 = data["review_B1"]
+    review_b2 = data["review_B2"]
+
+    if pref == "B1":
+        if review_b1.get("findings", {}).get("unresolved_load_bearing_contradiction"):
+            raise ValueError(
+                "preference B1 is forbidden while B1 review has unresolved_load_bearing_contradiction"
+            )
+        if review_b1.get("terminal_state") == "RETURN_TO_EXPLORE":
+            raise ValueError(
+                "preference B1 is forbidden while B1 review terminal_state is RETURN_TO_EXPLORE"
+            )
+    elif pref == "B2":
+        if review_b2.get("findings", {}).get("unresolved_load_bearing_contradiction"):
+            raise ValueError(
+                "preference B2 is forbidden while B2 review has unresolved_load_bearing_contradiction"
+            )
+        if review_b2.get("terminal_state") == "RETURN_TO_EXPLORE":
+            raise ValueError(
+                "preference B2 is forbidden while B2 review terminal_state is RETURN_TO_EXPLORE"
+            )
+
 def _validate_lever_design(data: dict, raw_bytes_len: int = 0) -> None:
     if not isinstance(data, dict):
         raise ValueError("root must be a JSON object")
@@ -709,8 +821,9 @@ def _validate_search_field(data: dict, raw_bytes_len: int = 0) -> None:
 def _validate_portfolio(data: dict, raw_bytes_len: int = 0) -> None:
     if not isinstance(data, dict):
         raise ValueError("root must be a JSON object")
-    if data.get("schema_version") != _SCHEMA_VERSIONS["portfolio"]:
-        raise ValueError(f"schema_version must be {_SCHEMA_VERSIONS['portfolio']!r}")
+    schema_version = data.get("schema_version")
+    if schema_version not in ("pizm-portfolio-selection-v1", "pizm-portfolio-selection-v2"):
+        raise ValueError(f"schema_version must be 'pizm-portfolio-selection-v1' or 'pizm-portfolio-selection-v2', got {schema_version!r}")
     if data.get("stage") != "portfolio":
         raise ValueError("stage field must be 'portfolio'")
 
@@ -861,6 +974,45 @@ def _validate_portfolio(data: dict, raw_bytes_len: int = 0) -> None:
                 "and user-visible ids are never renumbered"
             )
 
+    # v2 validation: strict superset with competition_status and recommended_competition
+    if schema_version == "pizm-portfolio-selection-v2":
+        comp_status = data.get("competition_status")
+        if comp_status not in _COMPETITION_STATUSES:
+            raise ValueError(
+                f"competition_status must be one of {list(_COMPETITION_STATUSES)}, got {comp_status!r}"
+            )
+        rec_comp = data.get("recommended_competition")
+        if comp_status == "NO_SECOND_DEFENSIBLE_BUNDLE":
+            if rec_comp is not None:
+                raise ValueError(
+                    "recommended_competition must be null when competition_status is NO_SECOND_DEFENSIBLE_BUNDLE"
+                )
+        elif comp_status == "TWO_DEFENSIBLE_BUNDLES":
+            if not isinstance(rec_comp, dict):
+                raise ValueError(
+                    "recommended_competition must be an object when competition_status is TWO_DEFENSIBLE_BUNDLES"
+                )
+            bundle_a = rec_comp.get("bundle_a")
+            bundle_b = rec_comp.get("bundle_b")
+            if bundle_a != "B1" or bundle_b != "B2":
+                raise ValueError(
+                    f"recommended_competition must specify bundle_a as 'B1' and bundle_b as 'B2', got {bundle_a!r} and {bundle_b!r}"
+                )
+            if bundle_a not in seen_bundle_ids or bundle_b not in seen_bundle_ids:
+                raise ValueError(
+                    "recommended_competition bundles must both be present in bundles list"
+                )
+            axis = rec_comp.get("competition_axis")
+            if not isinstance(axis, str) or not axis.strip():
+                raise ValueError("recommended_competition.competition_axis must be non-empty string")
+            disc_obs = rec_comp.get("discriminating_observation")
+            if not isinstance(disc_obs, str) or not disc_obs.strip():
+                raise ValueError("recommended_competition.discriminating_observation must be non-empty string")
+            if "discriminating_question" in rec_comp:
+                dq = rec_comp.get("discriminating_question")
+                if not isinstance(dq, str):
+                    raise ValueError("recommended_competition.discriminating_question must be a string")
+
 def _sha256_hex(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
@@ -927,6 +1079,7 @@ def _read_contract(skill_root: Path, stage: str) -> str:
 def freeze(
     stage: str, run_id: str, input_path: str,
     project_root: Path, skill_root: Path,
+    target: str = None,
 ) -> int:
     # Validate run-id early
     try:
@@ -964,6 +1117,8 @@ def freeze(
             _validate_search_field(data, len(raw))
         elif stage == "portfolio":
             _validate_portfolio(data, len(raw))
+        elif stage in ("comparison-review-v1", "comparison"):
+            _validate_comparison_review(data, len(raw))
         else:
             return _die(f"unknown stage: {stage!r}")
     except ValueError as e:
@@ -972,11 +1127,71 @@ def freeze(
             return _die(msg)
         return _die(f"schema validation failed: {e}")
 
+    # Create run directory
+    run_dir = project_root / ".ai" / "pizm" / f"run-{run_id}"
+    run_dir.mkdir(parents=True, exist_ok=True)
+
+    # Seam enforcement for comparison review: both B1 and B2 development artifacts must exist
+    if stage in ("comparison-review-v1", "comparison"):
+        b1_found = False
+        b2_found = False
+        # Check for B1 development
+        for cand_name in ("development-v2-B1.json", "development.json", "development-v2.json"):
+            for cand_path in (run_dir / cand_name, run_dir / "deep-B1" / cand_name):
+                if cand_path.is_file():
+                    sha_p = cand_path.with_suffix(".sha256")
+                    if sha_p.is_file() and _sha256_hex(cand_path.read_bytes()) == sha_p.read_text(encoding="utf-8").strip():
+                        try:
+                            d = json.loads(cand_path.read_bytes())
+                            if d.get("target", {}).get("target_id") == "B1" or "B1" in cand_path.name or "deep-B1" in str(cand_path):
+                                b1_found = True
+                                break
+                        except Exception:
+                            pass
+            if b1_found:
+                break
+
+        # Check for B2 development
+        for cand_name in ("development-v2-B2.json", "development.json"):
+            for cand_path in (run_dir / cand_name, run_dir / "deep-B2" / cand_name):
+                if cand_path.is_file():
+                    sha_p = cand_path.with_suffix(".sha256")
+                    if sha_p.is_file() and _sha256_hex(cand_path.read_bytes()) == sha_p.read_text(encoding="utf-8").strip():
+                        try:
+                            d = json.loads(cand_path.read_bytes())
+                            if d.get("target", {}).get("target_id") == "B2" or "B2" in cand_path.name or "deep-B2" in str(cand_path):
+                                b2_found = True
+                                break
+                        except Exception:
+                            pass
+            if b2_found:
+                break
+
+        if not (b1_found and b2_found):
+            return _die(
+                "seam check failed: both B1 and B2 development artifacts must be frozen "
+                "with valid sha256 sidecars before comparison review"
+            )
+
     # Determine stage-scoped file names
     if stage == "explore":
         prefix = "candidates"
     elif stage == "deep":
         prefix = "development"
+    elif stage == "development-v2":
+        if target:
+            prefix = f"development-v2-{target}"
+        elif isinstance(data, dict) and data.get("target", {}).get("target_id") == "B2":
+            prefix = "development-v2-B2"
+        elif isinstance(data, dict) and data.get("target", {}).get("target_id") == "B1" and (run_dir / "development-v2-B1.json").exists():
+            prefix = "development-v2-B1"
+        else:
+            prefix = "development-v2"
+    elif stage == "deep-review-v2":
+        if target:
+            prefix = f"deep-review-v2-{target}"
+        else:
+            prefix = "deep-review-v2"
     elif stage == "lever-design":
         prefix = "design"
     elif stage == "lever-review":
@@ -985,6 +1200,8 @@ def freeze(
         prefix = "search-field"
     elif stage == "portfolio":
         prefix = "portfolio"
+    elif stage in ("comparison-review-v1", "comparison"):
+        prefix = "comparison-review-v1"
     else:
         prefix = stage
 
@@ -1027,7 +1244,7 @@ def freeze(
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "run_id": run_id,
         "stage": stage,
-        "schema_version": _SCHEMA_VERSIONS[stage],
+        "schema_version": data.get("schema_version", _SCHEMA_VERSIONS.get(stage, "")),
     }
     try:
         _durable_exclusive_write(
@@ -1039,7 +1256,6 @@ def freeze(
     except OSError as e:
         _cleanup_stage(run_dir, stage)
         return _die(f"failed to write metadata: {e}")
-
     # Read back and verify hash
     try:
         readback = artifact_path.read_bytes()
@@ -1092,8 +1308,13 @@ def main() -> int:
     fp.add_argument(
         "--stage",
         required=True,
-        choices=["explore", "deep", "development-v2", "deep-review-v2", "lever-design", "lever-review", "search-field", "portfolio"],
+        choices=[
+            "explore", "deep", "development-v2", "deep-review-v2",
+            "lever-design", "lever-review", "search-field", "portfolio",
+            "comparison-review-v1", "comparison",
+        ],
     )
+    fp.add_argument("--target", default=None, help="Target ID (e.g. B1, B2) for target-scoped artifacts")
     fp.add_argument("--run-id", required=True)
     fp.add_argument("--input", required=True, dest="input_path")
     fp.add_argument("--project-root", default=".")
@@ -1111,8 +1332,8 @@ def main() -> int:
             input_path=args.input_path,
             project_root=Path(args.project_root).resolve(),
             skill_root=Path(args.skill_root).resolve(),
+            target=args.target,
         )
-    return 1
 
 
 if __name__ == "__main__":
