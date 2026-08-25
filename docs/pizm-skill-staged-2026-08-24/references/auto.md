@@ -1,12 +1,12 @@
-# Pizm Single-Branch AUTO v0 Pipeline Contract
+# Pizm AUTO v1 Pipeline Contract
 
-AUTO is an automated execution mode of Pizm that executes exactly one bounded path through Explore, Deep, and an optional LEVER intervention before rendering a deterministic final report.
+AUTO is an automated execution mode of Pizm that executes exactly one bounded path — Search(initial), Portfolio Judge, Deep on one nominated target, Critic review, optional LEVER — and then renders a deterministic final report plus a deterministic readable `run.md`.
 
 ## Explicit Delegation Requirement
 
 AUTO executes ONLY via explicit `/pizm auto <task>` user delegation. Manual Pizm modes (`/pizm`, `normal`, `explore`, `rift`, `360`, `deep`, `/pizm lever`) NEVER trigger or emulate AUTO behavior. Discussing AUTO with the user remains possible without executing it.
 
-AUTO enforces a strict single-Deep-only rule: exactly one branch is deepened. There is no second Deep, no alternative branch, no decide stage or inference, no secondary candidate concept, and no auto-360/RIFT/reroll/research loops.
+AUTO enforces a strict single-target rule: exactly one nominated target (P or B) is deepened. There is no second Search pass, no second Deep, no alternative branch, no decide stage or inference, no secondary candidate concept, and no auto-360/RIFT/reroll/research loops.
 
 ---
 
@@ -15,41 +15,48 @@ AUTO enforces a strict single-Deep-only rule: exactly one branch is deepened. Th
 The AUTO pipeline proceeds through the following sequential stages in exact order:
 
 ```text
-AUTO TASK → EXPLORE GENERATE → freeze → AUTO SELECT (dispositions + nomination) → DEEP primary DEVELOP → freeze → DEEP_REVIEW → if terminal_state=MODEL_READY ∧ task_orientation=ACTION_OR_DECISION → same manual LEVER primitive (identical prompts/logic as /pizm lever, zero duplication) → FINAL
+AUTO TASK → Search(initial) GENERATE → freeze explore pass + search-field manifest
+→ PORTFOLIO JUDGE → freeze portfolio record (route AUTO; exactly one auto_target: P or B)
+→ DEEP(target) DEVELOP (development-v2) → freeze
+→ CRITIC REVIEW (deep-review-v2) → freeze
+→ [conditional] same manual LEVER primitive (design + review)
+→ deterministic FINAL assembly (zero model calls)
+→ deterministic run.md rendering (zero model calls)
 ```
 
 ### Stage Execution Details:
+
 1. **AUTO TASK**: Receive the user's task prompt via `/pizm auto <task>`.
-2. **EXPLORE GENERATE**: Run Explore generation adhering to `references/explore.md`. Generate 12–16 candidate seeds (bounded to 1..20 candidates, ≤ 192 KiB total payload).
-3. **Freeze Explore**: Run `bin/pizm-checkpoint freeze --stage explore --run-id <run-id> --input <candidates.json>`.
-4. **AUTO SELECT**: Reveal `references/explore-selector.md` (AUTO mode). The selector evaluates candidates categorically and writes `selection.json` adhering to `pizm-auto-selection-v1`, assigning categorical dispositions, designating exactly one `auto_primary_candidate_id` (which MUST be present in frozen candidates and have disposition `KEEP`), and classifying `task_orientation` as `ANALYTICAL` or `ACTION_OR_DECISION` (if genuinely ambiguous, default to `ANALYTICAL`). `selection.json` is the sole routing authority; no secondary routing file is created.
-5. **DEEP Primary DEVELOP**: Deepen the single nominated perspective (`auto_primary_candidate_id`) following `references/deep.md`. Assign its visible P-ID (e.g., P1). Single Deep only.
-6. **Freeze Deep**: Run `bin/pizm-checkpoint freeze --stage deep-P<n> --run-id <run-id> --input <development.json>`.
-7. **DEEP_REVIEW**: Reveal `references/deep-reviewer.md`. The reviewer evaluates the developed model and writes `review.json` with `terminal_state` in `{"MODEL_READY", "NEED_EVIDENCE", "RETURN_TO_EXPLORE"}`.
-8. **Conditional LEVER Primitive**:
+2. **Search(initial)**: Run ONE initial Search pass adhering to `references/explore.md` (soft target 12–16 candidates when supported; hard bounds 1..20 candidates, ≤ 192 KiB total payload, ≤ 12 KiB per candidate). Freeze the raw pass and register it in the append-only search-field manifest exactly as `references/explore.md` prescribes. This is the only Search of the run: no residual Search, no second Search, and no re-judgment loop exists inside AUTO.
+3. **PORTFOLIO JUDGE**: Reveal `references/explore-selector.md`. The judge evaluates the exact frozen field categorically and freezes one portfolio record conforming to `pizm-portfolio-selection-v1` with `route: "AUTO"` and exactly one `auto_target` (`{"target_type": "P"|"B", "target_id": ...}`), pointing either at a promoted perspective (`P<n>`) or at a proposed bundle (`B<n>`). The portfolio record is the sole routing authority; no secondary routing file is created. There is no ranked ordering and no alternative branch.
+   - **Task orientation**: while judging, classify the task as `ANALYTICAL` or `ACTION_OR_DECISION`, reusing the existing bounded judgment already exercised in the conversation (no classifier call, no extra model turn, no new semantic abstraction). If genuinely ambiguous, default to `ANALYTICAL`. Orientation is conversational routing metadata; it adds no semantic stage.
+4. **DEEP(target) DEVELOP**: Deepen exactly the nominated target following `references/deep.md` under the development-v2 contract. The developed artifact's target must equal the portfolio's `auto_target` verbatim: a promoted perspective (`P<n>`, identity lock preserving its `p_id`) or a proposed bundle (`B<n>`, identity lock freezing `member_refs`; one Bundle = one Deep, never per-member mini-Deeps). Single Deep only.
+5. **Freeze Deep**: Freeze the development-v2 artifact before any review begins.
+6. **CRITIC REVIEW**: Reveal `references/deep-reviewer.md`. The critic independently evaluates the frozen developed model and freezes a deep-review-v2 record whose `terminal_state` is one of `{"MODEL_READY", "NEED_EVIDENCE", "RETURN_TO_EXPLORE"}`.
+7. **Conditional LEVER Primitive**:
    - If `terminal_state == "MODEL_READY"` AND `task_orientation == "ACTION_OR_DECISION"`:
      Execute the same manual LEVER primitive (`references/lever.md` and `references/lever-reviewer.md`) using identical prompts and review logic as `/pizm lever`, with zero duplication.
    - Otherwise (if `task_orientation == "ANALYTICAL"` or `terminal_state != "MODEL_READY"`):
      Do not invoke LEVER.
-9. **FINAL Assembly**: Assemble and present the final output using the deterministic template.
+8. **FINAL Assembly + run.md**: Assemble the final output deterministically from frozen artifacts (Section 3), then render the readable `run.md` deterministically with the session-bundle tool (`bin/pizm-session-bundle render --run-dir <run-dir> --task "<original task>"`). The renderer reads ONLY frozen checkpoint artifacts, emits byte-identical output for identical inputs, and performs zero model calls.
 
 ---
 
 ## 2. Honest-Stop Rules
 
-If Deep review produces `terminal_state == "NEED_EVIDENCE"` or `terminal_state == "RETURN_TO_EXPLORE"`:
+If the Critic produces `terminal_state == "NEED_EVIDENCE"` or `terminal_state == "RETURN_TO_EXPLORE"`:
 - Execution MUST stop honestly at that point with the stated reason from the review verdict.
 - No other search or refinement primitive starts afterward (no second Deep, no alternative branch, no reroll, no auto-recovery).
-- The pipeline proceeds directly to FINAL assembly to render the honest-stop report.
+- The pipeline proceeds directly to FINAL assembly to render the honest-stop report and its `run.md`.
 
 ---
 
 ## 3. Deterministic FINAL Assembly
 
-`FINAL` is a DETERMINISTIC ASSEMBLY rendered directly from frozen structured artifacts (`candidates.json`, `selection.json`, `development.json`, `review.json`, and `lever/design.json` / `lever/review.json` if LEVER was executed).
+`FINAL` is a DETERMINISTIC ASSEMBLY rendered directly from frozen structured artifacts (`candidates.json`, the search-field manifest, `portfolio.json`, `development.json`, `deep-review-v2.json`, and `design.json` / lever `review.json` if LEVER was executed).
 
-- **Zero Model Invocations**: FINAL increments neither `semantic_stage_count` nor `host_inference_count` and performs ZERO tool-call model turns.
-- **Contract Prohibition**: If an implementation ever requires an additional model turn or tool call for FINAL, STOP and replan the budget/contract instead of hiding it.
+- **Zero Model Invocations**: FINAL increments neither `semantic_stage_count` nor `host_inference_count` and performs ZERO tool-call model turns. The subsequent `run.md` rendering is equally deterministic: byte-identical output for identical frozen inputs, zero model calls.
+- **Contract Prohibition**: If an implementation ever requires an additional model turn or tool call for FINAL or for `run.md` rendering, STOP and replan the budget/contract instead of hiding it.
 - **Fixed Assembly Template**: The final response is formatted strictly using the fixed deterministic template below:
 
 ### Fixed FINAL Assembly Template
@@ -58,29 +65,30 @@ If Deep review produces `terminal_state == "NEED_EVIDENCE"` or `terminal_state =
 # Pizm AUTO Analysis: <Task Title / Summary>
 
 ## 1. Nominated Perspective
-- **P-ID & Title**: P<n> — <Title>
-- **Candidate ID**: <auto_primary_candidate_id>
+- **Target**: <P<n> | B<n>> — <Title>
+- **Source**: <auto_target nominated by the frozen portfolio record>
 - **Task Orientation**: <ANALYTICAL | ACTION_OR_DECISION>
-- **Core Claim / Shift**: <semantic_core.claim>
-- **Grounding Anchor**: <semantic_core.grounding_anchor>
-- **Mechanism**: <semantic_core.mechanism>
+- **Core Claim / Shift**: <identity_lock claim / structural_shift>
+- **Grounding Anchor**: <identity_lock grounding basis>
+- **Boundary**: <identity_lock boundary>
 
 ## 2. Developed Model Summary
-- **Primary Mechanism**: <developed model core mechanism>
-- **Load-Bearing Constraints**: <key relations and constraints>
-- **Key Predictions**: <observable predictions>
-- **Boundary Conditions**: <where the model holds or breaks>
+- **Thesis**: <developed_model.thesis>
+- **Primary Mechanism**: <mechanism_chain or identity_lock mechanism>
+- **Load-Bearing Claims**: <census claims with epistemic statuses>
+- **Key Predictions**: <predictions_or_observables>
+- **Evidence Debt**: <evidence_debt>
 
 ## 3. Deep Review Verdict
 - **Terminal State**: <MODEL_READY | NEED_EVIDENCE | RETURN_TO_EXPLORE>
-- **Review Rationale**: <summary rationale from review.json>
+- **Review Rationale**: <verdict_rationale from the deep-review-v2 record>
 <!-- IF terminal_state != "MODEL_READY": -->
 - **Stop Reason**: Honest stop triggered due to non-ready status (<terminal_state>). No further primitives executed.
 <!-- END IF -->
 
 <!-- IF LEVER executed (task_orientation == "ACTION_OR_DECISION" AND terminal_state == "MODEL_READY"): -->
 ## 4. Reality-Facing Levers
-<!-- For each accepted lever from lever review: -->
+<!-- For each accepted lever from the lever review: -->
 ### Lever <lever_id>: <intervention_or_test_point>
 - **Model Link**: <model_link>
 - **Minimum Bounded Move**: <minimum_bounded_move>
@@ -95,20 +103,28 @@ If Deep review produces `terminal_state == "NEED_EVIDENCE"` or `terminal_state =
 <!-- END IF -->
 ```
 
+After presenting FINAL, render `run.md` for the reading record: all candidate ideas appear compactly, the developed model and critic verdict are rendered fully enough for normal reading, and machine bookkeeping (hashes, schema strings, byte counts, repair/host counters) stays out of the readable document.
+
 ---
 
 ## 4. Operational Cost Accounting and Ceilings
 
-### Host Inference and Repair Ceilings
-- **AUTO analytical** (Explore + Deep): ≤ 8 host inferences total.
-- **AUTO with-LEVER** (Explore + Deep + LEVER): ≤ 10 host inferences total.
-- **Repair budgets**:
-  - Explore: max 1 model repair.
-  - LEVER: max 1 model repair.
-  - AUTO total: max 2 model repairs across the entire run.
+### Semantic Stage Budget
+
+- Base AUTO path: Generate + Portfolio + Deep + Critic = 4 semantic stages.
+- Optional LEVER: Design + Review add 2 semantic stages = 6 semantic stages total.
+- FINAL assembly and `run.md` rendering are deterministic: they add zero semantic stages.
+
+### Repair Accounting
+
+- Repairs and tool-loop continuations are accounted separately from the semantic stage budget.
+- max 1 model repair per stage.
+- max 2 model repairs across the entire AUTO run.
+- No unbounded retries.
 
 ### Fail-Closed Budget Enforcement
-If host inference or model repair ceilings are exhausted at any point:
+
+If semantic stage or model repair ceilings are exhausted at any point:
 - The run immediately terminates with `BUDGET_EXHAUSTED`.
 - Fail-closed rule: Do not reveal unreached future-stage contracts or rubrics.
 - Archive failure evidence and report `BUDGET_EXHAUSTED` with the exact stage reached.
@@ -117,6 +133,6 @@ If host inference or model repair ceilings are exhausted at any point:
 
 ## 5. Known Limitation Note (OBSERVE_IN_DOGFOOD)
 
-In same-host execution, Deep DEVELOP sees the earlier Explore selector rubric in conversation context. This is accepted as `OBSERVE_IN_DOGFOOD` per W0 reconciliation Risk 1:
-- The Explore selector rubric (standalone quality & marginal contribution) and Deep develop/review contracts are structurally orthogonal.
-- Deep DEVELOP remains strictly blind to its own Deep reviewer rubric until after `development.json` is frozen.
+In same-host execution, the Portfolio Judge and Deep DEVELOP see earlier stage context (generator prose, selector rubric) in conversation history. This is accepted as `OBSERVE_IN_DOGFOOD` per W0 reconciliation Risk 1:
+- The judged field is always the hash-frozen artifact set, never loose conversation content.
+- Deep DEVELOP remains structurally blind to its own Critic rubric until after the development-v2 artifact is frozen.

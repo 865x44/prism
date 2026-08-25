@@ -23,7 +23,7 @@ Follow the staged tool sequence defined in the loaded reference file exactly. Ea
 - `deep B1` → Deep on one composed Bundle: one Bundle = one Deep, never per-member mini-Deeps.
 - `deep P2 P5 P8` or an equivalent explicit selection → experimental multi-focus Deep: each selected focus becomes its own Deep target and is developed in its own pass.
 - `/pizm lever P<n>|B<n>` (or bare `/pizm lever`) → read `references/lever.md`. Bare `/pizm lever` is allowed only when exactly one unambiguous MODEL_READY branch exists; otherwise return a deterministic refusal listing ready branches. Blocked cases (unknown/stale target ID, non-ready Deep status) produce zero lever semantic stages.
-- `/pizm auto <task>` → read `references/auto.md`.
+- `/pizm auto <task>` → read `references/auto.md`. One Search pass → Portfolio → one nominated target (P or B) → Deep → Critic → optional LEVER; the final report and the readable `run.md` are assembled deterministically from frozen artifacts with zero model calls (`bin/pizm-session-bundle render`).
 - `another 360`, `ещё 360`, or equivalent → another Explore pass with the residual search policy, using accessible prior Pizm territory.
 - A direct Deep seed without an Explore P-ID is allowed when the user explicitly asks to deepen that seed.
 

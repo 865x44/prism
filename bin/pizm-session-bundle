@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """
-pizm-session-bundle: Archive Prism same-host staged reasoning sessions.
+pizm-session-bundle: Archive Prism same-host staged reasoning sessions and
+render deterministic AUTO run.md reports.
 
 Stdlib-only CLI that bundles frozen stage artifacts, inputs, transcripts,
-and manifest into a self-contained directory for cold-path replay/re-judge.
-No provider calls, session discovery, or evaluator logic.
+and manifest into a self-contained directory for cold-path replay/re-judge,
+and renders a readable run.md from a frozen AUTO run directory
+(subcommand `render`). No provider calls, session discovery, or evaluator logic.
 """
 import argparse
 import hashlib
@@ -554,6 +556,641 @@ def create_bundle(
         return _die(f"bundle creation failed: {e}")
 
 
+# ---------------------------------------------------------------------------
+# run.md renderer (AUTO v1): deterministic reader over frozen artifacts.
+# Zero model calls, zero network, zero clock reads: byte-identical output for
+# identical input directories. Reads ONLY frozen checkpoint artifacts.
+# ---------------------------------------------------------------------------
+
+_RENDER_REQUIRED = (
+    "candidates.json",
+    "portfolio.json",
+    "development-v2.json",
+    "deep-review-v2.json",
+)
+_LEVER_DESIGN_NAME = "design.json"
+_LEVER_REVIEW_NAME = "review.json"
+_SEARCH_FIELD_NAME = "search-field.json"
+
+_PORTFOLIO_SCHEMA = "pizm-portfolio-selection-v1"
+_FORBIDDEN_ROUTING_KEYS = (
+    "secondary_candidate",
+    "secondary_candidate_id",
+    "secondary_candidates",
+    "fallback_candidate",
+    "fallback_candidate_id",
+)
+
+
+def _load_frozen_json(run_dir: Path, name: str) -> dict:
+    path = run_dir / name
+    if not path.is_file():
+        raise ValueError(f"missing artifact: {name}")
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError) as e:
+        raise ValueError(f"cannot parse {name}: {e}")
+    if not isinstance(data, dict):
+        raise ValueError(f"{name} must contain a JSON object")
+    return data
+
+
+def _verify_frozen_sidecar(run_dir: Path, name: str) -> None:
+    """Verify a frozen artifact against its .sha256 sidecar when one exists."""
+    sha_path = run_dir / (name[: -len(".json")] + ".sha256")
+    if not sha_path.is_file():
+        return
+    expected = sha_path.read_text(encoding="utf-8").strip()
+    actual = _sha256_file(run_dir / name)
+    if actual != expected:
+        raise ValueError(
+            f"hash mismatch for {name}: content does not match frozen sidecar"
+        )
+
+
+def _ref_sort_key(ref: str):
+    """Numeric-aware composite ref key: 'pass02:c10' sorts after 'pass02:c09'."""
+    m = re.fullmatch(r"(pass[0-9]{2,}):c([0-9]+)", ref or "")
+    if m:
+        return (m.group(1), int(m.group(2)), "")
+    return ("~", 0, ref or "")
+
+
+def _derive_promoted_p_ids(portfolio: dict) -> dict:
+    """Deterministic P-ID map for promoted perspectives (KEEP dispositions).
+
+    Mirrors the selector's presentation rules for a fresh AUTO field: surviving
+    perspectives receive strictly increasing P-IDs in ascending composite-ref
+    order (P1, P2, ...). AUTO v1 executes exactly one Search pass, so every
+    composite ref resolves against the single frozen candidates.json.
+    """
+    assessments = portfolio.get("candidate_assessments") or []
+    kept_refs = [
+        a["candidate_ref"]
+        for a in assessments
+        if isinstance(a, dict)
+        and a.get("disposition") == "KEEP"
+        and isinstance(a.get("candidate_ref"), str)
+    ]
+    kept_refs.sort(key=_ref_sort_key)
+    return {ref: f"P{i}" for i, ref in enumerate(kept_refs, start=1)}
+
+
+def _validate_auto_portfolio(portfolio: dict):
+    """Fail-closed AUTO routing validation. Returns (auto_target, p_map)."""
+    if portfolio.get("schema_version") != _PORTFOLIO_SCHEMA:
+        raise ValueError(
+            f"portfolio.json schema_version must be {_PORTFOLIO_SCHEMA!r}, "
+            f"got {portfolio.get('schema_version')!r}"
+        )
+    if portfolio.get("route") != "AUTO":
+        raise ValueError(
+            "run.md render requires an AUTO portfolio "
+            f"(route=AUTO), got route={portfolio.get('route')!r}"
+        )
+    for key in _FORBIDDEN_ROUTING_KEYS:
+        if key in portfolio:
+            raise ValueError(
+                f"BAD_AUTO_TARGET: forbidden routing key {key!r} in portfolio.json "
+                "(exactly one nominated target; no secondary/fallback concepts)"
+            )
+    auto_target = portfolio.get("auto_target")
+    if not isinstance(auto_target, dict):
+        raise ValueError("BAD_AUTO_TARGET: route AUTO requires exactly one auto_target object")
+    ttype = auto_target.get("target_type")
+    tid = auto_target.get("target_id")
+    if ttype not in ("P", "B"):
+        raise ValueError(
+            f"BAD_AUTO_TARGET: auto_target.target_type must be P or B, got {ttype!r}"
+        )
+    if not isinstance(tid, str) or not tid.strip():
+        raise ValueError("BAD_AUTO_TARGET: auto_target.target_id must be non-empty string")
+
+    p_map = _derive_promoted_p_ids(portfolio)
+    if ttype == "P":
+        if not re.fullmatch(r"P[1-9][0-9]*", tid):
+            raise ValueError(
+                f"BAD_AUTO_TARGET: auto_target.target_id {tid!r} must match P[1-9][0-9]*"
+            )
+        if tid not in set(p_map.values()):
+            promoted = ", ".join(sorted(p_map.values(), key=_p_sort_key)) or "none"
+            raise ValueError(
+                f"BAD_AUTO_TARGET: auto_target.target_id {tid!r} is not a promoted "
+                f"perspective (promoted: {promoted})"
+            )
+    else:
+        bundle_ids = {
+            b.get("bundle_id")
+            for b in (portfolio.get("bundles") or [])
+            if isinstance(b, dict)
+        }
+        if tid not in bundle_ids:
+            raise ValueError(
+                f"BAD_AUTO_TARGET: auto_target.target_id {tid!r} does not reference "
+                "a bundle proposed in this portfolio"
+            )
+    return auto_target, p_map
+
+
+def _p_sort_key(p_id: str):
+    return int(p_id[1:])
+
+
+def _validate_target_consistency(auto_target: dict, development: dict, review: dict) -> None:
+    dev_target = development.get("target")
+    if not isinstance(dev_target, dict) or (
+        dev_target.get("target_type") != auto_target["target_type"]
+        or dev_target.get("target_id") != auto_target["target_id"]
+    ):
+        raise ValueError(
+            "TARGET_MISMATCH: development-v2.json target "
+            f"{dev_target!r} does not match portfolio auto_target "
+            f"{auto_target!r}"
+        )
+    if (
+        review.get("target_type") != auto_target["target_type"]
+        or review.get("target_id") != auto_target["target_id"]
+    ):
+        raise ValueError(
+            "TARGET_MISMATCH: deep-review-v2.json target "
+            f"({review.get('target_type')!r}, {review.get('target_id')!r}) does not "
+            f"match portfolio auto_target {auto_target!r}"
+        )
+
+
+def _candidate_index(candidates_data: dict) -> dict:
+    index = {}
+    for c in candidates_data.get("candidates") or []:
+        if isinstance(c, dict) and isinstance(c.get("candidate_id"), str):
+            index[c["candidate_id"]] = c
+    return index
+
+
+def _candidate_by_ref(ref: str, cand_index: dict) -> dict:
+    """Resolve a composite ref against the single frozen initial pass."""
+    local_id = ref.split(":", 1)[1] if ":" in ref else ref
+    cand = cand_index.get(local_id)
+    if cand is None and ref in cand_index:
+        cand = cand_index[ref]
+    return cand or {}
+
+
+def _c_title(cand: dict) -> str:
+    return str(cand.get("title") or "(untitled candidate)")
+
+
+def _bullet(label: str, value) -> str:
+    return f"- {label}: {value}"
+
+
+def _render_search_section(candidates_data: dict) -> str:
+    lines = ["## Search", ""]
+    mode = candidates_data.get("mode")
+    if isinstance(mode, str):
+        lines.append(f"Search policy: initial pass ({mode}).")
+        lines.append("")
+    cands = [c for c in candidates_data.get("candidates") or [] if isinstance(c, dict)]
+    if not cands:
+        raise ValueError("candidates.json contains no readable candidates")
+    for i, c in enumerate(cands, start=1):
+        cid = str(c.get("candidate_id") or f"c{i:02d}")
+        lines.append(f"### Candidate: {_c_title(c)} (`pass01:{cid}`)")
+        core = c.get("semantic_core") or {}
+        if isinstance(core, dict):
+            for label, field in (
+                ("Core claim", "claim"),
+                ("Structural shift", "structural_shift"),
+                ("Mechanism", "mechanism"),
+                ("Grounding anchor", "grounding_anchor"),
+                ("Becomes visible", "what_becomes_visible"),
+                ("Boundary", "boundary"),
+            ):
+                val = core.get(field)
+                if isinstance(val, str) and val.strip():
+                    lines.append(_bullet(label, val))
+        epi = c.get("epistemics") or {}
+        if isinstance(epi, dict):
+            parts = [
+                f"{k}: {', '.join(v)}"
+                for k, v in sorted(epi.items())
+                if isinstance(v, list) and v
+            ]
+            if parts:
+                lines.append(_bullet("Epistemics", "; ".join(parts)))
+        lines.append("")
+    return "\n".join(lines).rstrip("\n")
+
+
+def _render_portfolio_section(portfolio: dict, cand_index: dict, p_map: dict) -> str:
+    lines = ["## Portfolio", ""]
+    assessments = [
+        a
+        for a in portfolio.get("candidate_assessments") or []
+        if isinstance(a, dict)
+    ]
+    dropped = []
+    merged_cards = []
+    borderline_cards = []
+    for a in assessments:
+        ref = a.get("candidate_ref") or ""
+        disp = a.get("disposition")
+        title = _c_title(_candidate_by_ref(ref, cand_index))
+        quality = a.get("standalone_quality")
+        residue = a.get("unique_residue") or ""
+        overlap = a.get("nearest_overlap")
+        reason = a.get("reason") or ""
+        if disp == "KEEP":
+            p_id = p_map.get(ref, "?")
+            lines.append(f"### {p_id} — {title} (`{ref}`)")
+            lines.append(_bullet("Disposition", f"KEEP (standalone quality: {quality})"))
+            if residue.strip():
+                lines.append(_bullet("Unique residue", residue))
+            overlap_txt = overlap if isinstance(overlap, str) and overlap else "none"
+            lines.append(_bullet("Nearest overlap", overlap_txt))
+            if reason.strip():
+                lines.append(_bullet("Reason", reason))
+            lines.append("")
+        elif disp == "MERGE":
+            card = [f"### `{ref}` — {title} (merged)"]
+            if reason.strip():
+                card.append(_bullet("Reason", reason))
+            if isinstance(overlap, str) and overlap:
+                target_p = p_map.get(overlap)
+                dest = f"`{overlap}`" + (f" ({target_p})" if target_p else "")
+                card.append(_bullet("Folded into", dest))
+            card.append("")
+            merged_cards.append("\n".join(card))
+        elif disp == "BORDERLINE":
+            card = [f"### `{ref}` — {title} (borderline)"]
+            card.append(_bullet("Standalone quality", quality))
+            if residue.strip():
+                card.append(_bullet("Unique residue", residue))
+            if reason.strip():
+                card.append(_bullet("Reason", reason))
+            card.append("")
+            borderline_cards.append("\n".join(card))
+        else:
+            dropped.append(f"- `{ref}` {title} — dropped: {reason}")
+    if merged_cards:
+        lines.extend(["Merged perspectives:", "", *merged_cards])
+    if borderline_cards:
+        lines.extend(["Open (borderline) territory:", "", *borderline_cards])
+    if dropped:
+        lines.extend(["Dropped:", ""] + dropped + [""])
+    return "\n".join(lines).rstrip("\n")
+
+
+def _member_label(ref: str, p_map: dict, cand_index: dict) -> str:
+    p_id = p_map.get(ref)
+    if p_id:
+        return p_id
+    title = _c_title(_candidate_by_ref(ref, cand_index))
+    return f"{ref} ({title})" if title != "(untitled candidate)" else ref
+
+
+def _render_bundles_section(portfolio: dict, cand_index: dict, p_map: dict):
+    bundles = [b for b in portfolio.get("bundles") or [] if isinstance(b, dict)]
+    if not bundles:
+        return None
+    lines = ["## Bundles", ""]
+    for b in bundles:
+        bid = b.get("bundle_id") or "B?"
+        members = [m for m in b.get("member_refs") or [] if isinstance(m, str)]
+        labels = " + ".join(_member_label(m, p_map, cand_index) for m in members)
+        lines.append(f"### {bid} — {labels}")
+        roles = b.get("member_roles") or {}
+        role_parts = []
+        for m in members:
+            role = roles.get(m)
+            if isinstance(role, str) and role.strip():
+                role_parts.append(f"{_member_label(m, p_map, cand_index)}: {role}")
+        if role_parts:
+            lines.append(_bullet("Members", "; ".join(role_parts)))
+        else:
+            lines.append(_bullet("Members", labels))
+        for label, field in (
+            ("Bundle thesis", "bundle_thesis"),
+            ("Composition gain", "composition_gain"),
+            ("New consequence / prediction", "new_consequence_or_prediction"),
+            ("Internal tension", "internal_tension"),
+            ("Weakest link", "weakest_link"),
+        ):
+            val = b.get(field)
+            if isinstance(val, str) and val.strip():
+                lines.append(_bullet(label, val))
+        ablation = b.get("member_ablation") or {}
+        abl_parts = [
+            f"{_member_label(m, p_map, cand_index)}: {ablation[m]}"
+            for m in members
+            if isinstance(ablation.get(m), str) and ablation[m].strip()
+        ]
+        if abl_parts:
+            lines.append(_bullet("Member ablation", " | ".join(abl_parts)))
+        lines.append("")
+    return "\n".join(lines).rstrip("\n")
+
+
+def _selected_heading(auto_target: dict, development: dict) -> str:
+    lock = development.get("identity_lock") or {}
+    title = lock.get("title")
+    tid = auto_target["target_id"]
+    return f"### {tid}" + (f" — {title}" if isinstance(title, str) and title.strip() else "")
+
+
+def _render_selected_section(auto_target: dict, development: dict, portfolio: dict) -> str:
+    lines = ["## Selected model", "", _selected_heading(auto_target, development)]
+    lock = development.get("identity_lock") or {}
+    for label, field in (
+        ("Core claim", "core_claim"),
+        ("Structural shift", "structural_shift"),
+        ("Boundary", "boundary"),
+    ):
+        val = lock.get(field)
+        if isinstance(val, str) and val.strip():
+            lines.append(_bullet(label, val))
+    if auto_target["target_type"] == "B":
+        members = lock.get("member_refs") or []
+        if members:
+            lines.append(_bullet("Bundle members (frozen)", ", ".join(members)))
+    lines.append("")
+    return "\n".join(lines).rstrip("\n")
+
+
+def _render_deep_section(development: dict) -> str:
+    model = development.get("developed_model") or {}
+    lines = ["## Deep", ""]
+    thesis = model.get("thesis")
+    if isinstance(thesis, str) and thesis.strip():
+        lines += [f"**Thesis.** {thesis}", ""]
+    synthesis = model.get("synthesis")
+    if isinstance(synthesis, str) and synthesis.strip():
+        lines += [synthesis.strip(), ""]
+    implications = [i for i in model.get("implications") or [] if isinstance(i, str)]
+    if implications:
+        lines.append("Implications:")
+        lines.extend(f"- {i}" for i in implications)
+        lines.append("")
+
+    lines += ["### Mechanism and dynamics", ""]
+    dynamics = model.get("dynamics")
+    if isinstance(dynamics, str) and dynamics.strip():
+        lines += [dynamics.strip(), ""]
+    chain = [s for s in model.get("mechanism_chain") or [] if isinstance(s, str)]
+    if chain:
+        lines.append("Causal chain:")
+        lines.extend(f"{i}. {step}" for i, step in enumerate(chain, start=1))
+        lines.append("")
+    contributions = model.get("member_contributions")
+    if isinstance(contributions, dict) and contributions:
+        lines.append("Member contributions (bundle):")
+        for k in sorted(contributions):
+            lines.append(f"- {k}: {contributions[k]}")
+        lines.append("")
+    ablation = model.get("member_ablation")
+    if isinstance(ablation, dict) and ablation:
+        lines.append("Member ablation (bundle):")
+        for k in sorted(ablation):
+            lines.append(f"- {k}: {ablation[k]}")
+        lines.append("")
+
+    lines += ["### Load-bearing claims", ""]
+    census = [c for c in model.get("load_bearing_claims") or [] if isinstance(c, dict)]
+    if census:
+        for c in census:
+            status = c.get("epistemic_status") or "?"
+            claim = c.get("claim") or ""
+            lines.append(
+                f"- **{claim}** (`{status}`) — role: {c.get('role_in_model', '')}; "
+                f"weakened/refuted by: {c.get('what_would_weaken_or_refute', '')}"
+            )
+    else:
+        lines.append("(no load-bearing claims recorded)")
+    tensions = [t for t in model.get("unresolved_tensions") or [] if isinstance(t, str)]
+    if tensions:
+        lines.append("")
+        lines.append("Unresolved tensions:")
+        lines.extend(f"- {t}" for t in tensions)
+    lines.append("")
+
+    lines += ["### Predictions", ""]
+    preds = [p for p in model.get("predictions_or_observables") or [] if isinstance(p, str)]
+    breaks = [b for b in model.get("break_conditions") or [] if isinstance(b, str)]
+    if preds:
+        lines.extend(f"- {p}" for p in preds)
+    else:
+        lines.append("(no predictions recorded)")
+    if breaks:
+        lines.append("")
+        lines.append("Break conditions:")
+        lines.extend(f"- {b}" for b in breaks)
+    lines.append("")
+
+    lines += ["### Evidence debt", ""]
+    debt = [d for d in model.get("evidence_debt") or [] if isinstance(d, str)]
+    if debt:
+        lines.extend(f"- {d}" for d in debt)
+    else:
+        lines.append("(no recorded evidence debt)")
+    return "\n".join(lines).rstrip("\n")
+
+
+def _render_critic_section(review: dict) -> str:
+    lines = ["## Critic", ""]
+    terminal = review.get("terminal_state")
+    verified = review.get("identity_verified")
+    lines.append(
+        f"Terminal state: **{terminal}**"
+        + ("" if not isinstance(verified, bool) else f" (identity verified: {'yes' if verified else 'no'})")
+    )
+    rationale = review.get("verdict_rationale")
+    if isinstance(rationale, str) and rationale.strip():
+        lines += ["", rationale.strip()]
+    countermodel = review.get("independent_countermodel")
+    if isinstance(countermodel, str) and countermodel.strip():
+        lines += ["", "**Independent countermodel.**", countermodel.strip()]
+    cheapest = review.get("cheapest_discriminating_test")
+    if isinstance(cheapest, str) and cheapest.strip():
+        lines += ["", "**Cheapest discriminating test.**", cheapest.strip()]
+    reassessment = [r for r in review.get("load_bearing_reassessment") or [] if isinstance(r, dict)]
+    if reassessment:
+        lines += ["", "Load-bearing claim reassessment:"]
+        for r in reassessment:
+            lines.append(f"- {r.get('claim', '')} (`{r.get('critic_epistemic_status', '?')}`)")
+    findings = review.get("findings")
+    if isinstance(findings, dict):
+        finding_lines = []
+        for label, field in (
+            ("Cross-field contradictions", "cross_field_contradictions"),
+            ("Unsupported specificity", "unsupported_specificity"),
+            ("Epistemic laundering", "epistemic_laundering"),
+        ):
+            items = [x for x in findings.get(field) or [] if isinstance(x, str)]
+            for x in items:
+                finding_lines.append(f"- {label}: {x}")
+        unresolved = findings.get("unresolved_load_bearing_contradiction")
+        if unresolved is True:
+            finding_lines.append("- Unresolved load-bearing contradiction: yes")
+        for label, field in (("Identity drift", "identity_drift"), ("Cost relocation", "cost_relocation")):
+            val = findings.get(field)
+            if isinstance(val, str) and val.strip():
+                finding_lines.append(f"- {label}: {val}")
+        skeleton = findings.get("round_trip_skeleton")
+        if isinstance(skeleton, str) and skeleton.strip():
+            finding_lines.append(f"- Round-trip skeleton: {skeleton}")
+        member_abl = findings.get("member_ablation")
+        if isinstance(member_abl, str) and member_abl.strip():
+            finding_lines.append(f"- Member ablation assessment: {member_abl}")
+        if finding_lines:
+            lines += ["", "Findings:"]
+            lines.extend(finding_lines)
+    critic_debt = [d for d in review.get("evidence_debt") or [] if isinstance(d, str)]
+    if critic_debt:
+        lines += ["", "Critic evidence debt:"]
+        lines.extend(f"- {d}" for d in critic_debt)
+    return "\n".join(lines).rstrip("\n")
+
+
+def _render_lever_section(design: dict, lever_review: dict) -> str:
+    lines = ["## Lever", ""]
+    outcome = lever_review.get("outcome")
+    lines.append(f"Outcome: **{outcome}**")
+    rationale = lever_review.get("verdict_rationale")
+    if isinstance(rationale, str) and rationale.strip():
+        lines += ["", rationale.strip()]
+    verdict_by_lever = {}
+    for v in lever_review.get("verdicts") or []:
+        if isinstance(v, dict) and isinstance(v.get("lever_id"), str):
+            verdict_by_lever[v["lever_id"]] = v.get("verdict")
+    levers = [l for l in design.get("levers") or [] if isinstance(l, dict)]
+    for l in levers:
+        lid = l.get("lever_id") or "?"
+        verdict = verdict_by_lever.get(lid)
+        suffix = f" (`{verdict}`)" if verdict else ""
+        lines += ["", f"### {lid}{suffix}"]
+        for label, field in (
+            ("Intervention / test point", "intervention_or_test_point"),
+            ("Model link", "model_link"),
+            ("Minimum bounded move", "minimum_bounded_move"),
+            ("Expected observation / response", "expected_observation_or_response"),
+            ("Disconfirming signal", "disconfirming_signal"),
+            ("Stop condition", "stop_condition"),
+            ("Remaining assumptions", "remaining_assumptions"),
+            ("Adaptation / countermove", "adaptation_or_countermove"),
+        ):
+            val = l.get(field)
+            if isinstance(val, str) and val.strip():
+                lines.append(_bullet(label, val))
+    return "\n".join(lines).rstrip("\n")
+
+
+def _render_final_section(auto_target: dict, development: dict, review: dict,
+                          lever_review) -> str:
+    lines = ["## Final", ""]
+    heading = _selected_heading(auto_target, development)
+    lines.append(f"- Selected: {heading[len('### '):]}")
+    terminal = review.get("terminal_state")
+    lines.append(f"- Terminal state: {terminal}")
+    if lever_review is not None:
+        outcome = lever_review.get("outcome")
+        accepted = sum(
+            1
+            for v in lever_review.get("verdicts") or []
+            if isinstance(v, dict) and v.get("verdict") == "ACCEPT"
+        )
+        if outcome == "LEVER":
+            lines.append(f"- Lever: LEVER ({accepted} accepted of {len(lever_review.get('verdicts') or [])})")
+        else:
+            lines.append(f"- Lever: {outcome}")
+    else:
+        lines.append("- Lever: not executed (orientation/terminal-state gate not met)")
+    if terminal in ("NEED_EVIDENCE", "RETURN_TO_EXPLORE"):
+        lines.append(f"- Honest stop: {terminal} — see Critic verdict rationale; no further primitives executed.")
+    return "\n".join(lines).rstrip("\n")
+
+
+def render_run_md(
+    run_dir_str: str,
+    task: str,
+    output_path: str,
+) -> int:
+    run_dir = Path(run_dir_str)
+    if not run_dir.is_dir():
+        return _die(f"run directory does not exist: {run_dir}")
+    if not task.strip():
+        return _die("--task must be non-empty")
+
+    try:
+        artifacts = {}
+        for name in _RENDER_REQUIRED:
+            artifacts[name] = _load_frozen_json(run_dir, name)
+            _verify_frozen_sidecar(run_dir, name)
+        candidates_data = artifacts["candidates.json"]
+        portfolio = artifacts["portfolio.json"]
+        development = artifacts["development-v2.json"]
+        review = artifacts["deep-review-v2.json"]
+
+        auto_target, p_map = _validate_auto_portfolio(portfolio)
+        _validate_target_consistency(auto_target, development, review)
+
+        design = None
+        lever_review = None
+        has_design = (run_dir / _LEVER_DESIGN_NAME).is_file()
+        has_lreview = (run_dir / _LEVER_REVIEW_NAME).is_file()
+        if has_design != has_lreview:
+            missing = _LEVER_REVIEW_NAME if has_design else _LEVER_DESIGN_NAME
+            return _die(f"incomplete lever stage: missing artifact: {missing}")
+        if has_design:
+            design = _load_frozen_json(run_dir, _LEVER_DESIGN_NAME)
+            lever_review = _load_frozen_json(run_dir, _LEVER_REVIEW_NAME)
+            _verify_frozen_sidecar(run_dir, _LEVER_DESIGN_NAME)
+            _verify_frozen_sidecar(run_dir, _LEVER_REVIEW_NAME)
+
+        search_field_name = _SEARCH_FIELD_NAME if (run_dir / _SEARCH_FIELD_NAME).is_file() else None
+    except ValueError as e:
+        return _die(str(e))
+
+    cand_index = _candidate_index(candidates_data)
+    sections = [
+        "# Prism AUTO",
+        "## Task\n\n" + task.strip(),
+    ]
+    sections.append(_render_search_section(candidates_data))
+    sections.append(_render_portfolio_section(portfolio, cand_index, p_map))
+    bundles_section = _render_bundles_section(portfolio, cand_index, p_map)
+    if bundles_section:
+        sections.append(bundles_section)
+    sections.append(_render_selected_section(auto_target, development, portfolio))
+    sections.append(_render_deep_section(development))
+    sections.append(_render_critic_section(review))
+    if design is not None and lever_review is not None:
+        sections.append(_render_lever_section(design, lever_review))
+    sections.append(_render_final_section(auto_target, development, review, lever_review))
+
+    machine_names = [
+        name
+        for name in (
+            *_RENDER_REQUIRED,
+            search_field_name,
+            _LEVER_DESIGN_NAME if design else None,
+            _LEVER_REVIEW_NAME if lever_review else None,
+        )
+        if name
+    ]
+    machine_lines = ["## Machine artifacts", ""]
+    machine_lines.extend(f"- {n}" for n in sorted(machine_names))
+    sections.append("\n".join(machine_lines))
+
+    document = "\n\n".join(sections) + "\n"
+    out = Path(output_path)
+    try:
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(document, encoding="utf-8")
+    except OSError as e:
+        return _die(f"cannot write output: {e}")
+    print(f"RENDER_OK {out}")
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Bundle Prism session evidence for cold-path replay"
@@ -600,6 +1237,25 @@ def main() -> int:
         choices=["offline_fixture", "live"],
         help="Evidence classification",
     )
+    rp = sub.add_parser(
+        "render",
+        help="Render deterministic readable run.md from a frozen AUTO run directory",
+    )
+    rp.add_argument(
+        "--run-dir",
+        required=True,
+        help="Frozen run directory (checkpoint artifacts: candidates/portfolio/development/deep-review-v2 JSONs)",
+    )
+    rp.add_argument(
+        "--task",
+        required=True,
+        help="Original AUTO task text (not stored in frozen artifacts)",
+    )
+    rp.add_argument(
+        "--output",
+        default=None,
+        help="Output path for run.md (default: <run-dir>/run.md)",
+    )
 
     args = parser.parse_args()
 
@@ -616,6 +1272,14 @@ def main() -> int:
             model=args.model or "",
             repo_commit=args.repo_commit or "",
             evidence_kind=args.evidence_kind,
+        )
+
+    if args.command == "render":
+        output = args.output if args.output else str(Path(args.run_dir) / "run.md")
+        return render_run_md(
+            run_dir_str=args.run_dir,
+            task=args.task,
+            output_path=output,
         )
 
     return _die(f"unknown command: {args.command}")
