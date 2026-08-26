@@ -28,7 +28,7 @@ _CONTRACT_MAP = {
     "lever-review": None,
     "search-field": "references/explore.md",
     "portfolio": "references/explore-selector.md",
-    "development-v2": "references/deep-reviewer.md",
+    "development-v2": None,
     "deep-review-v2": None,
     "comparison-review-v1": None,
     "comparison": None,
@@ -64,7 +64,7 @@ _EPISTEMIC_STATUSES = ("SUPPORTED", "INFERRED", "SPECULATIVE", "UNKNOWN")
 
 # Critic v2 terminal states — identical set to the v1 deep review (no fourth status)
 _DEEP_REVIEW_TERMINAL_STATES = ("MODEL_READY", "NEED_EVIDENCE", "RETURN_TO_EXPLORE")
-_COMPARISON_PREFERENCE_STATES = ("B1", "B2", "CONDITIONAL", "UNRESOLVED")
+_COMPARISON_PREFERENCE_STATES = ("LEFT", "RIGHT", "CONDITIONAL", "UNRESOLVED")
 _COMPETITION_STATUSES = ("TWO_DEFENSIBLE_BUNDLES", "NO_SECOND_DEFENSIBLE_BUNDLE")
 _DEEP_IDENTITY_FIELDS = (
     "title",
@@ -571,64 +571,78 @@ def _validate_comparison_review(
             f"exceeds maximum {_COMPARISON_REVIEW_MAX_TOTAL_BYTES} bytes (128 KiB)"
         )
 
-    # Validate review_B1 and review_B2
-    for b_key, expected_target in (("review_B1", "B1"), ("review_B2", "B2")):
-        review = data.get(b_key)
+    # Validate top-level target IDs
+    left_target_id = data.get("left_target_id")
+    right_target_id = data.get("right_target_id")
+    if not isinstance(left_target_id, str) or not _B_ID_RE.fullmatch(left_target_id):
+        raise ValueError(f"left_target_id must match B[1-9][0-9]*, got {left_target_id!r}")
+    if not isinstance(right_target_id, str) or not _B_ID_RE.fullmatch(right_target_id):
+        raise ValueError(f"right_target_id must match B[1-9][0-9]*, got {right_target_id!r}")
+    if left_target_id == right_target_id:
+        raise ValueError(f"left_target_id and right_target_id must be distinct, got {left_target_id!r}")
+
+    # Reject legacy keys
+    if "review_B1" in data or "review_B2" in data:
+        raise ValueError("legacy review_B1/review_B2 fields are forbidden; use left_review/right_review")
+
+    # Validate left_review and right_review
+    for role_key, expected_target in (("left_review", left_target_id), ("right_review", right_target_id)):
+        review = data.get(role_key)
         if not isinstance(review, dict):
-            raise ValueError(f"{b_key} must be an object")
+            raise ValueError(f"{role_key} must be an object")
         target_id = review.get("target_id")
         if target_id != expected_target:
-            raise ValueError(f"{b_key}.target_id must be {expected_target!r}, got {target_id!r}")
+            raise ValueError(f"{role_key}.target_id must be {expected_target!r}, got {target_id!r}")
         terminal_state = review.get("terminal_state")
         if terminal_state not in _DEEP_REVIEW_TERMINAL_STATES:
             raise ValueError(
-                f"{b_key}.terminal_state must be one of {list(_DEEP_REVIEW_TERMINAL_STATES)}, got {terminal_state!r}"
+                f"{role_key}.terminal_state must be one of {list(_DEEP_REVIEW_TERMINAL_STATES)}, got {terminal_state!r}"
             )
         findings = review.get("findings")
         if not isinstance(findings, dict):
-            raise ValueError(f"{b_key}.findings must be an object")
+            raise ValueError(f"{role_key}.findings must be an object")
         unresolved = findings.get("unresolved_load_bearing_contradiction", False)
         if not isinstance(unresolved, bool):
-            raise ValueError(f"{b_key}.findings.unresolved_load_bearing_contradiction must be boolean")
+            raise ValueError(f"{role_key}.findings.unresolved_load_bearing_contradiction must be boolean")
         if unresolved and terminal_state == "MODEL_READY":
             raise ValueError(
-                f"{b_key}: MODEL_READY is forbidden while unresolved_load_bearing_contradiction is true"
+                f"{role_key}: MODEL_READY is forbidden while unresolved_load_bearing_contradiction is true"
             )
         reassessment = review.get("load_bearing_reassessment")
         if not isinstance(reassessment, list) or len(reassessment) == 0:
-            raise ValueError(f"{b_key}.load_bearing_reassessment must be a non-empty list")
+            raise ValueError(f"{role_key}.load_bearing_reassessment must be a non-empty list")
         for idx, item in enumerate(reassessment):
             if not isinstance(item, dict):
-                raise ValueError(f"{b_key}.load_bearing_reassessment[{idx}] must be an object")
+                raise ValueError(f"{role_key}.load_bearing_reassessment[{idx}] must be an object")
             if not isinstance(item.get("claim"), str) or not item.get("claim").strip():
-                raise ValueError(f"{b_key}.load_bearing_reassessment[{idx}].claim must be non-empty string")
+                raise ValueError(f"{role_key}.load_bearing_reassessment[{idx}].claim must be non-empty string")
             st = item.get("critic_epistemic_status")
             if st not in _EPISTEMIC_STATUSES:
                 raise ValueError(
-                    f"{b_key}.load_bearing_reassessment[{idx}].critic_epistemic_status must be one of {list(_EPISTEMIC_STATUSES)}"
+                    f"{role_key}.load_bearing_reassessment[{idx}].critic_epistemic_status must be one of {list(_EPISTEMIC_STATUSES)}"
                 )
         countermodel = review.get("independent_countermodel")
         if not isinstance(countermodel, str) or not countermodel.strip():
-            raise ValueError(f"{b_key}.independent_countermodel must be non-empty string")
+            raise ValueError(f"{role_key}.independent_countermodel must be non-empty string")
 
         dev_ref = review.get("development_ref") or review.get("artifact_ref") or review.get("ref") or review.get("target_ref")
         dev_hash = review.get("frozen_hash") or review.get("development_hash") or review.get("hash")
         if not dev_ref:
-            raise ValueError(f"{b_key} must declare development artifact reference (development_ref)")
+            raise ValueError(f"{role_key} must declare development artifact reference (development_ref)")
         if not dev_hash:
-            raise ValueError(f"{b_key} must declare development artifact hash (frozen_hash)")
+            raise ValueError(f"{role_key} must declare development artifact hash (frozen_hash)")
 
         if project_root is not None:
             dev_path = _resolve_pizm_artifact(dev_ref, project_root, run_dir)
             raw_dev, _ = _verify_artifact_and_sidecar(
                 dev_path,
                 expected_hash=dev_hash,
-                field_name=f"{b_key}.development_ref",
+                field_name=f"{role_key}.development_ref",
             )
             try:
                 dev_data = json.loads(raw_dev)
             except json.JSONDecodeError:
-                raise ValueError(f"{b_key} development artifact is not valid JSON")
+                raise ValueError(f"{role_key} development artifact is not valid JSON")
             actual_target = (
                 dev_data.get("target", {}).get("target_id")
                 if isinstance(dev_data.get("target"), dict)
@@ -636,13 +650,40 @@ def _validate_comparison_review(
             )
             if actual_target != expected_target:
                 raise ValueError(
-                    f"{b_key}.development_ref target mismatch: expected {expected_target}, got {actual_target!r}"
+                    f"{role_key}.development_ref target mismatch: expected {expected_target}, got {actual_target!r}"
                 )
 
+    # Portfolio verification
+    if project_root is not None and run_dir is not None:
+        portfolio_file = run_dir / "portfolio.json"
+        if not portfolio_file.is_file():
+            raise ValueError("comparison review requires a frozen portfolio.json")
+        raw_port, _ = _verify_artifact_and_sidecar(portfolio_file, field_name="portfolio.json")
+        try:
+            port_data = json.loads(raw_port)
+        except json.JSONDecodeError:
+            raise ValueError("portfolio artifact is not valid JSON")
+        if port_data.get("schema_version") != "pizm-portfolio-selection-v2":
+            raise ValueError("comparison review requires pizm-portfolio-selection-v2 portfolio")
+        if port_data.get("route") != "FORGE":
+            raise ValueError("comparison review requires portfolio route FORGE")
+        if port_data.get("competition_status") != "TWO_DEFENSIBLE_BUNDLES":
+            raise ValueError("comparison review requires portfolio competition_status TWO_DEFENSIBLE_BUNDLES")
+        rec_comp = port_data.get("recommended_competition") or {}
+        p_left = rec_comp.get("left_bundle_id")
+        p_right = rec_comp.get("right_bundle_id")
+        if p_left != left_target_id or p_right != right_target_id:
+            raise ValueError(
+                f"comparison targets ({left_target_id}, {right_target_id}) do not match "
+                f"portfolio recommended_competition ({p_left}, {p_right})"
+            )
     # Validate comparison block
     comp = data.get("comparison")
     if not isinstance(comp, dict):
         raise ValueError("comparison must be an object")
+
+    if "strongest_reason_for_B1" in comp or "strongest_reason_for_B2" in comp:
+        raise ValueError("legacy strongest_reason_for_B1/B2 keys are forbidden; use strongest_reason_for_left/right")
 
     pref = comp.get("current_preference")
     if pref not in _COMPARISON_PREFERENCE_STATES:
@@ -652,8 +693,8 @@ def _validate_comparison_review(
 
     for field in (
         "competition_axis",
-        "strongest_reason_for_B1",
-        "strongest_reason_for_B2",
+        "strongest_reason_for_left",
+        "strongest_reason_for_right",
         "discriminating_observation",
         "what_would_change_the_decision",
     ):
@@ -666,26 +707,26 @@ def _validate_comparison_review(
         raise ValueError("comparison.shared_evidence_debt must be a list or string")
 
     # Decision-rule couplings
-    review_b1 = data["review_B1"]
-    review_b2 = data["review_B2"]
+    review_left = data["left_review"]
+    review_right = data["right_review"]
 
-    if pref == "B1":
-        if review_b1.get("findings", {}).get("unresolved_load_bearing_contradiction"):
+    if pref == "LEFT":
+        if review_left.get("findings", {}).get("unresolved_load_bearing_contradiction"):
             raise ValueError(
-                "preference B1 is forbidden while B1 review has unresolved_load_bearing_contradiction"
+                "preference LEFT is forbidden while left review has unresolved_load_bearing_contradiction"
             )
-        if review_b1.get("terminal_state") == "RETURN_TO_EXPLORE":
+        if review_left.get("terminal_state") == "RETURN_TO_EXPLORE":
             raise ValueError(
-                "preference B1 is forbidden while B1 review terminal_state is RETURN_TO_EXPLORE"
+                "preference LEFT is forbidden while left review terminal_state is RETURN_TO_EXPLORE"
             )
-    elif pref == "B2":
-        if review_b2.get("findings", {}).get("unresolved_load_bearing_contradiction"):
+    elif pref == "RIGHT":
+        if review_right.get("findings", {}).get("unresolved_load_bearing_contradiction"):
             raise ValueError(
-                "preference B2 is forbidden while B2 review has unresolved_load_bearing_contradiction"
+                "preference RIGHT is forbidden while right review has unresolved_load_bearing_contradiction"
             )
-        if review_b2.get("terminal_state") == "RETURN_TO_EXPLORE":
+        if review_right.get("terminal_state") == "RETURN_TO_EXPLORE":
             raise ValueError(
-                "preference B2 is forbidden while B2 review terminal_state is RETURN_TO_EXPLORE"
+                "preference RIGHT is forbidden while right review terminal_state is RETURN_TO_EXPLORE"
             )
 def _validate_lever_design(data: dict, raw_bytes_len: int = 0) -> None:
     if not isinstance(data, dict):
@@ -946,8 +987,16 @@ def _validate_portfolio(
         )
 
     route = data.get("route")
-    if route not in ("MANUAL", "AUTO"):
-        raise ValueError(f"route must be MANUAL or AUTO, got {route!r}")
+    if schema_version == "pizm-portfolio-selection-v2":
+        if route != "FORGE":
+            raise ValueError(f"pizm-portfolio-selection-v2 requires route 'FORGE', got {route!r}")
+        if data.get("auto_target") is not None:
+            raise ValueError("pizm-portfolio-selection-v2 forbids auto_target")
+    else:
+        if route not in ("MANUAL", "AUTO"):
+            raise ValueError(f"route must be MANUAL or AUTO, got {route!r}")
+        if data.get("single_target") is not None:
+            raise ValueError("single_target is forbidden in pizm-portfolio-selection-v1")
 
     field_hash = data.get("field_hash")
     if not isinstance(field_hash, str) or not field_hash.strip():
@@ -1084,26 +1133,27 @@ def _validate_portfolio(
                 raise ValueError(f"bundles[{i}].member_ablation[{k!r}] must be non-empty string")
 
     auto_target = data.get("auto_target")
-    if route == "AUTO":
-        if not isinstance(auto_target, dict):
-            raise ValueError("route AUTO requires exactly one auto_target object")
-        ttype = auto_target.get("target_type")
-        if ttype not in ("P", "B"):
-            raise ValueError(f"auto_target.target_type must be P or B, got {ttype!r}")
-        tid = auto_target.get("target_id")
-        if not isinstance(tid, str) or not tid.strip():
-            raise ValueError("auto_target.target_id must be non-empty string")
-        if ttype == "P":
-            if not _P_ID_RE.fullmatch(tid):
+    if schema_version == "pizm-portfolio-selection-v1":
+        if route == "AUTO":
+            if not isinstance(auto_target, dict):
+                raise ValueError("route AUTO requires exactly one auto_target object")
+            ttype = auto_target.get("target_type")
+            if ttype not in ("P", "B"):
+                raise ValueError(f"auto_target.target_type must be P or B, got {ttype!r}")
+            tid = auto_target.get("target_id")
+            if not isinstance(tid, str) or not tid.strip():
+                raise ValueError("auto_target.target_id must be non-empty string")
+            if ttype == "P":
+                if not _P_ID_RE.fullmatch(tid):
+                    raise ValueError(
+                        f"auto_target.target_id {tid!r} must match P[1-9][0-9]* for target_type P"
+                    )
+            elif tid not in seen_bundle_ids:
                 raise ValueError(
-                    f"auto_target.target_id {tid!r} must match P[1-9][0-9]* for target_type P"
+                    f"auto_target.target_id {tid!r} must reference a bundle_id proposed in this portfolio"
                 )
-        elif tid not in seen_bundle_ids:
-            raise ValueError(
-                f"auto_target.target_id {tid!r} must reference a bundle_id proposed in this portfolio"
-            )
-    elif auto_target is not None:
-        raise ValueError("route MANUAL requires auto_target to be null")
+        elif auto_target is not None:
+            raise ValueError("route MANUAL requires auto_target to be null")
 
     prior_bundles = data.get("prior_bundles")
     if prior_bundles is not None:
@@ -1119,43 +1169,6 @@ def _validate_portfolio(
 
     # v2 validation
     if schema_version == "pizm-portfolio-selection-v2":
-        comp_status = data.get("competition_status")
-        if comp_status not in _COMPETITION_STATUSES:
-            raise ValueError(
-                f"competition_status must be one of {list(_COMPETITION_STATUSES)}, got {comp_status!r}"
-            )
-        rec_comp = data.get("recommended_competition")
-        if comp_status == "NO_SECOND_DEFENSIBLE_BUNDLE":
-            if rec_comp is not None:
-                raise ValueError(
-                    "recommended_competition must be null when competition_status is NO_SECOND_DEFENSIBLE_BUNDLE"
-                )
-        elif comp_status == "TWO_DEFENSIBLE_BUNDLES":
-            if not isinstance(rec_comp, dict):
-                raise ValueError(
-                    "recommended_competition must be an object when competition_status is TWO_DEFENSIBLE_BUNDLES"
-                )
-            bundle_a = rec_comp.get("bundle_a")
-            bundle_b = rec_comp.get("bundle_b")
-            if bundle_a != "B1" or bundle_b != "B2":
-                raise ValueError(
-                    f"recommended_competition must specify bundle_a as 'B1' and bundle_b as 'B2', got {bundle_a!r} and {bundle_b!r}"
-                )
-            if bundle_a not in seen_bundle_ids or bundle_b not in seen_bundle_ids:
-                raise ValueError(
-                    "recommended_competition bundles must both be present in bundles list"
-                )
-            axis = rec_comp.get("competition_axis")
-            if not isinstance(axis, str) or not axis.strip():
-                raise ValueError("recommended_competition.competition_axis must be non-empty string")
-            disc_obs = rec_comp.get("discriminating_observation")
-            if not isinstance(disc_obs, str) or not disc_obs.strip():
-                raise ValueError("recommended_competition.discriminating_observation must be non-empty string")
-            if "discriminating_question" in rec_comp:
-                dq = rec_comp.get("discriminating_question")
-                if not isinstance(dq, str):
-                    raise ValueError("recommended_competition.discriminating_question must be a string")
-
         perspectives = data.get("perspectives")
         if not isinstance(perspectives, dict) or len(perspectives) == 0:
             raise ValueError("v2 portfolio must have a non-empty perspectives mapping")
@@ -1180,6 +1193,70 @@ def _validate_portfolio(
                 raise ValueError(f"perspective candidate_ref {c_ref!r} not found in assessments")
             seen_p_ids.add(p_id)
             seen_c_refs.add(c_ref)
+
+        comp_status = data.get("competition_status")
+        if comp_status not in _COMPETITION_STATUSES:
+            raise ValueError(
+                f"competition_status must be one of {list(_COMPETITION_STATUSES)}, got {comp_status!r}"
+            )
+        rec_comp = data.get("recommended_competition")
+        single_target = data.get("single_target")
+        if comp_status == "NO_SECOND_DEFENSIBLE_BUNDLE":
+            if rec_comp is not None:
+                raise ValueError(
+                    "recommended_competition must be null when competition_status is NO_SECOND_DEFENSIBLE_BUNDLE"
+                )
+            if not isinstance(single_target, dict):
+                raise ValueError(
+                    "single_target is required when competition_status is NO_SECOND_DEFENSIBLE_BUNDLE"
+                )
+            st_type = single_target.get("target_type")
+            if st_type not in ("B", "P"):
+                raise ValueError(f"single_target.target_type must be B or P, got {st_type!r}")
+            st_id = single_target.get("target_id")
+            if not isinstance(st_id, str) or not st_id.strip():
+                raise ValueError("single_target.target_id must be non-empty string")
+            if st_type == "B":
+                if not _B_ID_RE.fullmatch(st_id):
+                    raise ValueError(f"single_target.target_id {st_id!r} must match B[1-9][0-9]* for target_type B")
+                if st_id not in seen_bundle_ids:
+                    raise ValueError(f"single_target.target_id {st_id!r} must reference a bundle_id proposed in this portfolio")
+            elif st_type == "P":
+                if not _P_ID_RE.fullmatch(st_id):
+                    raise ValueError(f"single_target.target_id {st_id!r} must match P[1-9][0-9]* for target_type P")
+                if st_id not in seen_p_ids:
+                    raise ValueError(f"single_target.target_id {st_id!r} must reference a perspective id in perspectives mapping")
+        elif comp_status == "TWO_DEFENSIBLE_BUNDLES":
+            if single_target is not None:
+                raise ValueError("single_target is forbidden when competition_status is TWO_DEFENSIBLE_BUNDLES")
+            if not isinstance(rec_comp, dict):
+                raise ValueError(
+                    "recommended_competition must be an object when competition_status is TWO_DEFENSIBLE_BUNDLES"
+                )
+            if "bundle_a" in rec_comp or "bundle_b" in rec_comp:
+                raise ValueError("recommended_competition must use left_bundle_id and right_bundle_id, not bundle_a/bundle_b")
+            left_b = rec_comp.get("left_bundle_id")
+            right_b = rec_comp.get("right_bundle_id")
+            if not isinstance(left_b, str) or not _B_ID_RE.fullmatch(left_b):
+                raise ValueError(f"recommended_competition.left_bundle_id must match B[1-9][0-9]*, got {left_b!r}")
+            if not isinstance(right_b, str) or not _B_ID_RE.fullmatch(right_b):
+                raise ValueError(f"recommended_competition.right_bundle_id must match B[1-9][0-9]*, got {right_b!r}")
+            if left_b == right_b:
+                raise ValueError(f"recommended_competition left_bundle_id and right_bundle_id must be distinct, got {left_b!r}")
+            if left_b not in seen_bundle_ids or right_b not in seen_bundle_ids:
+                raise ValueError(
+                    "recommended_competition bundles must both be present in bundles list"
+                )
+            axis = rec_comp.get("competition_axis")
+            if not isinstance(axis, str) or not axis.strip():
+                raise ValueError("recommended_competition.competition_axis must be non-empty string")
+            disc_obs = rec_comp.get("discriminating_observation")
+            if not isinstance(disc_obs, str) or not disc_obs.strip():
+                raise ValueError("recommended_competition.discriminating_observation must be non-empty string")
+            if "discriminating_question" in rec_comp:
+                dq = rec_comp.get("discriminating_question")
+                if not isinstance(dq, str):
+                    raise ValueError("recommended_competition.discriminating_question must be a string")
 
         prior_ref = data.get("prior_ref")
         prior_hash = data.get("prior_hash")
@@ -1331,12 +1408,109 @@ def _durable_exclusive_write(target: Path, data: bytes) -> None:
         raise
 
 
+def _read_contract_file(skill_root: Path, rel_path: str) -> str:
+    """Read hidden contract from relative path. Raises OSError on failure."""
+    contract_path = skill_root / rel_path
+    with open(contract_path, "r", encoding="utf-8") as f:
+        return f.read()
+
+
 def _read_contract(skill_root: Path, stage: str) -> str:
     """Read hidden contract. Raises OSError on failure. Never names path in error."""
     contract_rel = _CONTRACT_MAP[stage]
-    contract_path = skill_root / contract_rel
-    with open(contract_path, "r", encoding="utf-8") as f:
-        return f.read()
+    return _read_contract_file(skill_root, contract_rel)
+
+
+def _resolve_development_v2_next_contract(
+    run_dir: Path,
+    skill_root: Path,
+    current_data: dict,
+    current_target: str | None = None,
+) -> str | None:
+    """Context-aware contract resolver for development-v2 stage."""
+    portfolio_file = run_dir / "portfolio.json"
+    if not portfolio_file.is_file():
+        # Standalone / no portfolio -> reveal deep-reviewer.md
+        return _read_contract_file(skill_root, "references/deep-reviewer.md")
+
+    # Portfolio present: verify sidecar
+    try:
+        raw_port, _ = _verify_artifact_and_sidecar(portfolio_file, field_name="portfolio.json")
+        port_data = json.loads(raw_port)
+    except Exception:
+        # Corrupt sidecar / hash mismatch / invalid JSON -> fail closed (reveal nothing)
+        return None
+
+    schema = port_data.get("schema_version")
+    route = port_data.get("route")
+    if schema != "pizm-portfolio-selection-v2" or route != "FORGE":
+        # Non-v2 or route != FORGE (e.g. v1 MANUAL or AUTO) -> reveal deep-reviewer.md
+        return _read_contract_file(skill_root, "references/deep-reviewer.md")
+
+    comp_status = port_data.get("competition_status")
+    if comp_status == "NO_SECOND_DEFENSIBLE_BUNDLE":
+        single_target = port_data.get("single_target") or {}
+        st_id = single_target.get("target_id")
+        dev_target_id = current_target
+        if not dev_target_id and isinstance(current_data, dict):
+            dev_target_id = (
+                current_data.get("target", {}).get("target_id")
+                if isinstance(current_data.get("target"), dict)
+                else current_data.get("target_id")
+            )
+        if st_id and dev_target_id == st_id:
+            return _read_contract_file(skill_root, "references/deep-reviewer.md")
+        return None
+
+    elif comp_status == "TWO_DEFENSIBLE_BUNDLES":
+        rec_comp = port_data.get("recommended_competition") or {}
+        left_id = rec_comp.get("left_bundle_id")
+        right_id = rec_comp.get("right_bundle_id")
+        if not left_id or not right_id:
+            return None
+
+        # Resolve left file
+        left_file = run_dir / f"development-v2-{left_id}.json"
+        if not left_file.is_file():
+            unsuffixed = run_dir / "development-v2.json"
+            if unsuffixed.is_file():
+                left_file = unsuffixed
+            else:
+                return None
+
+        # Resolve right file
+        right_file = run_dir / f"development-v2-{right_id}.json"
+        if not right_file.is_file():
+            return None
+
+        # Verify both files and sidecars
+        try:
+            raw_left, _ = _verify_artifact_and_sidecar(left_file, field_name=left_file.name)
+            left_json = json.loads(raw_left)
+            actual_left_target = (
+                left_json.get("target", {}).get("target_id")
+                if isinstance(left_json.get("target"), dict)
+                else left_json.get("target_id")
+            )
+            if actual_left_target != left_id:
+                return None
+
+            raw_right, _ = _verify_artifact_and_sidecar(right_file, field_name=right_file.name)
+            right_json = json.loads(raw_right)
+            actual_right_target = (
+                right_json.get("target", {}).get("target_id")
+                if isinstance(right_json.get("target"), dict)
+                else right_json.get("target_id")
+            )
+            if actual_right_target != right_id:
+                return None
+        except Exception:
+            return None
+
+        # Both valid and hash-confirmed! Reveal deep-compare.md
+        return _read_contract_file(skill_root, "references/deep-compare.md")
+
+    return None
 
 
 def freeze(
@@ -1392,6 +1566,15 @@ def freeze(
             return _die(msg)
         return _die(f"schema validation failed: {e}")
 
+    if target and stage in ("development-v2", "deep-review-v2"):
+        payload_target = (
+            data.get("target", {}).get("target_id")
+            if isinstance(data.get("target"), dict)
+            else data.get("target_id")
+        )
+        if payload_target != target:
+            return _die(f"--target {target!r} does not match payload target_id {payload_target!r}")
+
     # Create run directory
     run_dir = project_root / ".ai" / "pizm" / f"run-{run_id}"
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -1404,10 +1587,6 @@ def freeze(
     elif stage == "development-v2":
         if target:
             prefix = f"development-v2-{target}"
-        elif isinstance(data, dict) and data.get("target", {}).get("target_id") == "B2":
-            prefix = "development-v2-B2"
-        elif isinstance(data, dict) and data.get("target", {}).get("target_id") == "B1" and (run_dir / "development-v2-B1.json").exists():
-            prefix = "development-v2-B1"
         else:
             prefix = "development-v2"
     elif stage == "deep-review-v2":
@@ -1501,7 +1680,18 @@ def freeze(
     # Map value None = terminal stage: nothing further to reveal (deep-review-v2,
     # lever-review).
     contract_text = None
-    if _CONTRACT_MAP.get(stage) is None:
+    if stage == "development-v2":
+        try:
+            contract_text = _resolve_development_v2_next_contract(
+                run_dir=run_dir,
+                skill_root=skill_root,
+                current_data=data,
+                current_target=target,
+            )
+        except OSError:
+            _cleanup_stage(run_dir, prefix)
+            return _die("cannot read next-stage contract")
+    elif _CONTRACT_MAP.get(stage) is None:
         contract_text = None
     elif stage == "lever-design":
         # Reveal only reference path/name, never rubric body

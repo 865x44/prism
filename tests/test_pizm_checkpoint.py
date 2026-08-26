@@ -36,6 +36,7 @@ def workspace(tmp_path):
     (refs / "deep-reviewer.md").write_text("# DEEP REVIEWER RUBRIC\nhidden rubric")
     (refs / "explore.md").write_text("# EXPLORE GENERATOR CONTRACT\n")
     (refs / "lever-reviewer.md").write_text("# LEVER REVIEWER RUBRIC\nhidden rubric")
+    (refs / "deep-compare.md").write_text("# DEEP COMPARE RUBRIC\nhidden rubric")
     return project, skill
 
 
@@ -1139,6 +1140,30 @@ def valid_portfolio():
         "auto_target": None,
     }
 
+def valid_portfolio_v2(left_id="B1", right_id="B2"):
+    return {
+        "schema_version": "pizm-portfolio-selection-v2",
+        "stage": "portfolio",
+        "route": "FORGE",
+        "field_hash": "b" * 64,
+        "perspectives": {"P1": "pass01:c01", "P2": "pass01:c02"},
+        "competition_status": "TWO_DEFENSIBLE_BUNDLES",
+        "recommended_competition": {
+            "left_bundle_id": left_id,
+            "right_bundle_id": right_id,
+            "competition_axis": f"Axis {left_id} vs {right_id}",
+            "discriminating_observation": "Observation",
+        },
+        "candidate_assessments": [
+            {"candidate_ref": "pass01:c01", "disposition": "KEEP", "standalone_quality": "strong", "unique_residue": "r1", "nearest_overlap": None, "reason": "good"},
+            {"candidate_ref": "pass01:c02", "disposition": "KEEP", "standalone_quality": "strong", "unique_residue": "r2", "nearest_overlap": None, "reason": "good"},
+        ],
+        "bundles": [
+            {"bundle_id": left_id, "member_refs": ["pass01:c01", "pass01:c02"], "bundle_thesis": "t1", "composition_gain": "g1", "member_roles": {}, "member_ablation": {"pass01:c01": "a", "pass01:c02": "b"}, "internal_tension": "ten", "weakest_link": "w", "new_consequence_or_prediction": "p"},
+            {"bundle_id": right_id, "member_refs": ["pass01:c01", "pass01:c02"], "bundle_thesis": "t2", "composition_gain": "g2", "member_roles": {}, "member_ablation": {"pass01:c01": "a", "pass01:c02": "b"}, "internal_tension": "ten", "weakest_link": "w", "new_consequence_or_prediction": "p"},
+        ],
+    }
+
 
 def bundle(**overrides):
     b = {
@@ -1255,7 +1280,7 @@ def test_real_two_pass_cli_chain(workspace):
     pv2 = {
         "schema_version": "pizm-portfolio-selection-v2",
         "stage": "portfolio",
-        "route": "AUTO",
+        "route": "FORGE",
         "field_ref": "search-field-pass02.json",
         "field_hash": sha_sf2,
         "competition_status": "NO_SECOND_DEFENSIBLE_BUNDLE",
@@ -1292,7 +1317,7 @@ def test_real_two_pass_cli_chain(workspace):
                 "new_consequence_or_prediction": "pred",
             }
         ],
-        "auto_target": {"target_type": "B", "target_id": "B1"},
+        "single_target": {"target_type": "B", "target_id": "B1"},
     }
     inp_pv2 = write_json(project / "input_pv2.json", pv2)
     res_pv2 = run_ck(
@@ -1956,6 +1981,12 @@ def test_resolver_rejects_tampered_sidecar(workspace):
 def test_comparison_seam_success(workspace):
     project, skill = workspace
     run_id = "comp-seam-ok"
+    run_dir = project / ".ai" / "pizm" / f"run-{run_id}"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    raw_p = json.dumps(valid_portfolio_v2("B1", "B2"), indent=2).encode("utf-8")
+    (run_dir / "portfolio.json").write_bytes(raw_p)
+    (run_dir / "portfolio.sha256").write_text(hashlib.sha256(raw_p).hexdigest(), encoding="utf-8")
+    (run_dir / "portfolio.meta.json").write_text('{"stage":"portfolio"}', encoding="utf-8")
     # 1. Freeze B1
     dev1 = valid_dev_v2("B", "B1")
     inp1 = write_json(project / "dev1.json", dev1)
@@ -1977,7 +2008,9 @@ def test_comparison_seam_success(workspace):
     comp_data = {
         "schema_version": "pizm-comparison-review-v1",
         "stage": "comparison-review-v1",
-        "review_B1": {
+        "left_target_id": "B1",
+        "right_target_id": "B2",
+        "left_review": {
             "target_id": "B1",
             "development_ref": "development-v2-B1.json",
             "frozen_hash": sha_b1,
@@ -1988,7 +2021,7 @@ def test_comparison_seam_success(workspace):
             ],
             "findings": {"unresolved_load_bearing_contradiction": False},
         },
-        "review_B2": {
+        "right_review": {
             "target_id": "B2",
             "development_ref": "development-v2-B2.json",
             "frozen_hash": sha_b2,
@@ -2000,10 +2033,10 @@ def test_comparison_seam_success(workspace):
             "findings": {"unresolved_load_bearing_contradiction": False},
         },
         "comparison": {
-            "current_preference": "B1",
+            "current_preference": "LEFT",
             "competition_axis": "axis",
-            "strongest_reason_for_B1": "r1",
-            "strongest_reason_for_B2": "r2",
+            "strongest_reason_for_left": "r1",
+            "strongest_reason_for_right": "r2",
             "discriminating_observation": "obs",
             "what_would_change_the_decision": "change",
             "shared_evidence_debt": [],
@@ -2019,6 +2052,12 @@ def test_comparison_seam_success(workspace):
 def test_comparison_seam_tampered_hash_rejected(workspace):
     project, skill = workspace
     run_id = "comp-tampered-hash"
+    run_dir = project / ".ai" / "pizm" / f"run-{run_id}"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    raw_p = json.dumps(valid_portfolio_v2("B1", "B2"), indent=2).encode("utf-8")
+    (run_dir / "portfolio.json").write_bytes(raw_p)
+    (run_dir / "portfolio.sha256").write_text(hashlib.sha256(raw_p).hexdigest(), encoding="utf-8")
+    (run_dir / "portfolio.meta.json").write_text('{"stage":"portfolio"}', encoding="utf-8")
     dev1 = valid_dev_v2("B", "B1")
     inp1 = write_json(project / "dev1.json", dev1)
     run_ck("freeze", "--stage", "development-v2", "--run-id", run_id, "--target", "B1",
@@ -2033,7 +2072,9 @@ def test_comparison_seam_tampered_hash_rejected(workspace):
     comp_data = {
         "schema_version": "pizm-comparison-review-v1",
         "stage": "comparison-review-v1",
-        "review_B1": {
+        "left_target_id": "B1",
+        "right_target_id": "B2",
+        "left_review": {
             "target_id": "B1",
             "development_ref": "development-v2-B1.json",
             "frozen_hash": "deadbeef" * 8,  # tampered hash
@@ -2044,7 +2085,7 @@ def test_comparison_seam_tampered_hash_rejected(workspace):
             ],
             "findings": {"unresolved_load_bearing_contradiction": False},
         },
-        "review_B2": {
+        "right_review": {
             "target_id": "B2",
             "development_ref": "development-v2-B2.json",
             "frozen_hash": "a" * 64,
@@ -2056,10 +2097,10 @@ def test_comparison_seam_tampered_hash_rejected(workspace):
             "findings": {"unresolved_load_bearing_contradiction": False},
         },
         "comparison": {
-            "current_preference": "B1",
+            "current_preference": "LEFT",
             "competition_axis": "axis",
-            "strongest_reason_for_B1": "r1",
-            "strongest_reason_for_B2": "r2",
+            "strongest_reason_for_left": "r1",
+            "strongest_reason_for_right": "r2",
             "discriminating_observation": "obs",
             "what_would_change_the_decision": "change",
             "shared_evidence_debt": [],
@@ -2075,6 +2116,12 @@ def test_comparison_seam_tampered_hash_rejected(workspace):
 def test_comparison_seam_wrong_target_rejected(workspace):
     project, skill = workspace
     run_id = "comp-wrong-target"
+    run_dir = project / ".ai" / "pizm" / f"run-{run_id}"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    raw_p = json.dumps(valid_portfolio_v2("B1", "B2"), indent=2).encode("utf-8")
+    (run_dir / "portfolio.json").write_bytes(raw_p)
+    (run_dir / "portfolio.sha256").write_text(hashlib.sha256(raw_p).hexdigest(), encoding="utf-8")
+    (run_dir / "portfolio.meta.json").write_text('{"stage":"portfolio"}', encoding="utf-8")
     dev1 = valid_dev_v2("B", "B1")
     inp1 = write_json(project / "dev1.json", dev1)
     res1 = run_ck("freeze", "--stage", "development-v2", "--run-id", run_id, "--target", "B1",
@@ -2085,7 +2132,9 @@ def test_comparison_seam_wrong_target_rejected(workspace):
     comp_data = {
         "schema_version": "pizm-comparison-review-v1",
         "stage": "comparison-review-v1",
-        "review_B1": {
+        "left_target_id": "B1",
+        "right_target_id": "B2",
+        "left_review": {
             "target_id": "B1",
             "development_ref": "development-v2-B1.json",
             "frozen_hash": sha_b1,
@@ -2096,7 +2145,7 @@ def test_comparison_seam_wrong_target_rejected(workspace):
             ],
             "findings": {"unresolved_load_bearing_contradiction": False},
         },
-        "review_B2": {
+        "right_review": {
             "target_id": "B2",
             "development_ref": "development-v2-B1.json",  # wrong target! points to B1
             "frozen_hash": sha_b1,
@@ -2108,10 +2157,10 @@ def test_comparison_seam_wrong_target_rejected(workspace):
             "findings": {"unresolved_load_bearing_contradiction": False},
         },
         "comparison": {
-            "current_preference": "B1",
+            "current_preference": "LEFT",
             "competition_axis": "axis",
-            "strongest_reason_for_B1": "r1",
-            "strongest_reason_for_B2": "r2",
+            "strongest_reason_for_left": "r1",
+            "strongest_reason_for_right": "r2",
             "discriminating_observation": "obs",
             "what_would_change_the_decision": "change",
             "shared_evidence_debt": [],
@@ -2249,3 +2298,254 @@ def test_post_write_cleanup_and_retry_parameterized(workspace, stage_kind, failu
     # Assert all owned files now exist
     for ext in (".json", ".sha256", ".meta.json"):
         assert (run_dir / (failing_prefix + ext)).is_file(), f"retried file {failing_prefix + ext} must exist after retry"
+
+
+class TestForgeRoute:
+    """FORGE-ROUTE-1..6: Route constraints, degraded single_target ownership, and arbitrary IDs."""
+
+    def _make_search_field(self, workspace, run_id):
+        project, skill = workspace
+        cand = valid_explore()
+        inp_cand = write_json(project / f"cand_{run_id}.json", cand)
+        res_cand = run_ck("freeze", "--stage", "explore", "--run-id", run_id, "--input", inp_cand,
+                          "--project-root", str(project), "--skill-root", str(skill))
+        assert res_cand.returncode == 0
+        sha_cand = res_cand.stdout.split()[1]
+
+        sf = {"schema_version": "pizm-search-field-v1", "stage": "search-field",
+              "passes": [{"pass_id": "pass01", "candidates_ref": "candidates.json", "frozen_hash": sha_cand}],
+              "entries": ["pass01:c01", "pass01:c02"]}
+        inp_sf = write_json(project / f"sf_{run_id}.json", sf)
+        res_sf = run_ck("freeze", "--stage", "search-field", "--run-id", run_id, "--input", inp_sf,
+                        "--project-root", str(project), "--skill-root", str(skill))
+        assert res_sf.returncode == 0
+        return res_sf.stdout.split()[1]
+
+    def test_forge_route_1_v2_forge_only_acceptance(self, workspace):
+        """FORGE-ROUTE-1: v2 portfolio with route='FORGE' is accepted."""
+        project, skill = workspace
+        run_id = "fr-route-1"
+        sf_hash = self._make_search_field(workspace, run_id)
+
+        pv2 = {
+            "schema_version": "pizm-portfolio-selection-v2",
+            "stage": "portfolio",
+            "route": "FORGE",
+            "field_ref": "search-field.json",
+            "field_hash": sf_hash,
+            "perspectives": {"P1": "pass01:c01", "P2": "pass01:c02"},
+            "competition_status": "TWO_DEFENSIBLE_BUNDLES",
+            "recommended_competition": {
+                "left_bundle_id": "B1",
+                "right_bundle_id": "B2",
+                "competition_axis": "Axis",
+                "discriminating_observation": "Observation",
+            },
+            "candidate_assessments": [
+                {"candidate_ref": "pass01:c01", "disposition": "KEEP", "standalone_quality": "strong", "unique_residue": "r1", "nearest_overlap": None, "reason": "good"},
+                {"candidate_ref": "pass01:c02", "disposition": "KEEP", "standalone_quality": "strong", "unique_residue": "r2", "nearest_overlap": None, "reason": "good"},
+            ],
+            "bundles": [
+                {"bundle_id": "B1", "member_refs": ["pass01:c01", "pass01:c02"], "bundle_thesis": "t1", "composition_gain": "g1", "member_roles": {}, "member_ablation": {"pass01:c01": "a", "pass01:c02": "b"}, "internal_tension": "ten", "weakest_link": "w", "new_consequence_or_prediction": "p"},
+                {"bundle_id": "B2", "member_refs": ["pass01:c01", "pass01:c02"], "bundle_thesis": "t2", "composition_gain": "g2", "member_roles": {}, "member_ablation": {"pass01:c01": "a", "pass01:c02": "b"}, "internal_tension": "ten", "weakest_link": "w", "new_consequence_or_prediction": "p"},
+            ],
+        }
+        inp = write_json(project / "pv2_1.json", pv2)
+        res = run_ck("freeze", "--stage", "portfolio", "--run-id", run_id, "--input", inp,
+                     "--project-root", str(project), "--skill-root", str(skill))
+        assert res.returncode == 0, res.stderr
+        assert "FREEZE_OK" in res.stdout
+
+    def test_forge_route_2_manual_auto_masquerade_rejected(self, workspace):
+        """FORGE-ROUTE-2: v2 portfolio with route='MANUAL' or route='AUTO' is rejected fail-closed."""
+        project, skill = workspace
+        run_id = "fr-route-2"
+        sf_hash = self._make_search_field(workspace, run_id)
+
+        pv2_manual = {
+            "schema_version": "pizm-portfolio-selection-v2",
+            "stage": "portfolio",
+            "route": "MANUAL",
+            "field_ref": "search-field.json",
+            "field_hash": sf_hash,
+            "perspectives": {"P1": "pass01:c01", "P2": "pass01:c02"},
+            "competition_status": "NO_SECOND_DEFENSIBLE_BUNDLE",
+            "single_target": {"target_type": "B", "target_id": "B1"},
+            "candidate_assessments": [
+                {"candidate_ref": "pass01:c01", "disposition": "KEEP", "standalone_quality": "strong", "unique_residue": "r1", "nearest_overlap": None, "reason": "good"},
+                {"candidate_ref": "pass01:c02", "disposition": "KEEP", "standalone_quality": "strong", "unique_residue": "r2", "nearest_overlap": None, "reason": "good"},
+            ],
+            "bundles": [
+                {"bundle_id": "B1", "member_refs": ["pass01:c01", "pass01:c02"], "bundle_thesis": "t1", "composition_gain": "g1", "member_roles": {}, "member_ablation": {"pass01:c01": "a", "pass01:c02": "b"}, "internal_tension": "ten", "weakest_link": "w", "new_consequence_or_prediction": "p"},
+            ],
+        }
+        inp_m = write_json(project / "pv2_m.json", pv2_manual)
+        res_m = run_ck("freeze", "--stage", "portfolio", "--run-id", run_id, "--input", inp_m,
+                       "--project-root", str(project), "--skill-root", str(skill))
+        assert res_m.returncode != 0
+        assert "pizm-portfolio-selection-v2 requires route 'FORGE'" in res_m.stderr
+
+        pv2_auto = dict(pv2_manual)
+        pv2_auto["route"] = "AUTO"
+        pv2_auto["auto_target"] = {"target_type": "B", "target_id": "B1"}
+        inp_a = write_json(project / "pv2_a.json", pv2_auto)
+        res_a = run_ck("freeze", "--stage", "portfolio", "--run-id", run_id, "--input", inp_a,
+                       "--project-root", str(project), "--skill-root", str(skill))
+        assert res_a.returncode != 0
+        assert "pizm-portfolio-selection-v2 requires route 'FORGE'" in res_a.stderr
+
+    def test_forge_route_3_degraded_single_target_deep_reviewer_reveal(self, workspace):
+        """FORGE-ROUTE-3: Degraded FORGE portfolio with single_target reveals deep-reviewer.md after development freeze."""
+        project, skill = workspace
+        run_id = "fr-route-3"
+        sf_hash = self._make_search_field(workspace, run_id)
+
+        pv2 = {
+            "schema_version": "pizm-portfolio-selection-v2",
+            "stage": "portfolio",
+            "route": "FORGE",
+            "field_ref": "search-field.json",
+            "field_hash": sf_hash,
+            "perspectives": {"P1": "pass01:c01", "P2": "pass01:c02"},
+            "competition_status": "NO_SECOND_DEFENSIBLE_BUNDLE",
+            "single_target": {"target_type": "B", "target_id": "B1"},
+            "candidate_assessments": [
+                {"candidate_ref": "pass01:c01", "disposition": "KEEP", "standalone_quality": "strong", "unique_residue": "r1", "nearest_overlap": None, "reason": "good"},
+                {"candidate_ref": "pass01:c02", "disposition": "KEEP", "standalone_quality": "strong", "unique_residue": "r2", "nearest_overlap": None, "reason": "good"},
+            ],
+            "bundles": [
+                {"bundle_id": "B1", "member_refs": ["pass01:c01", "pass01:c02"], "bundle_thesis": "t1", "composition_gain": "g1", "member_roles": {}, "member_ablation": {"pass01:c01": "a", "pass01:c02": "b"}, "internal_tension": "ten", "weakest_link": "w", "new_consequence_or_prediction": "p"},
+            ],
+        }
+        inp = write_json(project / "pv2_deg.json", pv2)
+        res_p = run_ck("freeze", "--stage", "portfolio", "--run-id", run_id, "--input", inp,
+                       "--project-root", str(project), "--skill-root", str(skill))
+        assert res_p.returncode == 0
+
+        # Freeze development B1 -> reveals deep-reviewer.md
+        dev_b1 = valid_dev_v2("B", "B1")
+        inp_dev = write_json(project / "dev_b1.json", dev_b1)
+        res_dev = run_ck("freeze", "--stage", "development-v2", "--run-id", run_id, "--target", "B1",
+                         "--input", inp_dev, "--project-root", str(project), "--skill-root", str(skill))
+        assert res_dev.returncode == 0, res_dev.stderr
+        assert "FREEZE_OK" in res_dev.stdout
+        assert "--- NEXT CONTRACT ---" in res_dev.stdout
+        assert "DEEP REVIEWER RUBRIC" in res_dev.stdout
+
+    def test_forge_route_4_two_defensible_forbids_single_target(self, workspace):
+        """FORGE-ROUTE-4: TWO_DEFENSIBLE_BUNDLES portfolio that provides single_target is rejected."""
+        project, skill = workspace
+        run_id = "fr-route-4"
+        sf_hash = self._make_search_field(workspace, run_id)
+
+        pv2 = {
+            "schema_version": "pizm-portfolio-selection-v2",
+            "stage": "portfolio",
+            "route": "FORGE",
+            "field_ref": "search-field.json",
+            "field_hash": sf_hash,
+            "perspectives": {"P1": "pass01:c01", "P2": "pass01:c02"},
+            "competition_status": "TWO_DEFENSIBLE_BUNDLES",
+            "single_target": {"target_type": "B", "target_id": "B1"},
+            "recommended_competition": {
+                "left_bundle_id": "B1",
+                "right_bundle_id": "B2",
+                "competition_axis": "Axis",
+                "discriminating_observation": "Observation",
+            },
+            "candidate_assessments": [
+                {"candidate_ref": "pass01:c01", "disposition": "KEEP", "standalone_quality": "strong", "unique_residue": "r1", "nearest_overlap": None, "reason": "good"},
+                {"candidate_ref": "pass01:c02", "disposition": "KEEP", "standalone_quality": "strong", "unique_residue": "r2", "nearest_overlap": None, "reason": "good"},
+            ],
+            "bundles": [
+                {"bundle_id": "B1", "member_refs": ["pass01:c01", "pass01:c02"], "bundle_thesis": "t1", "composition_gain": "g1", "member_roles": {}, "member_ablation": {"pass01:c01": "a", "pass01:c02": "b"}, "internal_tension": "ten", "weakest_link": "w", "new_consequence_or_prediction": "p"},
+                {"bundle_id": "B2", "member_refs": ["pass01:c01", "pass01:c02"], "bundle_thesis": "t2", "composition_gain": "g2", "member_roles": {}, "member_ablation": {"pass01:c01": "a", "pass01:c02": "b"}, "internal_tension": "ten", "weakest_link": "w", "new_consequence_or_prediction": "p"},
+            ],
+        }
+        inp = write_json(project / "pv2_bad_dual.json", pv2)
+        res = run_ck("freeze", "--stage", "portfolio", "--run-id", run_id, "--input", inp,
+                     "--project-root", str(project), "--skill-root", str(skill))
+        assert res.returncode != 0
+        assert "single_target is forbidden when competition_status is TWO_DEFENSIBLE_BUNDLES" in res.stderr
+
+    def test_forge_route_5_invalid_single_target_rejected(self, workspace):
+        """FORGE-ROUTE-5: NO_SECOND_DEFENSIBLE_BUNDLE with missing, invalid, or non-existent single_target is rejected."""
+        project, skill = workspace
+        run_id = "fr-route-5"
+        sf_hash = self._make_search_field(workspace, run_id)
+
+        # Missing single_target
+        pv2_missing = {
+            "schema_version": "pizm-portfolio-selection-v2",
+            "stage": "portfolio",
+            "route": "FORGE",
+            "field_ref": "search-field.json",
+            "field_hash": sf_hash,
+            "perspectives": {"P1": "pass01:c01", "P2": "pass01:c02"},
+            "competition_status": "NO_SECOND_DEFENSIBLE_BUNDLE",
+            "candidate_assessments": [
+                {"candidate_ref": "pass01:c01", "disposition": "KEEP", "standalone_quality": "strong", "unique_residue": "r1", "nearest_overlap": None, "reason": "good"},
+                {"candidate_ref": "pass01:c02", "disposition": "KEEP", "standalone_quality": "strong", "unique_residue": "r2", "nearest_overlap": None, "reason": "good"},
+            ],
+            "bundles": [
+                {"bundle_id": "B1", "member_refs": ["pass01:c01", "pass01:c02"], "bundle_thesis": "t1", "composition_gain": "g1", "member_roles": {}, "member_ablation": {"pass01:c01": "a", "pass01:c02": "b"}, "internal_tension": "ten", "weakest_link": "w", "new_consequence_or_prediction": "p"},
+            ],
+        }
+        inp1 = write_json(project / "pv2_miss.json", pv2_missing)
+        res1 = run_ck("freeze", "--stage", "portfolio", "--run-id", run_id, "--input", inp1,
+                      "--project-root", str(project), "--skill-root", str(skill))
+        assert res1.returncode != 0
+        assert "single_target is required" in res1.stderr
+
+        # Non-existent B-ID
+        pv2_bad_bid = dict(pv2_missing)
+        pv2_bad_bid["single_target"] = {"target_type": "B", "target_id": "B99"}
+        inp2 = write_json(project / "pv2_bad_b.json", pv2_bad_bid)
+        res2 = run_ck("freeze", "--stage", "portfolio", "--run-id", run_id, "--input", inp2,
+                      "--project-root", str(project), "--skill-root", str(skill))
+        assert res2.returncode != 0
+        assert "must reference a bundle_id proposed in this portfolio" in res2.stderr
+
+        # Non-existent P-ID
+        pv2_bad_pid = dict(pv2_missing)
+        pv2_bad_pid["single_target"] = {"target_type": "P", "target_id": "P99"}
+        inp3 = write_json(project / "pv2_bad_p.json", pv2_bad_pid)
+        res3 = run_ck("freeze", "--stage", "portfolio", "--run-id", run_id, "--input", inp3,
+                      "--project-root", str(project), "--skill-root", str(skill))
+        assert res3.returncode != 0
+        assert "must reference a perspective id in perspectives mapping" in res3.stderr
+
+    def test_forge_route_6_arbitrary_ids_in_v2_portfolio(self, workspace):
+        """FORGE-ROUTE-6: Arbitrary bundle IDs (e.g. B3/B7) succeed in v2 portfolio and freeze."""
+        project, skill = workspace
+        run_id = "fr-route-6"
+        sf_hash = self._make_search_field(workspace, run_id)
+
+        pv2 = {
+            "schema_version": "pizm-portfolio-selection-v2",
+            "stage": "portfolio",
+            "route": "FORGE",
+            "field_ref": "search-field.json",
+            "field_hash": sf_hash,
+            "perspectives": {"P1": "pass01:c01", "P2": "pass01:c02"},
+            "competition_status": "TWO_DEFENSIBLE_BUNDLES",
+            "recommended_competition": {
+                "left_bundle_id": "B3",
+                "right_bundle_id": "B7",
+                "competition_axis": "Arbitrary axis",
+                "discriminating_observation": "Arbitrary test observation",
+            },
+            "candidate_assessments": [
+                {"candidate_ref": "pass01:c01", "disposition": "KEEP", "standalone_quality": "strong", "unique_residue": "r1", "nearest_overlap": None, "reason": "good"},
+                {"candidate_ref": "pass01:c02", "disposition": "KEEP", "standalone_quality": "strong", "unique_residue": "r2", "nearest_overlap": None, "reason": "good"},
+            ],
+            "bundles": [
+                {"bundle_id": "B3", "member_refs": ["pass01:c01", "pass01:c02"], "bundle_thesis": "t3", "composition_gain": "g3", "member_roles": {}, "member_ablation": {"pass01:c01": "a", "pass01:c02": "b"}, "internal_tension": "ten", "weakest_link": "w", "new_consequence_or_prediction": "p"},
+                {"bundle_id": "B7", "member_refs": ["pass01:c01", "pass01:c02"], "bundle_thesis": "t7", "composition_gain": "g7", "member_roles": {}, "member_ablation": {"pass01:c01": "a", "pass01:c02": "b"}, "internal_tension": "ten", "weakest_link": "w", "new_consequence_or_prediction": "p"},
+            ],
+        }
+        inp = write_json(project / "pv2_b3_b7.json", pv2)
+        res = run_ck("freeze", "--stage", "portfolio", "--run-id", run_id, "--input", inp,
+                     "--project-root", str(project), "--skill-root", str(skill))
+        assert res.returncode == 0, res.stderr
+        assert "FREEZE_OK" in res.stdout

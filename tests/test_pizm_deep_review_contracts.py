@@ -30,6 +30,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 SKILL_ROOT = REPO_ROOT / "docs" / "pizm-skill-staged-2026-08-24"
 CHECKPOINT = str(REPO_ROOT / "bin" / "pizm-checkpoint")
 INSTALLED_REVIEWER = Path.home() / ".config" / "opencode" / "skills" / "pizm" / "references" / "deep-reviewer.md"
+INSTALLED_COMPARE = Path.home() / ".config" / "opencode" / "skills" / "pizm" / "references" / "deep-compare.md"
 
 VALID_TERMINALS = {"MODEL_READY", "NEED_EVIDENCE", "RETURN_TO_EXPLORE"}
 
@@ -75,6 +76,26 @@ class TestMirrorIntegrity:
         mirror = SKILL_ROOT / "references" / "deep-reviewer.md"
         assert mirror.exists(), "staged deep-reviewer.md mirror missing"
         assert mirror.read_bytes() == INSTALLED_REVIEWER.read_bytes()
+
+    def test_compare_mirror_byte_identical(self):
+        mirror = SKILL_ROOT / "references" / "deep-compare.md"
+        assert mirror.exists(), "staged deep-compare.md mirror missing"
+        assert mirror.read_bytes() == INSTALLED_COMPARE.read_bytes()
+
+    def test_reviewer_purity_no_comparative_terms(self, reviewer_text):
+        """deep-reviewer.md must contain zero comparative schema or instructions."""
+        forbidden = [
+            "pizm-comparison-review-v1",
+            "review_B1",
+            "review_B2",
+            "left_review",
+            "right_review",
+            "current_preference",
+            "strongest_reason_for_",
+            "Comparator Role",
+        ]
+        for term in forbidden:
+            assert term not in reviewer_text, f"Forbidden comparative term {term!r} found in deep-reviewer.md"
 
 
 # ---------------------------------------------------------------------------
