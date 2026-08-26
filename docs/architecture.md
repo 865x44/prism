@@ -157,8 +157,8 @@ The checkpoint tool (`bin/pizm-checkpoint`) enforces fail-closed validation, sta
 
 Deterministic payload bounds are enforced across all stages:
 - **Search (Explore)**: $1..20$ candidates, total payload $\le 196{,}608\text{ bytes}$ ($192\text{ KiB}$), single candidate $\le 12{,}288\text{ bytes}$ ($12\text{ KiB}$).
-- **Deep Development**: $\le 131{,}072\text{ bytes}$ ($128\text{ KiB}$).
-- **Critic Review**: $\le 65{,}536\text{ bytes}$ ($64\text{ KiB}$).
+- **Deep Development**: $\le 196{,}608\text{ bytes}$ ($192\text{ KiB}$).
+- **Critic Review**: $\le 131{,}072\text{ bytes}$ ($128\text{ KiB}$).
 - **Comparative Review**: $\le 131{,}072\text{ bytes}$ ($128\text{ KiB}$).
 - **LEVER Design & Review**: $\le 65{,}536\text{ bytes}$ ($64\text{ KiB}$).
 
@@ -176,7 +176,7 @@ Structured JSON artifacts stored with `.sha256` sidecars are the sole authority 
 - `development-v2-<target>.json`
 - `deep-review-v2-<target>.json`
 - `comparison-review-v1.json`
-- `design-<target>.json`, `review-<target>.json`
+- `design.json`, `review.json` (legacy `lever-design.json` / `lever-review.json` aliases also accepted)
 
 ### Session Accounting Manifest
 

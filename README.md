@@ -129,7 +129,7 @@ bin/                  Deterministic checkpoint (pizm-checkpoint) and bundle/rend
 src/prism/            Python reference substrate, legacy CLI, and cold-path tooling
 src/prism/perspective_core/  Frozen Python reference core (byte-for-byte immutable)
 tests/                Contract, checkpoint, bundle, and regression test suites
-contracts/            Shared schema definitions and failure-capture specifications
+contracts/            Failure-capture specification
 docs/architecture.md  Detailed technical architecture and stage contracts
 .ai/                  Operational project memory, session logs, and state cursors
 ```

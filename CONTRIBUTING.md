@@ -64,7 +64,7 @@ DO NOT MODIFY:
 src/prism/perspective_core/**
 ```
 
-The Perspective Core implementation under `src/prism/perspective_core/` is permanently frozen byte-for-byte in this repository. All contract tests enforce its immutability.
+The Perspective Core implementation under `src/prism/perspective_core/` is permanently frozen byte-for-byte in this repository. Immutability is maintained by policy and code review, not by automated tests.
 
 ### Dirty-Work & Explicit Staging Protection
 
