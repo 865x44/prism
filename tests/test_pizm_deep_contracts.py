@@ -23,6 +23,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 INSTALLED_ROOT = Path.home() / ".config" / "opencode" / "skills" / "pizm"
 MIRROR_PRESENT = (INSTALLED_ROOT / "SKILL.md").exists()
 BACKUP_ROOT = REPO_ROOT / "docs" / "pizm-skill-superseded-2026-08-24"
+BACKUP_PRESENT = BACKUP_ROOT.exists()
 STAGED_ROOT = REPO_ROOT / "skills" / "pizm"
 
 INSTALLED_DEEP = INSTALLED_ROOT / "references" / "deep.md"
@@ -59,6 +60,7 @@ def skill_text():
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.skipif(not BACKUP_PRESENT, reason="local superseded-skill backup dir not present in checkout")
 class TestBackupIntegrity:
     """S2 backups must be byte-identical to installed originals and unchanged."""
 
