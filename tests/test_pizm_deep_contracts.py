@@ -21,6 +21,7 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 INSTALLED_ROOT = Path.home() / ".config" / "opencode" / "skills" / "pizm"
+MIRROR_PRESENT = (INSTALLED_ROOT / "SKILL.md").exists()
 BACKUP_ROOT = REPO_ROOT / "docs" / "pizm-skill-superseded-2026-08-24"
 STAGED_ROOT = REPO_ROOT / "skills" / "pizm"
 
@@ -34,16 +35,22 @@ INSTALLED_OPENAI = INSTALLED_ROOT / "agents" / "openai.yaml"
 
 @pytest.fixture
 def deep_text():
+    if not INSTALLED_DEEP.exists():
+        pytest.skip("installed skill mirror not present")
     return INSTALLED_DEEP.read_text(encoding="utf-8")
 
 
 @pytest.fixture
 def reviewer_text():
+    if not INSTALLED_REVIEWER.exists():
+        pytest.skip("installed skill mirror not present")
     return INSTALLED_REVIEWER.read_text(encoding="utf-8")
 
 
 @pytest.fixture
 def skill_text():
+    if not INSTALLED_SKILL.exists():
+        pytest.skip("installed skill mirror not present")
     return INSTALLED_SKILL.read_text(encoding="utf-8")
 
 
@@ -78,6 +85,7 @@ class TestBackupIntegrity:
         )
         assert "pizm-development-v1" not in backup_text
 
+    @pytest.mark.skipif(not MIRROR_PRESENT, reason="developer-machine skill mirror not installed")
     def test_openai_yaml_backup_byte_identical(self):
         backup = BACKUP_ROOT / "agents" / "openai.yaml"
         assert backup.exists(), "openai.yaml backup missing"
@@ -90,26 +98,31 @@ class TestBackupIntegrity:
 
 
 class TestStagedMirrorIntegrity:
+    @pytest.mark.skipif(not MIRROR_PRESENT, reason="developer-machine skill mirror not installed")
     def test_deep_mirror_byte_identical(self):
         mirror = STAGED_ROOT / "references" / "deep.md"
         assert mirror.exists(), "staged deep.md mirror missing"
         assert mirror.read_bytes() == INSTALLED_DEEP.read_bytes()
 
+    @pytest.mark.skipif(not MIRROR_PRESENT, reason="developer-machine skill mirror not installed")
     def test_reviewer_mirror_byte_identical(self):
         mirror = STAGED_ROOT / "references" / "deep-reviewer.md"
         assert mirror.exists(), "staged deep-reviewer.md mirror missing"
         assert mirror.read_bytes() == INSTALLED_REVIEWER.read_bytes()
 
+    @pytest.mark.skipif(not MIRROR_PRESENT, reason="developer-machine skill mirror not installed")
     def test_skill_mirror_byte_identical(self):
         mirror = STAGED_ROOT / "SKILL.md"
         assert mirror.exists(), "staged SKILL.md mirror missing"
         assert mirror.read_bytes() == INSTALLED_SKILL.read_bytes()
 
+    @pytest.mark.skipif(not MIRROR_PRESENT, reason="developer-machine skill mirror not installed")
     def test_openai_mirror_byte_identical(self):
         mirror = STAGED_ROOT / "agents" / "openai.yaml"
         assert mirror.exists(), "staged openai.yaml mirror missing"
         assert mirror.read_bytes() == INSTALLED_OPENAI.read_bytes()
 
+    @pytest.mark.skipif(not MIRROR_PRESENT, reason="developer-machine skill mirror not installed")
     def test_explore_files_unchanged(self):
         """Explore installed and staged files must not have been modified."""
         assert INSTALLED_EXPLORE.exists()
@@ -117,6 +130,7 @@ class TestStagedMirrorIntegrity:
         assert staged_explore.exists()
         assert staged_explore.read_bytes() == INSTALLED_EXPLORE.read_bytes()
 
+    @pytest.mark.skipif(not MIRROR_PRESENT, reason="developer-machine skill mirror not installed")
     def test_selector_files_unchanged(self):
         assert INSTALLED_SELECTOR.exists()
         staged_sel = STAGED_ROOT / "references" / "explore-selector.md"
@@ -491,11 +505,13 @@ class TestHiddenPathIsolation:
 
 
 class TestMetadataUnchanged:
+    @pytest.mark.skipif(not MIRROR_PRESENT, reason="developer-machine skill mirror not installed")
     def test_openai_yaml_installed_content(self):
         text = INSTALLED_OPENAI.read_text(encoding="utf-8")
         assert "Pizm" in text
         assert "Explore perspectives" in text
 
+    @pytest.mark.skipif(not MIRROR_PRESENT, reason="developer-machine skill mirror not installed")
     def test_openai_yaml_staged_matches_installed(self):
         staged = STAGED_ROOT / "agents" / "openai.yaml"
         assert staged.read_bytes() == INSTALLED_OPENAI.read_bytes()

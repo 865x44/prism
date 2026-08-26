@@ -24,6 +24,7 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 INSTALLED_ROOT = Path.home() / ".config" / "opencode" / "skills" / "pizm"
+MIRROR_PRESENT = (INSTALLED_ROOT / "SKILL.md").exists()
 BACKUP_ROOT = REPO_ROOT / "docs" / "pizm-skill-superseded-2026-08-24"
 STAGED_ROOT = REPO_ROOT / "skills" / "pizm"
 
@@ -45,16 +46,22 @@ STAGED_ARSENAL = STAGED_ROOT / "references" / "reasoning-arsenal.md"
 
 @pytest.fixture
 def explore_text():
+    if not INSTALLED_EXPLORE.exists():
+        pytest.skip("installed skill mirror not present")
     return INSTALLED_EXPLORE.read_text(encoding="utf-8")
 
 
 @pytest.fixture
 def selector_text():
+    if not INSTALLED_SELECTOR.exists():
+        pytest.skip("installed skill mirror not present")
     return INSTALLED_SELECTOR.read_text(encoding="utf-8")
 
 
 @pytest.fixture
 def skill_text():
+    if not INSTALLED_SKILL.exists():
+        pytest.skip("installed skill mirror not present")
     return INSTALLED_SKILL.read_text(encoding="utf-8")
 
 
@@ -88,11 +95,13 @@ class TestBackupIntegrity:
 
 
 class TestStagedMirrorIntegrity:
+    @pytest.mark.skipif(not MIRROR_PRESENT, reason="developer-machine skill mirror not installed")
     def test_explore_mirror_byte_identical(self):
         mirror = STAGED_ROOT / "references" / "explore.md"
         assert mirror.exists(), "staged explore.md mirror missing"
         assert mirror.read_bytes() == INSTALLED_EXPLORE.read_bytes()
 
+    @pytest.mark.skipif(not MIRROR_PRESENT, reason="developer-machine skill mirror not installed")
     def test_selector_mirror_byte_identical(self):
         mirror = STAGED_ROOT / "references" / "explore-selector.md"
         assert mirror.exists(), "staged explore-selector.md mirror missing"
@@ -630,8 +639,11 @@ class TestReasoningArsenal:
 
     @pytest.fixture
     def arsenal_text(self):
+        if not INSTALLED_ARSENAL.exists():
+            pytest.skip("installed skill mirror not present")
         return INSTALLED_ARSENAL.read_text(encoding="utf-8")
 
+    @pytest.mark.skipif(not MIRROR_PRESENT, reason="developer-machine skill mirror not installed")
     def test_staged_mirror_byte_identical(self):
         assert INSTALLED_ARSENAL.exists(), "installed reasoning-arsenal.md missing"
         assert STAGED_ARSENAL.exists(), "staged reasoning-arsenal.md missing"

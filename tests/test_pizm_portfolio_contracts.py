@@ -18,6 +18,7 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 INSTALLED_ROOT = Path.home() / ".config" / "opencode" / "skills" / "pizm"
+MIRROR_PRESENT = (INSTALLED_ROOT / "SKILL.md").exists()
 STAGED_ROOT = REPO_ROOT / "skills" / "pizm"
 CHECKPOINT = REPO_ROOT / "bin" / "pizm-checkpoint"
 
@@ -73,6 +74,8 @@ def selector_text():
 
 @pytest.fixture(scope="module")
 def installed_selector_text():
+    if not INSTALLED_SELECTOR.exists():
+        pytest.skip("installed skill mirror not present")
     return INSTALLED_SELECTOR.read_text(encoding="utf-8")
 
 
@@ -101,6 +104,7 @@ class TestEmbeddedOutline:
     def test_schema_version_named_in_prose(self, selector_text):
         assert "pizm-portfolio-selection-v1" in selector_text
 
+    @pytest.mark.skipif(not MIRROR_PRESENT, reason="developer-machine skill mirror not installed")
     def test_installed_mirror_carries_same_contract(self, selector_text, installed_selector_text):
         assert installed_selector_text == selector_text
 

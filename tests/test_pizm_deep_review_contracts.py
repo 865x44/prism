@@ -29,6 +29,8 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SKILL_ROOT = REPO_ROOT / "skills" / "pizm"
 CHECKPOINT = str(REPO_ROOT / "bin" / "pizm-checkpoint")
+INSTALLED_ROOT = Path.home() / ".config" / "opencode" / "skills" / "pizm"
+MIRROR_PRESENT = (INSTALLED_ROOT / "SKILL.md").exists()
 INSTALLED_REVIEWER = Path.home() / ".config" / "opencode" / "skills" / "pizm" / "references" / "deep-reviewer.md"
 INSTALLED_COMPARE = Path.home() / ".config" / "opencode" / "skills" / "pizm" / "references" / "deep-compare.md"
 
@@ -72,11 +74,13 @@ def write_json(path, data):
 
 
 class TestMirrorIntegrity:
+    @pytest.mark.skipif(not MIRROR_PRESENT, reason="developer-machine skill mirror not installed")
     def test_reviewer_mirror_byte_identical(self):
         mirror = SKILL_ROOT / "references" / "deep-reviewer.md"
         assert mirror.exists(), "staged deep-reviewer.md mirror missing"
         assert mirror.read_bytes() == INSTALLED_REVIEWER.read_bytes()
 
+    @pytest.mark.skipif(not MIRROR_PRESENT, reason="developer-machine skill mirror not installed")
     def test_compare_mirror_byte_identical(self):
         mirror = SKILL_ROOT / "references" / "deep-compare.md"
         assert mirror.exists(), "staged deep-compare.md mirror missing"

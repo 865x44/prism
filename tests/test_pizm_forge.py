@@ -22,6 +22,7 @@ BUNDLE_CLI = str(REPO_ROOT / "bin" / "pizm-session-bundle")
 CHECKPOINT_CLI = str(REPO_ROOT / "bin" / "pizm-checkpoint")
 STAGED_SKILL_ROOT = REPO_ROOT / "skills" / "pizm"
 INSTALLED_SKILL_ROOT = Path.home() / ".config" / "opencode" / "skills" / "pizm"
+MIRROR_PRESENT = (INSTALLED_SKILL_ROOT / "SKILL.md").exists()
 
 TASK_TEXT = "Reduce PR cycle time in our platform team"
 
@@ -815,6 +816,7 @@ class TestForgeRendering:
 
 
 class TestForgeContractText:
+    @pytest.mark.skipif(not MIRROR_PRESENT, reason="developer-machine skill mirror not installed")
     def test_forge_mirror_byte_identical(self):
         staged = STAGED_SKILL_ROOT / "references" / "forge.md"
         installed = INSTALLED_SKILL_ROOT / "references" / "forge.md"

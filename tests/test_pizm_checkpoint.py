@@ -21,6 +21,8 @@ import pytest
 
 CHECKPOINT = str(Path(__file__).resolve().parent.parent / "bin" / "pizm-checkpoint")
 REPO_ROOT = Path(__file__).resolve().parent.parent
+CHECKPOINT_SYMLINK = Path.home() / ".local" / "bin" / "pizm-checkpoint"
+SYMLINK_PRESENT = CHECKPOINT_SYMLINK.is_symlink()
 
 
 @pytest.fixture
@@ -810,7 +812,8 @@ def test_no_selection_logic():
 # ── Symlink and unrelated-cwd behavioral tests ───────────────────────
 
 
-def _test_symlink_resolves_to_canonical_script():
+@pytest.mark.skipif(not SYMLINK_PRESENT, reason="developer-machine symlink ~/.local/bin/pizm-checkpoint not installed")
+def test_symlink_resolves_to_canonical_script():
     """Stable entrypoint ~/.local/bin/pizm-checkpoint resolves to repo script."""
     import os
     symlink = Path.home() / ".local" / "bin" / "pizm-checkpoint"
@@ -824,7 +827,8 @@ def _test_symlink_resolves_to_canonical_script():
     assert target.exists(), "Symlink target does not exist"
 
 
-def _test_checkpoint_from_unrelated_cwd(tmp_path):
+@pytest.mark.skipif(not SYMLINK_PRESENT, reason="developer-machine symlink ~/.local/bin/pizm-checkpoint not installed")
+def test_checkpoint_from_unrelated_cwd(tmp_path):
     """Invoke checkpoint from an unrelated temporary cwd, no repo assumptions.
 
     Proves artifact/hash/contract success from an arbitrary working directory.
