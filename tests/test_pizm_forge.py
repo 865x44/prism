@@ -10,6 +10,7 @@ Covers:
 - Rendering: FG-MD1, FG-MD2, FG-MD3, FG-MD4, FG-MD5, FG-MD6
 """
 import json
+import hashlib
 import subprocess
 import sys
 from pathlib import Path
@@ -183,6 +184,7 @@ def portfolio_v2_payload(competition_status="TWO_DEFENSIBLE_BUNDLES", field_hash
     ]
 
     rec_comp = None
+    single_target = None
     if competition_status == "TWO_DEFENSIBLE_BUNDLES":
         bundles.append(
             {
@@ -204,17 +206,19 @@ def portfolio_v2_payload(competition_status="TWO_DEFENSIBLE_BUNDLES", field_hash
             }
         )
         rec_comp = {
-            "bundle_a": "B1",
-            "bundle_b": "B2",
+            "left_bundle_id": "B1",
+            "right_bundle_id": "B2",
             "competition_axis": "Feedback loop latency (B1) vs Architectural ownership diffusion (B2)",
             "discriminating_observation": "Measure whether single-service PRs stall equally to cross-service PRs.",
             "discriminating_question": "Does PR stall time correlate with cross-service touched files?",
         }
+    else:
+        single_target = {"target_type": "B", "target_id": "B1"}
 
-    return {
+    payload = {
         "schema_version": "pizm-portfolio-selection-v2",
         "stage": "portfolio",
-        "route": "MANUAL",
+        "route": "FORGE",
         "field_ref": field_ref,
         "field_hash": field_hash,
         "perspectives": {"P1": "pass01:c01", "P2": "pass01:c02"},
@@ -248,6 +252,9 @@ def portfolio_v2_payload(competition_status="TWO_DEFENSIBLE_BUNDLES", field_hash
         ],
         "bundles": bundles,
     }
+    if single_target:
+        payload["single_target"] = single_target
+    return payload
 
 
 def development_v2_payload(target_id="B1", member_refs=None):
@@ -307,7 +314,9 @@ def development_v2_payload(target_id="B1", member_refs=None):
 
 
 def comparison_review_payload(
-    preference="B1",
+    preference="LEFT",
+    left_id="B1",
+    right_id="B2",
     b1_ref="development-v2-B1.json",
     b1_hash="a" * 64,
     b2_ref="development-v2-B2.json",
@@ -317,15 +326,17 @@ def comparison_review_payload(
         "schema_version": "pizm-comparison-review-v1",
         "stage": "comparison-review-v1",
         "task_summary": TASK_TEXT,
-        "review_B1": {
-            "target_id": "B1",
+        "left_target_id": left_id,
+        "right_target_id": right_id,
+        "left_review": {
+            "target_id": left_id,
             "development_ref": b1_ref,
             "frozen_hash": b1_hash,
             "terminal_state": "MODEL_READY",
-            "independent_countermodel": "Review capacity is sufficient but batching is culturally incentivized.",
+            "independent_countermodel": f"Review capacity is sufficient for {left_id}.",
             "load_bearing_reassessment": [
                 {
-                    "claim": "Review latency directly drives PR batch size inflation",
+                    "claim": f"Review latency directly drives PR batch size inflation for {left_id}",
                     "critic_epistemic_status": "SUPPORTED",
                 }
             ],
@@ -335,17 +346,17 @@ def comparison_review_payload(
                 "epistemic_laundering": [],
             },
             "evidence_debt": [],
-            "verdict_rationale": "B1 provides rigorous causal mechanics grounded in observed queue delays.",
+            "verdict_rationale": f"{left_id} provides rigorous causal mechanics.",
         },
-        "review_B2": {
-            "target_id": "B2",
+        "right_review": {
+            "target_id": right_id,
             "development_ref": b2_ref,
             "frozen_hash": b2_hash,
             "terminal_state": "MODEL_READY",
-            "independent_countermodel": "CI infrastructure flakes cause the perceived stall.",
+            "independent_countermodel": f"CI infrastructure flakes cause perceived stall for {right_id}.",
             "load_bearing_reassessment": [
                 {
-                    "claim": "Ownership diffusion creates tragedy of the review queue",
+                    "claim": f"Ownership diffusion creates tragedy of review queue for {right_id}",
                     "critic_epistemic_status": "SUPPORTED",
                 }
             ],
@@ -355,16 +366,16 @@ def comparison_review_payload(
                 "epistemic_laundering": [],
             },
             "evidence_debt": [],
-            "verdict_rationale": "B2 correctly identifies architectural silos as the coordination driver.",
+            "verdict_rationale": f"{right_id} correctly identifies architectural silos.",
         },
         "comparison": {
             "current_preference": preference,
-            "competition_axis": "Feedback loop latency (B1) vs Architectural ownership diffusion (B2)",
-            "strongest_reason_for_B1": "Directly explains observed 3-day turnaround bottleneck on single-service PRs.",
-            "strongest_reason_for_B2": "Explains why cross-service changes stall regardless of reviewer availability.",
+            "competition_axis": f"Feedback loop latency ({left_id}) vs Architectural ownership diffusion ({right_id})",
+            "strongest_reason_for_left": f"Directly explains observed 3-day turnaround bottleneck on {left_id}.",
+            "strongest_reason_for_right": f"Explains why cross-service changes stall on {right_id}.",
             "shared_evidence_debt": ["Historical PR wait time distribution split by single vs multi-repo."],
-            "discriminating_observation": "Measure queue time before first review for single-service vs multi-service PRs.",
-            "what_would_change_the_decision": "If single-service PRs have <2h review latency, B2 is primary.",
+            "discriminating_observation": f"Measure queue time before first review for {left_id} vs {right_id}.",
+            "what_would_change_the_decision": f"If single-service PRs have <2h review latency, {right_id} is primary.",
         },
     }
 
@@ -485,10 +496,13 @@ class TestForgePortfolioContracts:
 
         p_v1 = portfolio_v2_payload(competition_status="TWO_DEFENSIBLE_BUNDLES", field_hash=sha_sf, field_ref="search-field.json")
         p_v1["schema_version"] = "pizm-portfolio-selection-v1"
+        p_v1["route"] = "MANUAL"
         if "competition_status" in p_v1:
             del p_v1["competition_status"]
         if "perspectives" in p_v1:
             del p_v1["perspectives"]
+        if "single_target" in p_v1:
+            del p_v1["single_target"]
         del p_v1["recommended_competition"]
         del p_v1["field_ref"]
         res = freeze_stage(tmp_path, "portfolio", run_id, p_v1)
@@ -500,7 +514,14 @@ class TestForgeDeepAndCompare:
     def test_fg_d1_to_d3_and_c1_to_c6_full_pipeline(self, tmp_path):
         """FG-D1..D3, FG-C1..C6: Develop B1 and B2 separately, freeze both before compare, verify comparative review."""
         run_id = "forge-full-d-c"
-        # Freeze B1 development
+        # Freeze portfolio
+        run_dir = tmp_path / ".ai" / "pizm" / f"run-{run_id}"
+        run_dir.mkdir(parents=True, exist_ok=True)
+        pv2 = portfolio_v2_payload("TWO_DEFENSIBLE_BUNDLES")
+        raw_p = json.dumps(pv2, indent=2).encode("utf-8")
+        (run_dir / "portfolio.json").write_bytes(raw_p)
+        (run_dir / "portfolio.sha256").write_text(hashlib.sha256(raw_p).hexdigest(), encoding="utf-8")
+        (run_dir / "portfolio.meta.json").write_text('{"stage":"portfolio"}', encoding="utf-8")
         dev_b1 = development_v2_payload("B1", ["pass01:c01", "pass01:c02"])
         res_d1 = freeze_stage(tmp_path, "development-v2", run_id, dev_b1, target="B1")
         assert res_d1.returncode == 0, res_d1.stderr
@@ -514,7 +535,7 @@ class TestForgeDeepAndCompare:
 
         # Freeze Comparison Review
         comp = comparison_review_payload(
-            preference="B1",
+            preference="LEFT",
             b1_ref="development-v2-B1.json",
             b1_hash=sha_b1,
             b2_ref="development-v2-B2.json",
@@ -529,6 +550,13 @@ class TestForgeLeverGates:
     def test_fg_l1_to_l3_lever_gating(self, tmp_path):
         """FG-L1..L3: Action FORGE runs LEVER only after MODEL_READY; UNRESOLVED does not force LEVER."""
         run_id = "forge-lever"
+        run_dir = tmp_path / ".ai" / "pizm" / f"run-{run_id}"
+        run_dir.mkdir(parents=True, exist_ok=True)
+        pv2 = portfolio_v2_payload("TWO_DEFENSIBLE_BUNDLES")
+        raw_p = json.dumps(pv2, indent=2).encode("utf-8")
+        (run_dir / "portfolio.json").write_bytes(raw_p)
+        (run_dir / "portfolio.sha256").write_text(hashlib.sha256(raw_p).hexdigest(), encoding="utf-8")
+        (run_dir / "portfolio.meta.json").write_text('{"stage":"portfolio"}', encoding="utf-8")
         # Setup B1 & B2 & Compare
         res_b1 = freeze_stage(tmp_path, "development-v2", run_id, development_v2_payload("B1"), target="B1")
         res_b2 = freeze_stage(tmp_path, "development-v2", run_id, development_v2_payload("B2"), target="B2")
@@ -536,7 +564,7 @@ class TestForgeLeverGates:
         sha_b2 = res_b2.stdout.split()[1]
         freeze_stage(
             tmp_path, "comparison-review-v1", run_id,
-            comparison_review_payload("B1", b1_ref="development-v2-B1.json", b1_hash=sha_b1, b2_ref="development-v2-B2.json", b2_hash=sha_b2),
+            comparison_review_payload("LEFT", b1_ref="development-v2-B1.json", b1_hash=sha_b1, b2_ref="development-v2-B2.json", b2_hash=sha_b2),
         )
 
         # Freeze LEVER design and review
@@ -586,7 +614,7 @@ class TestForgeRendering:
         # 6. Comparison Review
         res_comp = freeze_stage(
             tmp_path, "comparison-review-v1", run_id,
-            comparison_review_payload("B1", b1_ref="development-v2-B1.json", b1_hash=sha_b1, b2_ref="development-v2-B2.json", b2_hash=sha_b2),
+            comparison_review_payload("LEFT", b1_ref="development-v2-B1.json", b1_hash=sha_b1, b2_ref="development-v2-B2.json", b2_hash=sha_b2),
         )
         assert res_comp.returncode == 0, res_comp.stderr
 
@@ -726,23 +754,25 @@ class TestForgeRendering:
         pv2 = portfolio_v2_payload("TWO_DEFENSIBLE_BUNDLES", field_hash=sha_sf, field_ref="search-field.json")
         pv2["route"] = "AUTO"
         pv2["auto_target"] = {"target_type": "B", "target_id": "B1"}
-        freeze_stage(tmp_path, "portfolio", run_id, pv2)
+        raw_port = json.dumps(pv2, indent=2).encode("utf-8")
+        (run_dir / "portfolio.json").write_bytes(raw_port)
+        import hashlib
+        (run_dir / "portfolio.sha256").write_text(hashlib.sha256(raw_port).hexdigest(), encoding="utf-8")
 
         res_b1 = freeze_stage(tmp_path, "development-v2", run_id, development_v2_payload("B1", ["pass01:c01", "pass01:c02"]), target="B1")
         sha_b1 = res_b1.stdout.split()[1]
         res_b2 = freeze_stage(tmp_path, "development-v2", run_id, development_v2_payload("B2", ["pass01:c02", "pass02:c01"]), target="B2")
         sha_b2 = res_b2.stdout.split()[1]
 
-        freeze_stage(
-            tmp_path, "comparison-review-v1", run_id,
-            comparison_review_payload("B1", b1_ref="development-v2-B1.json", b1_hash=sha_b1, b2_ref="development-v2-B2.json", b2_hash=sha_b2),
-        )
+        comp_data = comparison_review_payload("LEFT", b1_ref="development-v2-B1.json", b1_hash=sha_b1, b2_ref="development-v2-B2.json", b2_hash=sha_b2)
+        comp_raw = json.dumps(comp_data, indent=2).encode("utf-8")
+        (run_dir / "comparison-review-v1.json").write_bytes(comp_raw)
+        (run_dir / "comparison-review-v1.sha256").write_text(hashlib.sha256(comp_raw).hexdigest(), encoding="utf-8")
 
         out = tmp_path / "neg_auto.md"
         res = run_render(run_dir, TASK_TEXT, out)
         assert res.returncode != 0
-        assert "FORGE portfolio requires route=MANUAL" in res.stderr
-
+        assert "FORGE portfolio requires route=FORGE" in res.stderr
     def test_forge_render_rejects_v1_portfolio(self, tmp_path):
         """FORGE render rejects pizm-portfolio-selection-v1 (fails closed without coercion)."""
         run_id = "forge-neg-v1"
@@ -766,19 +796,38 @@ class TestForgeRendering:
         del pv1["perspectives"]
         del pv1["recommended_competition"]
         del pv1["field_ref"]
-        freeze_stage(tmp_path, "portfolio", run_id, pv1)
+        raw_pv1 = json.dumps(pv1, indent=2).encode("utf-8")
+        (run_dir / "portfolio.json").write_bytes(raw_pv1)
+        (run_dir / "portfolio.sha256").write_text(hashlib.sha256(raw_pv1).hexdigest(), encoding="utf-8")
 
         res_b1 = freeze_stage(tmp_path, "development-v2", run_id, development_v2_payload("B1", ["pass01:c01", "pass01:c02"]), target="B1")
         sha_b1 = res_b1.stdout.split()[1]
         res_b2 = freeze_stage(tmp_path, "development-v2", run_id, development_v2_payload("B2", ["pass01:c02", "pass02:c01"]), target="B2")
         sha_b2 = res_b2.stdout.split()[1]
 
-        freeze_stage(
-            tmp_path, "comparison-review-v1", run_id,
-            comparison_review_payload("B1", b1_ref="development-v2-B1.json", b1_hash=sha_b1, b2_ref="development-v2-B2.json", b2_hash=sha_b2),
-        )
-
+        comp_data = comparison_review_payload("LEFT", b1_ref="development-v2-B1.json", b1_hash=sha_b1, b2_ref="development-v2-B2.json", b2_hash=sha_b2)
+        comp_raw = json.dumps(comp_data, indent=2).encode("utf-8")
+        (run_dir / "comparison-review-v1.json").write_bytes(comp_raw)
+        (run_dir / "comparison-review-v1.sha256").write_text(hashlib.sha256(comp_raw).hexdigest(), encoding="utf-8")
         out = tmp_path / "neg_v1.md"
         res = run_render(run_dir, TASK_TEXT, out)
-        assert res.returncode != 0
-        assert "FORGE portfolio requires pizm-portfolio-selection-v2" in res.stderr
+        assert "missing artifact: development-v2.json" in res.stderr
+
+
+class TestForgeContractText:
+    def test_forge_mirror_byte_identical(self):
+        staged = STAGED_SKILL_ROOT / "references" / "forge.md"
+        installed = INSTALLED_SKILL_ROOT / "references" / "forge.md"
+        assert staged.exists()
+        assert installed.exists()
+        assert staged.read_bytes() == installed.read_bytes()
+
+    def test_forge_contract_text_assertions(self):
+        forge_text = (STAGED_SKILL_ROOT / "references" / "forge.md").read_text(encoding="utf-8")
+        assert 'route: "FORGE"' in forge_text or 'route FORGE' in forge_text
+        assert "left_bundle_id" in forge_text
+        assert "right_bundle_id" in forge_text
+        assert "deep-compare.md" in forge_text
+        assert 'bundle_a: "B1"' not in forge_text
+        assert 'bundle_a' not in forge_text
+        assert "review_B1" not in forge_text

@@ -27,6 +27,8 @@ _SCHEMA_VERSION = "pizm-session-bundle-v1"
 _STAGE_LABEL_RE = re.compile(
     r"(?:pass-[0-9]{2}-(?:normal|rift|360|residual)|(?:deep|lever)-(?:P[1-9][0-9]*|B[1-9][0-9]*|DIRECT_SEED)|search-field|portfolio|comparison(?:-review)?)\Z"
 )
+_P_ID_RE = re.compile(r"P[1-9][0-9]*\Z")
+_B_ID_RE = re.compile(r"B[1-9][0-9]*\Z")
 
 _ALLOWED_ACCOUNTING_KEYS = {
     "host_inference_count",
@@ -919,13 +921,24 @@ def _validate_forge_portfolio(portfolio: dict, cand_index: dict = None) -> dict:
             "FORGE portfolio requires pizm-portfolio-selection-v2, "
             f"got {portfolio.get('schema_version')!r}"
         )
-    if portfolio.get("route") != "MANUAL":
+    if portfolio.get("route") != "FORGE":
         raise ValueError(
-            "FORGE portfolio requires route=MANUAL, "
+            "FORGE portfolio requires route=FORGE, "
             f"got route={portfolio.get('route')!r}"
         )
     if portfolio.get("auto_target") is not None:
         raise ValueError("FORGE portfolio cannot have auto_target")
+
+    # Validate bundles early for reference checking
+    seen_bids = set()
+    for b in portfolio.get("bundles") or []:
+        if not isinstance(b, dict):
+            continue
+        bid = b.get("bundle_id")
+        if isinstance(bid, str) and bid.strip():
+            seen_bids.add(bid)
+
+    perspectives = portfolio.get("perspectives") or {}
 
     comp_status = portfolio.get("competition_status")
     if comp_status not in ("TWO_DEFENSIBLE_BUNDLES", "NO_SECOND_DEFENSIBLE_BUNDLE"):
@@ -933,20 +946,57 @@ def _validate_forge_portfolio(portfolio: dict, cand_index: dict = None) -> dict:
             f"FORGE portfolio competition_status must be TWO_DEFENSIBLE_BUNDLES or NO_SECOND_DEFENSIBLE_BUNDLE, got {comp_status!r}"
         )
     rec_comp = portfolio.get("recommended_competition")
+    single_target = portfolio.get("single_target")
     if comp_status == "TWO_DEFENSIBLE_BUNDLES":
+        if single_target is not None:
+            raise ValueError("single_target is forbidden when competition_status is TWO_DEFENSIBLE_BUNDLES")
         if not isinstance(rec_comp, dict):
             raise ValueError(
                 "recommended_competition must be an object when competition_status is TWO_DEFENSIBLE_BUNDLES"
             )
-        if rec_comp.get("bundle_a") != "B1" or rec_comp.get("bundle_b") != "B2":
+        left_b = rec_comp.get("left_bundle_id")
+        right_b = rec_comp.get("right_bundle_id")
+        if not isinstance(left_b, str) or not _B_ID_RE.fullmatch(left_b):
+            raise ValueError(f"recommended_competition.left_bundle_id must match B[1-9][0-9]*, got {left_b!r}")
+        if not isinstance(right_b, str) or not _B_ID_RE.fullmatch(right_b):
+            raise ValueError(f"recommended_competition.right_bundle_id must match B[1-9][0-9]*, got {right_b!r}")
+        if left_b not in seen_bids or right_b not in seen_bids:
+            raise ValueError("recommended_competition bundles must both be present in bundles list")
+        if left_b == right_b:
+            raise ValueError("recommended_competition left_bundle_id and right_bundle_id must be distinct")
+        axis = rec_comp.get("competition_axis")
+        if not isinstance(axis, str) or not axis.strip():
+            raise ValueError("recommended_competition.competition_axis must be non-empty string")
+        disc_obs = rec_comp.get("discriminating_observation")
+        if not isinstance(disc_obs, str) or not disc_obs.strip():
+            raise ValueError("recommended_competition.discriminating_observation must be non-empty string")
+        if "discriminating_question" in rec_comp:
+            dq = rec_comp.get("discriminating_question")
+            if not isinstance(dq, str):
+                raise ValueError("recommended_competition.discriminating_question must be a string")
+    elif comp_status == "NO_SECOND_DEFENSIBLE_BUNDLE":
+        if rec_comp is not None:
             raise ValueError(
-                f"recommended_competition must specify bundle_a as 'B1' and bundle_b as 'B2', got {rec_comp.get('bundle_a')!r} and {rec_comp.get('bundle_b')!r}"
+                "recommended_competition must be null when competition_status is NO_SECOND_DEFENSIBLE_BUNDLE"
             )
-    elif rec_comp is not None:
-        raise ValueError(
-            "recommended_competition must be null when competition_status is NO_SECOND_DEFENSIBLE_BUNDLE"
-        )
-
+        if not isinstance(single_target, dict):
+            raise ValueError("single_target is required when competition_status is NO_SECOND_DEFENSIBLE_BUNDLE")
+        st_type = single_target.get("target_type")
+        st_id = single_target.get("target_id")
+        if st_type not in ("B", "P"):
+            raise ValueError("single_target.target_type must be B or P")
+        if not isinstance(st_id, str) or not st_id.strip():
+            raise ValueError("single_target.target_id must be non-empty string")
+        if st_type == "B":
+            if not _B_ID_RE.fullmatch(st_id):
+                raise ValueError(f"single_target.target_id {st_id!r} must match B[1-9][0-9]* for target_type B")
+            if st_id not in seen_bids:
+                raise ValueError(f"single_target.target_id {st_id!r} not found in bundles")
+        if st_type == "P":
+            if not _P_ID_RE.fullmatch(st_id):
+                raise ValueError(f"single_target.target_id {st_id!r} must match P[1-9][0-9]* for target_type P")
+            if st_id not in perspectives:
+                raise ValueError(f"single_target.target_id {st_id!r} not found in perspectives")
     field_ref = portfolio.get("field_ref")
     if field_ref is not None and (not isinstance(field_ref, str) or not field_ref.strip()):
         raise ValueError("field_ref must be non-empty string")
@@ -991,8 +1041,8 @@ def _validate_forge_portfolio(portfolio: dict, cand_index: dict = None) -> dict:
         if not isinstance(b, dict):
             continue
         bid = b.get("bundle_id")
-        if not isinstance(bid, str) or not bid.strip():
-            raise ValueError("bundle missing bundle_id")
+        if not isinstance(bid, str) or not _B_ID_RE.fullmatch(bid):
+            raise ValueError(f"bundle bundle_id must match B[1-9][0-9]*, got {bid!r}")
         if bid in seen_bids:
             raise ValueError(f"duplicate bundle id: {bid!r}")
         seen_bids.add(bid)
@@ -1576,12 +1626,29 @@ def _render_forge_deep_section(development: dict, target_id: str) -> str:
     return "\n".join(lines).rstrip("\n")
 
 
-def _render_forge_comparison_section(comp_artifact: dict) -> str:
+def _render_forge_comparison_section(
+    comp_artifact: dict,
+    expected_left_id: str,
+    expected_right_id: str,
+) -> str:
     lines = ["## Critic and Comparison", ""]
 
-    # B1 review
-    r1 = comp_artifact.get("review_B1") or {}
-    lines.append("### B1 review")
+    left_id = comp_artifact.get("left_target_id")
+    right_id = comp_artifact.get("right_target_id")
+
+    if not left_id or not right_id:
+        raise ValueError("comparison artifact missing left_target_id or right_target_id")
+    if left_id != expected_left_id or right_id != expected_right_id:
+        raise ValueError(
+            f"comparison targets ({left_id}, {right_id}) do not match "
+            f"portfolio recommended_competition ({expected_left_id}, {expected_right_id})"
+        )
+
+    # Left review
+    r1 = comp_artifact.get("left_review")
+    if not isinstance(r1, dict):
+        raise ValueError("comparison artifact missing left_review object")
+    lines.append(f"### {left_id} review")
     term1 = r1.get("terminal_state")
     if term1:
         lines.append(f"Terminal state: **{term1}**")
@@ -1614,9 +1681,11 @@ def _render_forge_comparison_section(comp_artifact: dict) -> str:
         lines.extend(f"- {d}" for d in debt1)
     lines.append("")
 
-    # B2 review
-    r2 = comp_artifact.get("review_B2") or {}
-    lines.append("### B2 review")
+    # Right review
+    r2 = comp_artifact.get("right_review")
+    if not isinstance(r2, dict):
+        raise ValueError("comparison artifact missing right_review object")
+    lines.append(f"### {right_id} review")
     term2 = r2.get("terminal_state")
     if term2:
         lines.append(f"Terminal state: **{term2}**")
@@ -1656,10 +1725,10 @@ def _render_forge_comparison_section(comp_artifact: dict) -> str:
     lines.append(f"- Current preference: **{pref}**")
     axis = comp.get("competition_axis") or ""
     lines.append(f"- Competition axis: {axis}")
-    r_b1 = comp.get("strongest_reason_for_B1") or ""
-    lines.append(f"- Strongest reason for B1: {r_b1}")
-    r_b2 = comp.get("strongest_reason_for_B2") or ""
-    lines.append(f"- Strongest reason for B2: {r_b2}")
+    r_left = comp.get("strongest_reason_for_left") or ""
+    lines.append(f"- Strongest reason for {left_id}: {r_left}")
+    r_right = comp.get("strongest_reason_for_right") or ""
+    lines.append(f"- Strongest reason for {right_id}: {r_right}")
     shared = comp.get("shared_evidence_debt") or []
     if isinstance(shared, list):
         shared_str = "; ".join(shared)
@@ -1689,6 +1758,7 @@ def _render_forge_final_section(
         lines.append(f"- Discriminating observation: {comp.get('discriminating_observation', '')}")
     else:
         lines.append("- Outcome: NO_SECOND_DEFENSIBLE_BUNDLE")
+        lines.append("- Compare stage skipped")
         if single_review:
             lines.append(f"- Terminal state: {single_review.get('terminal_state', '')}")
 
@@ -1850,45 +1920,104 @@ def _render_forge_run_md(
 
         p_map = _validate_forge_portfolio(portfolio, cand_index)
 
-        # Load Deep B1
-        dev_b1 = None
-        dev_b1_file = None
-        for b1_cand in ("development-v2-B1.json", "development-v2.json"):
-            if (run_dir / b1_cand).is_file():
-                dev_b1_file = b1_cand
-                dev_b1 = _load_frozen_json(run_dir, b1_cand)
-                _verify_frozen_sidecar(run_dir, b1_cand)
-                break
-        if dev_b1 is None:
-            return _die("missing artifact: development-v2-B1.json or development-v2.json")
-
-        # Load Deep B2 if present
-        dev_b2 = None
-        dev_b2_file = None
-        if (run_dir / "development-v2-B2.json").is_file():
-            dev_b2_file = "development-v2-B2.json"
-            dev_b2 = _load_frozen_json(run_dir, "development-v2-B2.json")
-            _verify_frozen_sidecar(run_dir, "development-v2-B2.json")
-
-        # Load Comparison review or single-model review
-        comp_review = None
-        comp_file = None
-        if (run_dir / "comparison-review-v1.json").is_file():
-            comp_file = "comparison-review-v1.json"
-            comp_review = _load_frozen_json(run_dir, "comparison-review-v1.json")
-            _verify_frozen_sidecar(run_dir, "comparison-review-v1.json")
-
-        single_review = None
-        single_review_file = None
-        if (run_dir / "deep-review-v2.json").is_file():
-            single_review_file = "deep-review-v2.json"
-            single_review = _load_frozen_json(run_dir, "deep-review-v2.json")
-            _verify_frozen_sidecar(run_dir, "deep-review-v2.json")
-
-        # Validate that if TWO_DEFENSIBLE_BUNDLES, comparison review exists
         comp_status = portfolio.get("competition_status")
-        if comp_status == "TWO_DEFENSIBLE_BUNDLES" and comp_review is None:
-            return _die("missing artifact: comparison-review-v1.json for TWO_DEFENSIBLE_BUNDLES")
+        if comp_status == "TWO_DEFENSIBLE_BUNDLES":
+            rec_comp = portfolio.get("recommended_competition") or {}
+            left_id = rec_comp.get("left_bundle_id")
+            right_id = rec_comp.get("right_bundle_id")
+
+            # Load Left Deep
+            dev_left = None
+            dev_left_file = None
+            for left_cand in (f"development-v2-{left_id}.json", "development-v2.json"):
+                if (run_dir / left_cand).is_file():
+                    dev_left_file = left_cand
+                    dev_left = _load_frozen_json(run_dir, left_cand)
+                    _verify_frozen_sidecar(run_dir, left_cand)
+                    break
+            if dev_left is None:
+                return _die(f"missing artifact: development-v2-{left_id}.json or development-v2.json")
+            actual_left_target = (
+                dev_left.get("target", {}).get("target_id")
+                if isinstance(dev_left.get("target"), dict)
+                else dev_left.get("target_id")
+            )
+            if actual_left_target != left_id:
+                return _die(
+                    f"development target mismatch in {dev_left_file}: expected {left_id!r}, got {actual_left_target!r}"
+                )
+            # Load Right Deep
+            dev_right = None
+            dev_right_file = None
+            right_cand = f"development-v2-{right_id}.json"
+            if (run_dir / right_cand).is_file():
+                dev_right_file = right_cand
+                dev_right = _load_frozen_json(run_dir, right_cand)
+                _verify_frozen_sidecar(run_dir, right_cand)
+            if dev_right is None:
+                return _die(f"missing artifact: development-v2-{right_id}.json")
+            actual_right_target = (
+                dev_right.get("target", {}).get("target_id")
+                if isinstance(dev_right.get("target"), dict)
+                else dev_right.get("target_id")
+            )
+            if actual_right_target != right_id:
+                return _die(
+                    f"development target mismatch in {dev_right_file}: expected {right_id!r}, got {actual_right_target!r}"
+                )
+            # Load Comparison review
+            comp_review = None
+            comp_file = None
+            if (run_dir / "comparison-review-v1.json").is_file():
+                comp_file = "comparison-review-v1.json"
+                comp_review = _load_frozen_json(run_dir, "comparison-review-v1.json")
+                _verify_frozen_sidecar(run_dir, "comparison-review-v1.json")
+            if comp_review is None:
+                return _die("missing artifact: comparison-review-v1.json for TWO_DEFENSIBLE_BUNDLES")
+
+            single_review = None
+            single_review_file = None
+        else:
+            # NO_SECOND_DEFENSIBLE_BUNDLE
+            single_target = portfolio.get("single_target") or {}
+            st_id = single_target.get("target_id")
+            left_id = st_id
+            right_id = None
+            dev_right = None
+            dev_right_file = None
+            comp_review = None
+            comp_file = None
+
+            # Load single deep
+            dev_left = None
+            dev_left_file = None
+            for left_cand in (f"development-v2-{st_id}.json", "development-v2.json"):
+                if (run_dir / left_cand).is_file():
+                    dev_left_file = left_cand
+                    dev_left = _load_frozen_json(run_dir, left_cand)
+                    _verify_frozen_sidecar(run_dir, left_cand)
+                    break
+            if dev_left is None:
+                return _die(f"missing artifact: development-v2-{st_id}.json or development-v2.json")
+            actual_st_target = (
+                dev_left.get("target", {}).get("target_id")
+                if isinstance(dev_left.get("target"), dict)
+                else dev_left.get("target_id")
+            )
+            if actual_st_target != st_id:
+                return _die(
+                    f"development target mismatch in {dev_left_file}: expected {st_id!r}, got {actual_st_target!r}"
+                )
+            # Single review
+            single_review = None
+            single_review_file = None
+            for s_cand in (f"deep-review-v2-{st_id}.json", "deep-review-v2.json"):
+                if (run_dir / s_cand).is_file():
+                    single_review_file = s_cand
+                    single_review = _load_frozen_json(run_dir, s_cand)
+                    _verify_frozen_sidecar(run_dir, s_cand)
+                    break
+
         # Optional Lever
         design = None
         lever_review = None
@@ -1903,54 +2032,53 @@ def _render_forge_run_md(
             _verify_frozen_sidecar(run_dir, _LEVER_DESIGN_NAME)
             _verify_frozen_sidecar(run_dir, _LEVER_REVIEW_NAME)
 
+        p_map = _derive_promoted_p_ids(portfolio)
+
+        sections = [
+            "# Prism FORGE",
+            "## Task\n\n" + task.strip(),
+        ]
+        sections.append(_render_search_pass(pass1_data, 1))
+        if pass2_data:
+            sections.append(_render_search_pass(pass2_data, 2))
+        sections.append(_render_portfolio_section(portfolio, cand_index, p_map))
+        bundles_sec = _render_bundles_section(portfolio, cand_index, p_map)
+        if bundles_sec:
+            sections.append(bundles_sec)
+        sections.append(_render_why_models_compete(portfolio))
+        sections.append(_render_forge_deep_section(dev_left, left_id))
+        if dev_right and right_id:
+            sections.append(_render_forge_deep_section(dev_right, right_id))
+        if comp_review:
+            sections.append(_render_forge_comparison_section(comp_review, left_id, right_id))
+        elif single_review:
+            sections.append(_render_critic_section(single_review))
+        if design is not None and lever_review is not None:
+            sections.append(_render_lever_section(design, lever_review))
+        sections.append(_render_forge_final_section(portfolio, comp_review, single_review, lever_review))
+
+        machine_names = [
+            n for n in (
+                pass1_file,
+                pass2_file,
+                search_field_name,
+                "portfolio.json",
+                dev_left_file,
+                dev_right_file,
+                comp_file,
+                single_review_file,
+                _LEVER_DESIGN_NAME if design else None,
+                _LEVER_REVIEW_NAME if lever_review else None,
+            )
+            if n
+        ]
+        machine_lines = ["## Machine artifacts", ""]
+        machine_lines.extend(f"- {n}" for n in sorted(machine_names))
+        sections.append("\n".join(machine_lines))
+
+        document = "\n\n".join(sections) + "\n"
     except ValueError as e:
         return _die(str(e))
-
-    p_map = _derive_promoted_p_ids(portfolio)
-
-    sections = [
-        "# Prism FORGE",
-        "## Task\n\n" + task.strip(),
-    ]
-    sections.append(_render_search_pass(pass1_data, 1))
-    if pass2_data:
-        sections.append(_render_search_pass(pass2_data, 2))
-    sections.append(_render_portfolio_section(portfolio, cand_index, p_map))
-    bundles_sec = _render_bundles_section(portfolio, cand_index, p_map)
-    if bundles_sec:
-        sections.append(bundles_sec)
-    sections.append(_render_why_models_compete(portfolio))
-    sections.append(_render_forge_deep_section(dev_b1, "B1"))
-    if dev_b2:
-        sections.append(_render_forge_deep_section(dev_b2, "B2"))
-    if comp_review:
-        sections.append(_render_forge_comparison_section(comp_review))
-    elif single_review:
-        sections.append(_render_critic_section(single_review))
-    if design is not None and lever_review is not None:
-        sections.append(_render_lever_section(design, lever_review))
-    sections.append(_render_forge_final_section(portfolio, comp_review, single_review, lever_review))
-
-    machine_names = [
-        n for n in (
-            pass1_file,
-            pass2_file,
-            search_field_name,
-            "portfolio.json",
-            dev_b1_file,
-            dev_b2_file,
-            comp_file,
-            single_review_file,
-            _LEVER_DESIGN_NAME if design else None,
-            _LEVER_REVIEW_NAME if lever_review else None,
-        )
-        if n
-    ]
-    machine_lines = ["## Machine artifacts", ""]
-    machine_lines.extend(f"- {n}" for n in sorted(machine_names))
-    sections.append("\n".join(machine_lines))
-
-    document = "\n\n".join(sections) + "\n"
     out = Path(output_path)
     try:
         out.parent.mkdir(parents=True, exist_ok=True)
@@ -1981,20 +2109,12 @@ def render_run_md(
     except ValueError as e:
         return _die(str(e))
 
-    is_forge = (
-        (portfolio.get("schema_version") == "pizm-portfolio-selection-v2" and portfolio.get("route") == "MANUAL")
-        or (run_dir / "comparison-review-v1.json").is_file()
-        or (run_dir / "development-v2-B1.json").is_file()
-        or (run_dir / "development-v2-B2.json").is_file()
-        or (run_dir / "candidates-pass02.json").is_file()
-        or (run_dir / "search-pass02.json").is_file()
-        or (run_dir / "candidates-pass01.json").is_file()
-    )
-
-    if not is_forge:
-        return _render_auto_run_md(run_dir, task, output_path, portfolio)
-    else:
+    if portfolio.get("schema_version") == "pizm-portfolio-selection-v2":
+        if portfolio.get("route") != "FORGE":
+            return _die(f"FORGE portfolio requires route=FORGE, got route={portfolio.get('route')!r}")
         return _render_forge_run_md(run_dir, task, output_path, portfolio)
+    else:
+        return _render_auto_run_md(run_dir, task, output_path, portfolio)
 
 def main() -> int:
     parser = argparse.ArgumentParser(

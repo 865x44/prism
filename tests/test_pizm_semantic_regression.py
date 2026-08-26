@@ -143,17 +143,31 @@ def make_search_field_payload(passes: list, entries: list):
 
 
 def make_portfolio_payload(
-    field_hash: str,
-    assessments: list,
+    route: str = "MANUAL",
+    field_hash: str = "abc123def456",
+    field_ref: str = "search-field.json",
+    assessments: list = None,
     bundles: list = None,
-    route: str = "AUTO",
     auto_target: dict = None,
+    single_target: dict = None,
+    prior_bundles: list = None,
     schema_version: str = "pizm-portfolio-selection-v1",
     competition_status: str = None,
     recommended_competition: dict = None,
-    prior_bundles: list = None,
-    field_ref: str = "search-field.json",
 ):
+    if schema_version == "pizm-portfolio-selection-v2" and route == "MANUAL":
+        route = "FORGE"
+    if assessments is None:
+        assessments = [
+            {
+                "candidate_ref": "pass01:c01",
+                "disposition": "KEEP",
+                "standalone_quality": "strong",
+                "unique_residue": "Core insight",
+                "nearest_overlap": None,
+                "reason": "Clear causal mechanism",
+            }
+        ]
     payload = {
         "schema_version": schema_version,
         "stage": "portfolio",
@@ -161,15 +175,29 @@ def make_portfolio_payload(
         "field_hash": field_hash,
         "candidate_assessments": assessments,
         "bundles": bundles or [],
-        "auto_target": auto_target,
     }
+    if schema_version == "pizm-portfolio-selection-v1":
+        payload["auto_target"] = auto_target
     if field_ref is not None:
         payload["field_ref"] = field_ref
     if prior_bundles is not None:
         payload["prior_bundles"] = prior_bundles
     if schema_version == "pizm-portfolio-selection-v2":
-        payload["competition_status"] = competition_status or "TWO_DEFENSIBLE_BUNDLES"
-        payload["recommended_competition"] = recommended_competition
+        comp_st = competition_status or "TWO_DEFENSIBLE_BUNDLES"
+        payload["competition_status"] = comp_st
+        if comp_st == "NO_SECOND_DEFENSIBLE_BUNDLE":
+            payload["recommended_competition"] = None
+            payload["single_target"] = single_target or {"target_type": "B", "target_id": "B1"}
+        else:
+            if isinstance(recommended_competition, dict):
+                rc = dict(recommended_competition)
+                if "bundle_a" in rc:
+                    rc["left_bundle_id"] = rc.pop("bundle_a")
+                if "bundle_b" in rc:
+                    rc["right_bundle_id"] = rc.pop("bundle_b")
+                payload["recommended_competition"] = rc
+            else:
+                payload["recommended_competition"] = recommended_competition
 
         # Add perspectives mapping based on keeping candidates
         perspectives = {}
@@ -180,7 +208,6 @@ def make_portfolio_payload(
                 p_idx += 1
         payload["perspectives"] = perspectives
     return payload
-
 def make_development_v2_payload(
     target_type: str = "P",
     target_id: str = "P1",
@@ -351,16 +378,18 @@ def make_deep_review_v2_payload(
 
 
 def make_comparison_review_payload(
-    preference: str = "B1",
+    left_id: str = "B1",
+    right_id: str = "B2",
+    preference: str = "LEFT",
     b1_terminal: str = "MODEL_READY",
     b2_terminal: str = "MODEL_READY",
     b1_unresolved: bool = False,
     b2_unresolved: bool = False,
     competition_axis: str = "Asynchronous batching vs Synchronous pairing",
-    reason_b1: str = "Preserves developer flow without requiring schedule synchronization.",
-    reason_b2: str = "Eliminates queue latency completely through interactive pairing.",
+    reason_left: str = "Preserves developer flow without requiring schedule synchronization.",
+    reason_right: str = "Eliminates queue latency completely through interactive pairing.",
     discriminating_obs: str = "Evaluate team calendar fragmentation and timezone distribution.",
-    what_changes: str = "If team is colocated with open calendars, B2 becomes clearly superior.",
+    what_changes: str = "If team is colocated with open calendars, right becomes clearly superior.",
     shared_debt: list = None,
     b1_ref: str = "development-v2-B1.json",
     b1_hash: str = "a" * 64,
@@ -370,8 +399,10 @@ def make_comparison_review_payload(
     return {
         "schema_version": "pizm-comparison-review-v1",
         "stage": "comparison-review-v1",
-        "review_B1": {
-            "target_id": "B1",
+        "left_target_id": left_id,
+        "right_target_id": right_id,
+        "left_review": {
+            "target_id": left_id,
             "development_ref": b1_ref,
             "frozen_hash": b1_hash,
             "terminal_state": b1_terminal,
@@ -388,10 +419,10 @@ def make_comparison_review_payload(
                 }
             ],
             "independent_countermodel": "Review queues inherently cause multi-hour lag regardless of batching.",
-            "verdict_rationale": "B1 is internally sound and minimizes schedule friction.",
+            "verdict_rationale": "Left is internally sound and minimizes schedule friction.",
         },
-        "review_B2": {
-            "target_id": "B2",
+        "right_review": {
+            "target_id": right_id,
             "development_ref": b2_ref,
             "frozen_hash": b2_hash,
             "terminal_state": b2_terminal,
@@ -408,13 +439,13 @@ def make_comparison_review_payload(
                 }
             ],
             "independent_countermodel": "Calendar density and timezone differences make daily pairing unworkable.",
-            "verdict_rationale": "B2 provides instantaneous turnaround but depends on tight calendar coordination.",
+            "verdict_rationale": "Right provides instantaneous turnaround but depends on tight calendar coordination.",
         },
         "comparison": {
             "current_preference": preference,
             "competition_axis": competition_axis,
-            "strongest_reason_for_B1": reason_b1,
-            "strongest_reason_for_B2": reason_b2,
+            "strongest_reason_for_left": reason_left,
+            "strongest_reason_for_right": reason_right,
             "discriminating_observation": discriminating_obs,
             "what_would_change_the_decision": what_changes,
             "shared_evidence_debt": shared_debt or ["Longitudinal study of engineering satisfaction under both paradigms"],
@@ -1646,7 +1677,7 @@ class TestForgeEndToEndFixtures:
         tmp_path: Path,
         run_id: str,
         competition_status: str = "TWO_DEFENSIBLE_BUNDLES",
-        comp_preference: str = "B1",
+        comp_preference: str = "LEFT",
         with_lever: bool = False,
     ):
         p1 = make_candidates_payload(pass_num=1)
@@ -1700,8 +1731,8 @@ class TestForgeEndToEndFixtures:
 
         if competition_status == "TWO_DEFENSIBLE_BUNDLES":
             rec_comp = {
-                "bundle_a": "B1",
-                "bundle_b": "B2",
+                "left_bundle_id": "B1",
+                "right_bundle_id": "B2",
                 "competition_axis": "Asynchronous batching vs Synchronous pairing",
                 "discriminating_observation": "Measure engineering calendar density and distribution across timezones.",
                 "discriminating_question": "Does calendar fragmentation make pairing impossible or does async lag dominate?",
@@ -1715,7 +1746,7 @@ class TestForgeEndToEndFixtures:
             field_hash=sf_hash,
             assessments=assessments,
             bundles=bundles,
-            route="MANUAL",
+            route="FORGE",
             schema_version="pizm-portfolio-selection-v2",
             competition_status=competition_status,
             recommended_competition=rec_comp,
@@ -1763,7 +1794,7 @@ class TestForgeEndToEndFixtures:
                 terminal_state="MODEL_READY",
             )
             freeze_stage(tmp_path, "deep-review-v2", run_id, single_rev)
-        if with_lever and comp_preference in ("B1", "B2"):
+        if with_lever and comp_preference in ("LEFT", "RIGHT"):
             ld = make_lever_design_payload()
             freeze_stage(tmp_path, "lever-design", run_id, ld)
             design_hash = (run_dir / "design.sha256").read_text().strip()
@@ -1775,7 +1806,7 @@ class TestForgeEndToEndFixtures:
     def test_f1_two_defensible_competing_bundles(self, tmp_path):
         """F1: Two defensible competing Bundles B1 and B2. Real freeze + render."""
         run_id = "f1-two-defensible"
-        run_dir = self._setup_forge_base(tmp_path, run_id, competition_status="TWO_DEFENSIBLE_BUNDLES", comp_preference="B1")
+        run_dir = self._setup_forge_base(tmp_path, run_id, competition_status="TWO_DEFENSIBLE_BUNDLES", comp_preference="LEFT")
         out_md = tmp_path / "run.md"
         res = run_render(run_dir, DEFAULT_TASK, out_md)
         assert res.returncode == 0, res.stderr
@@ -1788,9 +1819,9 @@ class TestForgeEndToEndFixtures:
         assert "## Why these models compete" in content
         assert "## Deep B2" in content
         assert "## Critic and Comparison" in content
-        assert "- Current preference: **B1**" in content
+        assert "- Current preference: **LEFT**" in content
         assert "## Final" in content
-        assert "- Current preference: B1" in content
+        assert "- Current preference: LEFT" in content
 
     def test_f2_one_defensible_bundle_only(self, tmp_path):
         """F2: One defensible Bundle only (NO_SECOND_DEFENSIBLE_BUNDLE). Real freeze + render."""
@@ -1830,7 +1861,7 @@ class TestForgeEndToEndFixtures:
     def test_f5_action_oriented_forge_justified_lever(self, tmp_path):
         """F5: Action-oriented FORGE with justified LEVER."""
         run_id = "f5-action-lever"
-        run_dir = self._setup_forge_base(tmp_path, run_id, comp_preference="B1", with_lever=True)
+        run_dir = self._setup_forge_base(tmp_path, run_id, comp_preference="LEFT", with_lever=True)
         out_md = tmp_path / "run.md"
         res = run_render(run_dir, "Implement immediate intervention to halve PR cycle time", out_md)
         assert res.returncode == 0, res.stderr
@@ -1842,7 +1873,7 @@ class TestForgeEndToEndFixtures:
     def test_f6_analytical_forge_no_lever(self, tmp_path):
         """F6: Analytical FORGE with no LEVER executed."""
         run_id = "f6-analytical-no-lever"
-        run_dir = self._setup_forge_base(tmp_path, run_id, comp_preference="B1", with_lever=False)
+        run_dir = self._setup_forge_base(tmp_path, run_id, comp_preference="LEFT", with_lever=False)
         out_md = tmp_path / "run.md"
         res = run_render(run_dir, "Analyze strategic tradeoffs between sync and async review", out_md)
         assert res.returncode == 0, res.stderr

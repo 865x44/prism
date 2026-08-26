@@ -1423,7 +1423,7 @@ class TestForgeV2ArchiveCollection:
         # 4. Portfolio
         port_dir = workspace["tmp"] / "port"
         port_dir.mkdir()
-        port = {"schema_version": "pizm-portfolio-selection-v2", "stage": "portfolio", "route": "AUTO", "auto_target": {"target_type": "B", "target_id": "B1"}}
+        port = {"schema_version": "pizm-portfolio-selection-v1", "stage": "portfolio", "route": "AUTO", "auto_target": {"target_type": "B", "target_id": "B1"}}
         port_bytes = json.dumps(port).encode()
         (port_dir / "portfolio.json").write_bytes(port_bytes)
         (port_dir / "portfolio.sha256").write_text(_sha256_hex(port_bytes))
@@ -1454,7 +1454,39 @@ class TestForgeV2ArchiveCollection:
         # 7. Comparison Review
         comp_dir = workspace["tmp"] / "comp"
         comp_dir.mkdir()
-        comp = {"schema_version": "pizm-comparison-review-v1", "stage": "comparison-review-v1"}
+        comp = {
+            "schema_version": "pizm-comparison-review-v1",
+            "stage": "comparison-review-v1",
+            "left_target_id": "B1",
+            "right_target_id": "B2",
+            "left_review": {
+                "target_id": "B1",
+                "development_ref": "development-v2-B1.json",
+                "frozen_hash": _sha256_hex(db1_bytes),
+                "terminal_state": "MODEL_READY",
+                "independent_countermodel": "cm1",
+                "load_bearing_reassessment": [{"claim": "c1", "critic_epistemic_status": "SUPPORTED"}],
+                "findings": {"unresolved_load_bearing_contradiction": False},
+            },
+            "right_review": {
+                "target_id": "B2",
+                "development_ref": "development-v2-B2.json",
+                "frozen_hash": _sha256_hex(db2_bytes),
+                "terminal_state": "MODEL_READY",
+                "independent_countermodel": "cm2",
+                "load_bearing_reassessment": [{"claim": "c2", "critic_epistemic_status": "SUPPORTED"}],
+                "findings": {"unresolved_load_bearing_contradiction": False},
+            },
+            "comparison": {
+                "current_preference": "LEFT",
+                "competition_axis": "axis",
+                "strongest_reason_for_left": "r1",
+                "strongest_reason_for_right": "r2",
+                "discriminating_observation": "obs",
+                "what_would_change_the_decision": "change",
+                "shared_evidence_debt": [],
+            },
+        }
         comp_bytes = json.dumps(comp).encode()
         (comp_dir / "comparison-review-v1.json").write_bytes(comp_bytes)
         (comp_dir / "comparison-review-v1.sha256").write_text(_sha256_hex(comp_bytes))

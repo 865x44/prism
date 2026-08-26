@@ -603,17 +603,17 @@ def test_non_auto_route_fails_closed(frozen_run_p, tmp_path):
 
 
 
-def test_auto_render_accepts_v1_and_v2_auto_layouts(tmp_path):
-    """AUTO render accepts both v1 and v2 AUTO layouts (route=AUTO with valid auto_target)."""
-    # 1. v1 AUTO run
+def test_auto_render_accepts_v1_auto_layout(tmp_path):
+    """AUTO render accepts v1 AUTO layout (schema=pizm-portfolio-selection-v1, route=AUTO with valid auto_target)."""
+    # 1. v1 AUTO run via helper
     run_dir_v1 = _freeze_full_run(tmp_path, "P")
     out_v1 = tmp_path / "run_v1.md"
     res_v1 = run_render(run_dir_v1, TASK_TEXT, out_v1)
     assert res_v1.returncode == 0, res_v1.stderr
     assert "# Prism AUTO" in out_v1.read_text(encoding="utf-8")
 
-    # 2. v2 AUTO run
-    run_id_v2 = "auto-v2-run"
+    # 2. explicit v1 AUTO run with search-field
+    run_id_v2 = "auto-v1-run"
     p1 = candidates_payload()
     freeze_stage(tmp_path, "explore", run_id_v2, p1)
     sha1 = (tmp_path / ".ai" / "pizm" / f"run-{run_id_v2}" / "candidates.sha256").read_text().strip()
@@ -622,14 +622,12 @@ def test_auto_render_accepts_v1_and_v2_auto_layouts(tmp_path):
     freeze_stage(tmp_path, "search-field", run_id_v2, sf)
     sf_sha = (tmp_path / ".ai" / "pizm" / f"run-{run_id_v2}" / "search-field.sha256").read_text().strip()
 
-    port_v2 = {
-        "schema_version": "pizm-portfolio-selection-v2",
+    port_v1 = {
+        "schema_version": "pizm-portfolio-selection-v1",
         "stage": "portfolio",
         "route": "AUTO",
         "field_ref": "search-field.json",
         "field_hash": sf_sha,
-        "competition_status": "NO_SECOND_DEFENSIBLE_BUNDLE",
-        "perspectives": {"P1": "pass01:c01"},
         "candidate_assessments": [
             {
                 "candidate_ref": "pass01:c01",
@@ -643,7 +641,7 @@ def test_auto_render_accepts_v1_and_v2_auto_layouts(tmp_path):
         "bundles": [],
         "auto_target": {"target_type": "P", "target_id": "P1"},
     }
-    freeze_stage(tmp_path, "portfolio", run_id_v2, port_v2)
+    freeze_stage(tmp_path, "portfolio", run_id_v2, port_v1)
 
     dev = development_payload("P", "P1")
     freeze_stage(tmp_path, "development-v2", run_id_v2, dev)
@@ -658,7 +656,6 @@ def test_auto_render_accepts_v1_and_v2_auto_layouts(tmp_path):
     res_v2 = run_render(run_dir_v2, TASK_TEXT, out_v2)
     assert res_v2.returncode == 0, res_v2.stderr
     assert "# Prism AUTO" in out_v2.read_text(encoding="utf-8")
-
 def test_missing_run_dir_fails_closed(tmp_path):
     res = run_render(tmp_path / "does-not-exist", TASK_TEXT, tmp_path / "run.md")
     assert res.returncode != 0
@@ -742,7 +739,8 @@ def test_exact_pass02_lookup_on_local_id_collision(tmp_path):
     port = {
         "schema_version": "pizm-portfolio-selection-v2",
         "stage": "portfolio",
-        "route": "MANUAL",
+        "route": "FORGE",
+        "single_target": {"target_type": "P", "target_id": "P1"},
         "field_ref": "search-field.json",
         "field_hash": sf_sha,
         "perspectives": {"P1": "pass02:c01"},
@@ -873,7 +871,8 @@ def test_canonical_perspectives_controls_rendered_labels_and_continued_p_id(tmp_
     port = {
         "schema_version": "pizm-portfolio-selection-v2",
         "stage": "portfolio",
-        "route": "MANUAL",
+        "route": "FORGE",
+        "single_target": {"target_type": "B", "target_id": "B1"},
         "field_ref": "search-field.json",
         "field_hash": sf_sha,
         "competition_status": "NO_SECOND_DEFENSIBLE_BUNDLE",
