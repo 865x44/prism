@@ -1,215 +1,140 @@
 # Prism
 
-**Prism is an experimental thinking amplifier for text and ideas.** Give it a draft, post, argument, plan, or research note. It returns up to three non-obvious perspectives grounded in the source, then preserves the full candidate pool and judge decisions for inspection.
+Prism is a semantic exploration and model-development tool designed to discover materially distinct perspectives, evaluate structural overlap and composition, deepen selected angles into explicit causal models, subject them to adversarial critique, and derive bounded practical leverage.
 
-> Status: public alpha. The core works, but the CLI, prompts, and output contracts are still evolving. Please report surprising successes, boring failures, and cases where several angles are secretly the same idea.
+---
 
-## Why Prism
+## What Prism Is
 
-Most idea generators optimize for quantity and fluent phrasing. Prism instead tries to produce a small portfolio of structurally different perspectives and is allowed to return `NO_USEFUL_OUTPUT` when the source does not support a useful shift.
+Prism helps users move beyond surface-level brainstorming. Instead of generating lists of fluent stylistic variations, Prism searches for structurally independent causal models of a problem, identifies non-obvious composition gains between perspectives, subjects developed models to independent adversarial evaluation, and determines testable leverage points.
 
-A normal run uses two model roles:
+---
 
-1. **Generator** creates a candidate pool.
-2. **Judge** evaluates novelty, fidelity, duplication, and practical return.
+## Product Surface
 
-The user sees no more than three cards:
+### Manual Primitives
+- **Search (Explore)**: Generates a structured field of distinct candidate perspectives ($P\langle n\rangle$). Supports three internal search policies:
+  - `initial` (NORMAL): Broad structural divergence across the problem space.
+  - `residual`: Divergence directed away from accumulated prior perspectives (*`360` is a deprecated compatibility alias for residual Search*).
+  - `rift` (RIFT): Non-obvious, distant structural reframings that preserve the underlying mechanism of the source while rejecting decorative analogy.
+- **Portfolio Judge**: Evaluates frozen candidate pools categorically, promoting valid perspectives ($P\langle n\rangle$) and assembling composed Bundles ($B\langle n\rangle$) with explicit composition gains.
+- **Deep**: Develops a selected perspective ($P\langle n\rangle$), composed bundle ($B\langle n\rangle$), or direct seed into a comprehensive causal model (`pizm-development-v2`).
+- **Critic**: Performs independent adversarial reassessment of a developed model (`pizm-deep-review-v2`), determining its readiness (`MODEL_READY`, `NEED_EVIDENCE`, `RETURN_TO_EXPLORE`).
+- **LEVER**: Formulates bounded interventions and testable moves from a validated `MODEL_READY` model.
 
-- **Shift**: what becomes visible;
-- **Basis**: concrete support in the source;
-- **Action**: a useful next move;
-- **Boundary**: what the card does not establish.
+*Note: "Breadth" is superseded terminology and is not a public user mode. "MAX" is superseded and eliminated as a product route.*
 
-The full pool, dropped candidates, and judge decisions remain available through `inspect`.
+### Automated Pipelines
+- **AUTO (`/pizm auto <task>`)**: Bounded single-target pipeline: Search $\to$ Portfolio $\to$ Deep(best $P$ or $B$) $\to$ Critic $\to$ optional LEVER $\to$ deterministic final synthesis.
+- **FORGE (`/pizm forge <task>`)**: Heavy dual-competition pipeline: Search(initial) $\to$ Search(residual) $\to$ Portfolio $\to$ Deep(LEFT) $\to$ Deep(RIGHT) $\to$ Compare $\to$ optional LEVER $\to$ deterministic final synthesis.
 
-## Profiles and modes
+---
 
-Prism separates the relationship to prior work from the style of search.
+## Mental Model & Topologies
 
-### Profiles
+### Core Mental Model
+```text
+Search
+  └─► Portfolio Judge
+        ├─► Perspectives P<n> / Bundles B<n>
+        └─► Deep (Development v2)
+              └─► Critic (Review v2)
+                    └─► [Optional] LEVER
+```
 
-- `practical`: grounded perspectives with clear writing, research, or decision value;
-- `rift`: distant, strange, and original reframings that must preserve the source mechanism. RIFT rejects decorative absurdity, random metaphor, and surface-level analogy.
+### AUTO Topology
+```text
+/pizm auto <task>
+  │
+  ├─► Search(initial) ────────► Freeze candidates + search-field manifest
+  ├─► Portfolio Judge ────────► Freeze portfolio (route: AUTO, one auto_target: P or B)
+  ├─► Deep(target) ───────────► Freeze development-v2
+  ├─► Critic Review ──────────► Freeze deep-review-v2 (MODEL_READY | NEED_EVIDENCE | RETURN_TO_EXPLORE)
+  ├─► [Conditional LEVER] ───► Freeze design + review (if MODEL_READY and ACTION_OR_DECISION)
+  └─► Deterministic FINAL ────► Session bundle archive & deterministic run.md (0 model calls)
+```
 
-### Modes
+### FORGE Topology
+```text
+/pizm forge <task>
+  │
+  ├─► Search(initial) ───────────────► Freeze pass01 + search-field
+  ├─► Search(residual) ──────────────► Freeze pass02 + search-field
+  ├─► Portfolio Judge ───────────────► Freeze portfolio-v2 (TWO_DEFENSIBLE_BUNDLES or NO_SECOND_DEFENSIBLE_BUNDLE)
+  ├─► Deep(LEFT) ────────────────────► Freeze development-v2-<left_id>
+  ├─► Deep(RIGHT) ───────────────────► Freeze development-v2-<right_id>
+  ├─► Reveal deep-compare.md ────────► Freeze comparison-review-v1 (Critic LEFT + Critic RIGHT + Compare)
+  ├─► [Conditional LEVER] ───────────► Freeze design + review on preferred MODEL_READY bundle
+  └─► Deterministic FINAL ───────────► Session bundle archive & deterministic run.md (0 model calls)
+```
 
-- `normal`: find the strongest next perspectives;
-- `360`: search outside the directions already explored in a session trajectory.
+---
 
-This allows combinations such as a practical normal run or a RIFT-flavoured 360 pass.
+## Installation & Skill Setup
 
-## Installation
+The canonical Pizm skill resides in `skills/pizm/`. It is designed to run directly within host coding agents and harnesses (such as OpenCode or OMP) without requiring external provider wrappers.
 
-Requirements: Python 3.11 or newer.
+### Installing the Skill
+
+To install or update the skill in your local OpenCode environment:
+
+```bash
+mkdir -p ~/.config/opencode/skills/pizm
+cp -r skills/pizm/* ~/.config/opencode/skills/pizm/
+```
+
+Verify mirror integrity:
+
+```bash
+for f in SKILL.md agents/openai.yaml references/auto.md references/deep.md references/deep-compare.md references/deep-reviewer.md references/explore.md references/explore-selector.md references/forge.md references/lever.md references/lever-reviewer.md references/reasoning-arsenal.md; do
+  cmp -s "skills/pizm/$f" "$HOME/.config/opencode/skills/pizm/$f" || { echo "Mirror mismatch in $f"; exit 1; }
+done
+echo "Skill mirror verified."
+```
+
+### Development Environment
+
+For testing and running the verification suite:
 
 ```bash
 git clone https://github.com/865x44/prism.git
 cd prism
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -e .
-```
-
-For development:
-
-```bash
 pip install -e ".[dev]"
-pytest
 ```
 
-You can also install directly from GitHub:
+Run test suite:
 
 ```bash
-pip install "git+https://github.com/865x44/prism.git"
+PYTHONPATH=src python3 -m pytest tests -q
 ```
 
-## Configure an LLM
+---
 
-Prism supports an OpenAI-compatible HTTP endpoint and an OpenCode CLI transport.
+## Outputs & Artifact Authority
 
-```bash
-export PRISM_API_KEY="sk-..."                       # or OPENAI_API_KEY
-export PRISM_BASE_URL="https://api.openai.com/v1" # optional
-export PRISM_GENERATOR_MODEL="gpt-4o-mini"        # optional
-export PRISM_JUDGE_MODEL="gpt-4o-mini"            # optional
-```
+Prism strictly separates provenance/machine authority from human presentation:
 
-| Variable | Default | Purpose |
-|---|---|---|
-| `PRISM_API_KEY` | fallback `OPENAI_API_KEY` | HTTP transport key |
-| `PRISM_BASE_URL` | `https://api.openai.com/v1` | OpenAI-compatible endpoint |
-| `PRISM_GENERATOR_MODEL` | transport default | generator model |
-| `PRISM_JUDGE_MODEL` | transport default | judge model, which may be stronger or from another family |
-| `PRISM_TRANSPORT` | `auto` | `auto`, `http`, or `opencode` |
+- **JSON Artifacts**: Structured JSON files with `.sha256` sidecars (e.g. `candidates-*.json`, `portfolio.json`, `development-v2-*.json`, `deep-review-v2-*.json`, `comparison-review-v1.json`, `manifest.json`) are the sole authority for verification, provenance, and debugging.
+- **Deterministic `run.md`**: Human-readable markdown synthesized directly from frozen JSON artifacts via `bin/pizm-session-bundle render`. Generated with zero model calls.
 
-With no API key, `auto` tries the `opencode` transport. OpenCode must be installed and authenticated.
+---
 
-Check the local setup without running a full analysis:
-
-```bash
-prism doctor
-```
-
-Try a recorded, key-free walkthrough:
-
-```bash
-prism demo
-```
-
-## Quick start
-
-Practical analysis:
-
-```bash
-prism run draft.md \
-  --task "find non-obvious angles for this post" \
-  --profile practical
-```
-
-RIFT profile:
-
-```bash
-prism run draft.md \
-  --task "find distant, strange, but defensible reframings" \
-  --profile rift
-```
-
-A run normally makes two logical model calls, one for generation and one for judging. Invalid structured output can trigger one bounded repair call per stage, so a run may make up to four logical model calls. Transport retries can repeat a failed request.
-
-Results are written to stdout. Traces are stored under `prism-runs/<run_id>/`.
-
-## Example output
-
-```markdown
-## Review work became the product
-
-**Shift**
-The tool does not remove writing work. It moves the scarce work from drafting to deciding what can be trusted.
-
-**Basis**
-The source claims faster production while repeatedly adding review and approval stages.
-
-**Action**
-Measure reviewer time and correction rate separately from raw generation speed.
-
-**Boundary**
-This does not establish that the tool reduces total output quality.
-```
-
-## Commands
+## Repository Map
 
 ```text
-prism doctor [--smoke]
-prism demo
-prism run <file> --task "..." [--profile practical|rift] [--mode normal|360]
-prism run-json <request.json>
-prism inspect <run_id> [--show-pool] [--show-judge] [--calibrate]
-prism session create <file> [dir]
-prism session run <dir> --task "..." [--profile practical|rift] [--mode normal|360]
-prism session update <dir> "new text" | --file f.md
-prism session event <dir> <run_id> <candidate_id> selected|applied|retained|reverted
-prism session outcomes <dir>
-prism session show <dir>
-prism trajectory show <dir>
-prism handoff <dir> --output <dir>
+skills/pizm/          Canonical native Pizm skill (prompts, reference rubrics, schemas)
+bin/                  Deterministic checkpoint (pizm-checkpoint) and bundle/rendering tools (pizm-session-bundle)
+src/prism/            Python reference substrate, legacy CLI, and cold-path tooling
+src/prism/perspective_core/  Frozen Python reference core (byte-for-byte immutable)
+tests/                Contract, checkpoint, bundle, and regression test suites
+contracts/            Shared schema definitions and failure-capture specifications
+docs/architecture.md  Detailed technical architecture and stage contracts
+.ai/                  Operational project memory, session logs, and state cursors
 ```
 
-## Sessions and 360
-
-A session stores the original text, current revision, runs, explicit outcome events, and a compact trajectory.
-
-```bash
-prism session create draft.md my-session
-prism session run my-session --task "angles for the post"
-prism session event my-session <run_id> c2 selected
-prism session update my-session --file draft-v2.md
-prism session run my-session --task "find untouched layers" --mode 360
-prism session outcomes my-session
-```
-
-Use 360 after at least one substantive pass. It should search outside previous cards and developed directions rather than paraphrasing them.
-
-## Privacy and cost
-
-Prism sends the source text, task, and relevant trajectory to the configured model endpoint. It also stores the source and structured run artifacts locally. The `privacy` field in trace metadata is a classification label, not encryption or access control.
-
-Do not process secrets or sensitive personal material unless you trust both the configured provider and the machine running Prism. Review traces before sharing or committing them.
-
-Model usage is billed by the provider or consumed through the configured local/CLI harness. Repairs and transport retries can increase usage beyond the usual two calls.
-
-## Honest limitations
-
-- Results are non-deterministic.
-- Generator and judge may share the same model and blind spots.
-- A different operator-family label does not prove that two candidates use different causal models.
-- RIFT can become decorative unless its source anchor and mechanism are enforced.
-- 360 depends on the quality of the stored trajectory.
-- Prism finds perspectives. It does not automatically rewrite the source or verify external factual claims.
-- A trace records the declared pipeline output, not private model reasoning.
-
-## Feedback
-
-Useful feedback includes:
-
-- a card you actually developed, applied, or retained;
-- a strong candidate the judge dropped;
-- several cards that were secretly the same mechanism;
-- a RIFT result that was strange but useful;
-- a RIFT result that was merely decorative;
-- a source where `NO_USEFUL_OUTPUT` should have been returned.
-
-Open an issue with a sanitized source excerpt, command, model names, and the relevant trace files. Never upload API keys, private documents, or unreviewed full traces.
-
-## Development
-
-```bash
-pip install -e ".[dev]"
-pytest
-python -m prism.runtime --help
-prism --help
-```
-
-Before a public release, the repository must pass tests, package build/install smoke, history and secret scans, and a clean CLI demonstration.
+---
 
 ## License
 

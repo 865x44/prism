@@ -29,3 +29,10 @@ beerlight-sessions/
 .DS_Store
 .idea/
 .vscode/
+
+# Local scratch, backups, and tool clutter
+scratch_patch*.py
+*.bak
+.qwen/
+.papercuts.jsonl
+skill.zip

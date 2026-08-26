@@ -1,34 +1,12 @@
 # Contributing to Prism
 
-Prism is a public alpha. The most valuable contribution is evidence about whether an angle changed what someone wrote, investigated, or decided.
+Thank you for contributing to Prism. This document outlines development setup, testing requirements, safety rules, and workflow expectations.
 
-## Useful bug reports
+---
 
-Please include:
+## 1. Development Setup & Testing
 
-- Prism version or commit;
-- Python version;
-- transport and model names;
-- the exact command;
-- a sanitized source excerpt;
-- expected and actual behaviour;
-- relevant trace files after reviewing them for private data.
-
-Never include API keys, unreviewed private documents, or full traces containing sensitive material.
-
-## Useful semantic feedback
-
-Especially valuable:
-
-- two or three cards that are actually the same causal model;
-- a strong candidate dropped by the judge;
-- an output that should have been `NO_USEFUL_OUTPUT`;
-- a RIFT result that is distant but genuinely useful;
-- a RIFT result that is only decorative strangeness;
-- a 360 pass that repeats an already explored direction;
-- an angle that survived editing and remained in the final text or decision.
-
-## Development setup
+Requirements: Python 3.11 or newer.
 
 ```bash
 git clone https://github.com/865x44/prism.git
@@ -36,22 +14,68 @@ cd prism
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"
-pytest
 ```
 
-Before opening a pull request:
+### Running Tests
+
+Always run the full test suite before proposing changes:
 
 ```bash
-python -m pytest
-python -m build
-prism --help
-python -m prism.runtime --help
+PYTHONPATH=src python3 -m pytest tests -q
 ```
 
-Keep generated runs, sessions, credentials, and private source texts out of commits.
+Before committing, verify whitespace and diff formatting:
 
-## Scope discipline
+```bash
+git diff --check
+```
 
-Prefer small changes with explicit evidence. Avoid combining a prompt redesign, trace migration, CLI rewrite, and provider architecture change in one pull request.
+---
 
-The practical profile is the compatibility baseline. Experimental RIFT changes should remain clearly versioned and should not silently alter practical output.
+## 2. Canonical Skill & Mirror Synchronization
+
+The repository's canonical skill authority is located at:
+
+```text
+skills/pizm/
+```
+
+When authoring changes to prompts, references, or skill contracts:
+1. Always edit the canonical files under `skills/pizm/`.
+2. Sync changes to the deployment mirror at `~/.config/opencode/skills/pizm/`:
+   ```bash
+   cp -r skills/pizm/* ~/.config/opencode/skills/pizm/
+   ```
+3. Mechanically verify that all 12 mirrored files are byte-identical:
+   ```bash
+   for f in SKILL.md agents/openai.yaml references/auto.md references/deep.md references/deep-compare.md references/deep-reviewer.md references/explore.md references/explore-selector.md references/forge.md references/lever.md references/lever-reviewer.md references/reasoning-arsenal.md; do
+     cmp -s "skills/pizm/$f" "$HOME/.config/opencode/skills/pizm/$f" || { echo "DIVERGENCE: $f"; exit 1; }
+   done
+   ```
+
+---
+
+## 3. Strict Safety & Invariant Rules
+
+### Frozen Perspective Core
+
+```text
+DO NOT MODIFY:
+src/prism/perspective_core/**
+```
+
+The Perspective Core implementation under `src/prism/perspective_core/` is permanently frozen byte-for-byte in this repository. All contract tests enforce its immutability.
+
+### Dirty-Work & Explicit Staging Protection
+
+- **Explicit Staging Only**: Never use `git add .` or `git add -A`. Stage only files directly touched by your scoped task.
+- **Never Destroy User Dirt**: Never run `git reset --hard`, `git clean -fd`, or `git stash` on working directories containing unrelated user material.
+- **Current HEAD is Authority**: Always verify the current git status (`git status --short`) before and after changes.
+
+---
+
+## 4. Contract-Change Expectations
+
+- All stages enforce fail-closed payload bounds, hash verification sidecars (`.sha256`), and deterministic output structures.
+- Semantic changes to schemas or checkpoint behaviors require matching updates in `tests/test_pizm_*_contracts.py` and `bin/`.
+- For detailed technical design and stage boundaries, consult `docs/architecture.md`.
