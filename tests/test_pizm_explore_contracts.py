@@ -25,7 +25,7 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parent.parent
 INSTALLED_ROOT = Path.home() / ".config" / "opencode" / "skills" / "pizm"
 BACKUP_ROOT = REPO_ROOT / "docs" / "pizm-skill-superseded-2026-08-24"
-STAGED_ROOT = REPO_ROOT / "docs" / "pizm-skill-staged-2026-08-24"
+STAGED_ROOT = REPO_ROOT / "skills" / "pizm"
 
 EXPECTED_BACKUP_SHA256 = {
     "SKILL.md": "9f50a1ff3c9a9116d31d41b4e7f3f3e24d15a72c165d0224f4ad8a73b7b33eeb",

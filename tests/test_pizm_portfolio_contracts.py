@@ -18,7 +18,7 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 INSTALLED_ROOT = Path.home() / ".config" / "opencode" / "skills" / "pizm"
-STAGED_ROOT = REPO_ROOT / "docs" / "pizm-skill-staged-2026-08-24"
+STAGED_ROOT = REPO_ROOT / "skills" / "pizm"
 CHECKPOINT = REPO_ROOT / "bin" / "pizm-checkpoint"
 
 STAGED_SELECTOR = STAGED_ROOT / "references" / "explore-selector.md"

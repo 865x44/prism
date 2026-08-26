@@ -22,7 +22,7 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parent.parent
 INSTALLED_ROOT = Path.home() / ".config" / "opencode" / "skills" / "pizm"
 BACKUP_ROOT = REPO_ROOT / "docs" / "pizm-skill-superseded-2026-08-24"
-STAGED_ROOT = REPO_ROOT / "docs" / "pizm-skill-staged-2026-08-24"
+STAGED_ROOT = REPO_ROOT / "skills" / "pizm"
 
 INSTALLED_DEEP = INSTALLED_ROOT / "references" / "deep.md"
 INSTALLED_REVIEWER = INSTALLED_ROOT / "references" / "deep-reviewer.md"

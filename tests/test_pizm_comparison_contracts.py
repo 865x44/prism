@@ -21,7 +21,7 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 CHECKPOINT_CLI = str(REPO_ROOT / "bin" / "pizm-checkpoint")
-SKILL_ROOT = str(REPO_ROOT / "docs" / "pizm-skill-staged-2026-08-24")
+SKILL_ROOT = str(REPO_ROOT / "skills" / "pizm")
 
 
 def valid_review(target_id="B1", dev_ref=None, dev_hash=None):

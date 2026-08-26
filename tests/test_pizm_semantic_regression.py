@@ -21,7 +21,7 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parent.parent
 BUNDLE_CLI = str(REPO_ROOT / "bin" / "pizm-session-bundle")
 CHECKPOINT_CLI = str(REPO_ROOT / "bin" / "pizm-checkpoint")
-SKILL_ROOT = REPO_ROOT / "docs" / "pizm-skill-staged-2026-08-24"
+SKILL_ROOT = REPO_ROOT / "skills" / "pizm"
 
 DEFAULT_TASK = "Improve deployment velocity and platform reliability"
 

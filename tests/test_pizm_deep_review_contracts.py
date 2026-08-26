@@ -27,7 +27,7 @@ from pathlib import Path
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-SKILL_ROOT = REPO_ROOT / "docs" / "pizm-skill-staged-2026-08-24"
+SKILL_ROOT = REPO_ROOT / "skills" / "pizm"
 CHECKPOINT = str(REPO_ROOT / "bin" / "pizm-checkpoint")
 INSTALLED_REVIEWER = Path.home() / ".config" / "opencode" / "skills" / "pizm" / "references" / "deep-reviewer.md"
 INSTALLED_COMPARE = Path.home() / ".config" / "opencode" / "skills" / "pizm" / "references" / "deep-compare.md"

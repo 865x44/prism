@@ -20,7 +20,7 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parent.parent
 BUNDLE_CLI = str(REPO_ROOT / "bin" / "pizm-session-bundle")
 CHECKPOINT_CLI = str(REPO_ROOT / "bin" / "pizm-checkpoint")
-STAGED_SKILL_ROOT = REPO_ROOT / "docs" / "pizm-skill-staged-2026-08-24"
+STAGED_SKILL_ROOT = REPO_ROOT / "skills" / "pizm"
 INSTALLED_SKILL_ROOT = Path.home() / ".config" / "opencode" / "skills" / "pizm"
 
 TASK_TEXT = "Reduce PR cycle time in our platform team"
