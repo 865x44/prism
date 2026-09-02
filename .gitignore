@@ -20,6 +20,7 @@ dist/
 # Prism runtime artifacts
 prism-runs/
 prism-sessions/
+traces/
 
 # Legacy Beerlight artifact paths retained for compatibility
 beerlight-runs/
