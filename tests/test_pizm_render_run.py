@@ -739,7 +739,7 @@ def test_exact_pass02_lookup_on_local_id_collision(tmp_path):
     port = {
         "schema_version": "pizm-portfolio-selection-v2",
         "stage": "portfolio",
-        "route": "FORGE",
+        "route": "BONK",
         "single_target": {"target_type": "P", "target_id": "P1"},
         "field_ref": "search-field.json",
         "field_hash": sf_sha,
@@ -871,7 +871,7 @@ def test_canonical_perspectives_controls_rendered_labels_and_continued_p_id(tmp_
     port = {
         "schema_version": "pizm-portfolio-selection-v2",
         "stage": "portfolio",
-        "route": "FORGE",
+        "route": "BONK",
         "single_target": {"target_type": "B", "target_id": "B1"},
         "field_ref": "search-field.json",
         "field_hash": sf_sha,

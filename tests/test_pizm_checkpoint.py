@@ -1148,7 +1148,7 @@ def valid_portfolio_v2(left_id="B1", right_id="B2"):
     return {
         "schema_version": "pizm-portfolio-selection-v2",
         "stage": "portfolio",
-        "route": "FORGE",
+        "route": "BONK",
         "field_hash": "b" * 64,
         "perspectives": {"P1": "pass01:c01", "P2": "pass01:c02"},
         "competition_status": "TWO_DEFENSIBLE_BUNDLES",
@@ -1284,7 +1284,7 @@ def test_real_two_pass_cli_chain(workspace):
     pv2 = {
         "schema_version": "pizm-portfolio-selection-v2",
         "stage": "portfolio",
-        "route": "FORGE",
+        "route": "BONK",
         "field_ref": "search-field-pass02.json",
         "field_hash": sha_sf2,
         "competition_status": "NO_SECOND_DEFENSIBLE_BUNDLE",
@@ -2326,7 +2326,7 @@ class TestForgeRoute:
         return res_sf.stdout.split()[1]
 
     def test_forge_route_1_v2_forge_only_acceptance(self, workspace):
-        """FORGE-ROUTE-1: v2 portfolio with route='FORGE' is accepted."""
+        """FORGE-ROUTE-1: v2 portfolio with route='BONK' is accepted."""
         project, skill = workspace
         run_id = "fr-route-1"
         sf_hash = self._make_search_field(workspace, run_id)
@@ -2334,7 +2334,7 @@ class TestForgeRoute:
         pv2 = {
             "schema_version": "pizm-portfolio-selection-v2",
             "stage": "portfolio",
-            "route": "FORGE",
+            "route": "BONK",
             "field_ref": "search-field.json",
             "field_hash": sf_hash,
             "perspectives": {"P1": "pass01:c01", "P2": "pass01:c02"},
@@ -2387,7 +2387,7 @@ class TestForgeRoute:
         res_m = run_ck("freeze", "--stage", "portfolio", "--run-id", run_id, "--input", inp_m,
                        "--project-root", str(project), "--skill-root", str(skill))
         assert res_m.returncode != 0
-        assert "pizm-portfolio-selection-v2 requires route 'FORGE'" in res_m.stderr
+        assert "pizm-portfolio-selection-v2 requires route 'BONK'" in res_m.stderr
 
         pv2_auto = dict(pv2_manual)
         pv2_auto["route"] = "AUTO"
@@ -2396,7 +2396,7 @@ class TestForgeRoute:
         res_a = run_ck("freeze", "--stage", "portfolio", "--run-id", run_id, "--input", inp_a,
                        "--project-root", str(project), "--skill-root", str(skill))
         assert res_a.returncode != 0
-        assert "pizm-portfolio-selection-v2 requires route 'FORGE'" in res_a.stderr
+        assert "pizm-portfolio-selection-v2 requires route 'BONK'" in res_a.stderr
 
     def test_forge_route_3_degraded_single_target_deep_reviewer_reveal(self, workspace):
         """FORGE-ROUTE-3: Degraded FORGE portfolio with single_target reveals deep-reviewer.md after development freeze."""
@@ -2407,7 +2407,7 @@ class TestForgeRoute:
         pv2 = {
             "schema_version": "pizm-portfolio-selection-v2",
             "stage": "portfolio",
-            "route": "FORGE",
+            "route": "BONK",
             "field_ref": "search-field.json",
             "field_hash": sf_hash,
             "perspectives": {"P1": "pass01:c01", "P2": "pass01:c02"},
@@ -2445,7 +2445,7 @@ class TestForgeRoute:
         pv2 = {
             "schema_version": "pizm-portfolio-selection-v2",
             "stage": "portfolio",
-            "route": "FORGE",
+            "route": "BONK",
             "field_ref": "search-field.json",
             "field_hash": sf_hash,
             "perspectives": {"P1": "pass01:c01", "P2": "pass01:c02"},
@@ -2482,7 +2482,7 @@ class TestForgeRoute:
         pv2_missing = {
             "schema_version": "pizm-portfolio-selection-v2",
             "stage": "portfolio",
-            "route": "FORGE",
+            "route": "BONK",
             "field_ref": "search-field.json",
             "field_hash": sf_hash,
             "perspectives": {"P1": "pass01:c01", "P2": "pass01:c02"},
@@ -2528,7 +2528,7 @@ class TestForgeRoute:
         pv2 = {
             "schema_version": "pizm-portfolio-selection-v2",
             "stage": "portfolio",
-            "route": "FORGE",
+            "route": "BONK",
             "field_ref": "search-field.json",
             "field_hash": sf_hash,
             "perspectives": {"P1": "pass01:c01", "P2": "pass01:c02"},

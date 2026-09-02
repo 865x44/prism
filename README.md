@@ -26,7 +26,7 @@ Prism helps users move beyond surface-level brainstorming. Instead of generating
 
 ### Automated Pipelines
 - **AUTO (`/pizm auto <task>`)**: Bounded single-target pipeline: Search $\to$ Portfolio $\to$ Deep(best $P$ or $B$) $\to$ Critic $\to$ optional LEVER $\to$ deterministic final synthesis.
-- **FORGE (`/pizm forge <task>`)**: Heavy dual-competition pipeline: Search(initial) $\to$ Search(residual) $\to$ Portfolio $\to$ Deep(LEFT) $\to$ Deep(RIGHT) $\to$ Compare $\to$ optional LEVER $\to$ deterministic final synthesis.
+- **BONK (`/pizm bonk <task>`)**: Heavy dual-competition pipeline: Search(initial) $\to$ Search(residual) $\to$ Portfolio $\to$ Deep(LEFT) $\to$ Deep(RIGHT) $\to$ Compare $\to$ optional LEVER $\to$ deterministic final synthesis.
 
 ---
 
@@ -54,9 +54,9 @@ Search
   └─► Deterministic FINAL ────► Session bundle archive & deterministic run.md (0 model calls)
 ```
 
-### FORGE Topology
+### BONK Topology
 ```text
-/pizm forge <task>
+/pizm bonk <task>
   │
   ├─► Search(initial) ───────────────► Freeze pass01 + search-field
   ├─► Search(residual) ──────────────► Freeze pass02 + search-field
@@ -86,7 +86,7 @@ cp -r skills/pizm/* ~/.config/opencode/skills/pizm/
 Verify mirror integrity:
 
 ```bash
-for f in SKILL.md agents/openai.yaml references/auto.md references/deep.md references/deep-compare.md references/deep-reviewer.md references/explore.md references/explore-selector.md references/forge.md references/lever.md references/lever-reviewer.md references/reasoning-arsenal.md; do
+for f in SKILL.md agents/openai.yaml references/auto.md references/deep.md references/deep-compare.md references/deep-reviewer.md references/explore.md references/explore-selector.md references/bonk.md references/lever.md references/lever-reviewer.md references/reasoning-arsenal.md; do
   cmp -s "skills/pizm/$f" "$HOME/.config/opencode/skills/pizm/$f" || { echo "Mirror mismatch in $f"; exit 1; }
 done
 echo "Skill mirror verified."

@@ -1,6 +1,6 @@
 # Pizm Comparative Reviewer
 
-In FORGE execution with two defensible Bundles, the comparative reviewer executes adversarial comparison ONLY after BOTH `development-v2-<left_target_id>` and `development-v2-<right_target_id>` artifacts have been frozen and verified by hash.
+In BONK execution with two defensible Bundles, the comparative reviewer executes adversarial comparison ONLY after BOTH `development-v2-<left_target_id>` and `development-v2-<right_target_id>` artifacts have been frozen and verified by hash.
 
 ---
 

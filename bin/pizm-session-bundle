@@ -921,9 +921,9 @@ def _validate_forge_portfolio(portfolio: dict, cand_index: dict = None) -> dict:
             "FORGE portfolio requires pizm-portfolio-selection-v2, "
             f"got {portfolio.get('schema_version')!r}"
         )
-    if portfolio.get("route") != "FORGE":
+    if portfolio.get("route") not in {"BONK", "FORGE"}:
         raise ValueError(
-            "FORGE portfolio requires route=FORGE, "
+            "BONK portfolio requires route=BONK, "
             f"got route={portfolio.get('route')!r}"
         )
     if portfolio.get("auto_target") is not None:
@@ -1868,7 +1868,7 @@ def _render_auto_run_md(
     return 0
 
 
-def _render_forge_run_md(
+def _render_bonk_run_md(
     run_dir: Path,
     task: str,
     output_path: str,
@@ -2035,7 +2035,7 @@ def _render_forge_run_md(
         p_map = _derive_promoted_p_ids(portfolio)
 
         sections = [
-            "# Prism FORGE",
+            "# Prism BONK",
             "## Task\n\n" + task.strip(),
         ]
         sections.append(_render_search_pass(pass1_data, 1))
@@ -2110,9 +2110,9 @@ def render_run_md(
         return _die(str(e))
 
     if portfolio.get("schema_version") == "pizm-portfolio-selection-v2":
-        if portfolio.get("route") != "FORGE":
-            return _die(f"FORGE portfolio requires route=FORGE, got route={portfolio.get('route')!r}")
-        return _render_forge_run_md(run_dir, task, output_path, portfolio)
+        if portfolio.get("route") not in {"BONK", "FORGE"}:
+            return _die(f"BONK portfolio requires route=BONK, got route={portfolio.get('route')!r}")
+        return _render_bonk_run_md(run_dir, task, output_path, portfolio)
     else:
         return _render_auto_run_md(run_dir, task, output_path, portfolio)
 

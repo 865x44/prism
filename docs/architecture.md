@@ -49,7 +49,7 @@ A Bundle ($B\langle n\rangle$) groups complementary perspectives where compositi
 ### Portfolio Schemas
 
 - **`pizm-portfolio-selection-v1`**: Used in manual exploration and AUTO (`route: "MANUAL"|"AUTO"`). In AUTO, nominates exactly one target (`auto_target`: single $P\langle n\rangle$ or $B\langle n\rangle$).
-- **`pizm-portfolio-selection-v2`**: Used in FORGE (`route: "FORGE"`). Specifies `competition_status`: either `TWO_DEFENSIBLE_BUNDLES` with `recommended_competition` (`left_bundle_id`, `right_bundle_id`, `competition_axis`, `discriminating_observation`) or `NO_SECOND_DEFENSIBLE_BUNDLE` with `single_target`.
+- **`pizm-portfolio-selection-v2`**: Used in BONK (`route: "BONK"`). Specifies `competition_status`: either `TWO_DEFENSIBLE_BUNDLES` with `recommended_competition` (`left_bundle_id`, `right_bundle_id`, `competition_axis`, `discriminating_observation`) or `NO_SECOND_DEFENSIBLE_BUNDLE` with `single_target`.
 
 ---
 
@@ -81,7 +81,7 @@ The critic inspects the model independently without adopting developer self-asse
 
 ### Comparative Review (`pizm-comparison-review-v1`) & Delayed Reveal Seam
 
-In dual-competition FORGE execution:
+In dual-competition BONK execution:
 - **Delayed Reveal**: The comparative contract (`references/deep-compare.md`) is structurally hidden and revealed ONLY after BOTH `development-v2-<left_id>` and `development-v2-<right_id>` are frozen and hash-verified.
 - **Comparator Scope**: Evaluates `left_review`, `right_review`, and `comparison` (`current_preference`: `LEFT|RIGHT|CONDITIONAL|UNRESOLVED`, `competition_axis`, `strongest_reason_for_left`, `strongest_reason_for_right`, `discriminating_observation`, `what_would_change_the_decision`).
 
@@ -121,18 +121,18 @@ AUTO enforces strict single-target discipline: exactly one target is deepened, w
 
 ---
 
-## 7. FORGE Topology
+## 7. BONK Topology
 
-FORGE (`/pizm forge <task>`) is the heavy automated dual-competition pipeline:
+BONK (`/pizm bonk <task>`) is the heavy automated dual-competition pipeline:
 
 ```text
-/pizm forge <task>
+/pizm bonk <task>
   │
   ├─► Search(initial) ───────────────► Freeze pass01 + search-field
   │
   ├─► Search(residual) ──────────────► Freeze pass02 + search-field
   │
-  ├─► Portfolio Judge (FORGE) ───────► Freeze portfolio-v2 (TWO_DEFENSIBLE_BUNDLES or NO_SECOND_DEFENSIBLE_BUNDLE)
+  ├─► Portfolio Judge (BONK) ───────► Freeze portfolio-v2 (TWO_DEFENSIBLE_BUNDLES or NO_SECOND_DEFENSIBLE_BUNDLE)
   │
   ├─► Deep(LEFT) ────────────────────► Freeze development-v2-<left_id>
   │
@@ -145,7 +145,7 @@ FORGE (`/pizm forge <task>`) is the heavy automated dual-competition pipeline:
   └─► Deterministic FINAL ───────────► Session bundle archive & deterministic run.md (0 model calls)
 ```
 
-*Degraded FORGE*: When `competition_status` is `NO_SECOND_DEFENSIBLE_BUNDLE`, FORGE deepens only `single_target`, skips the comparative review stage, and renders the skip reason in `run.md`.
+*Degraded BONK*: When `competition_status` is `NO_SECOND_DEFENSIBLE_BUNDLE`, BONK deepens only `single_target`, skips the comparative review stage, and renders the skip reason in `run.md`.
 
 ---
 

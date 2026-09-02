@@ -219,7 +219,7 @@ def portfolio_v2_payload(competition_status="TWO_DEFENSIBLE_BUNDLES", field_hash
     payload = {
         "schema_version": "pizm-portfolio-selection-v2",
         "stage": "portfolio",
-        "route": "FORGE",
+        "route": "BONK",
         "field_ref": field_ref,
         "field_hash": field_hash,
         "perspectives": {"P1": "pass01:c01", "P2": "pass01:c02"},
@@ -631,7 +631,7 @@ class TestForgeRendering:
         content1 = out1.read_text(encoding="utf-8")
 
         # Verify required sections (FG-MD1..FG-MD5)
-        assert "# Prism FORGE" in content1
+        assert "# Prism BONK" in content1
         assert "## Task" in content1
         assert "## Search Pass 1" in content1
         assert "## Search Pass 2" in content1
@@ -729,7 +729,7 @@ class TestForgeRendering:
         assert res.returncode == 0, res.stderr
 
         content = out.read_text(encoding="utf-8")
-        assert "# Prism FORGE" in content
+        assert "# Prism BONK" in content
         assert "NO_SECOND_DEFENSIBLE_BUNDLE" in content
         assert "Compare stage skipped" in content
         assert "## Deep B1" in content
@@ -773,7 +773,35 @@ class TestForgeRendering:
         out = tmp_path / "neg_auto.md"
         res = run_render(run_dir, TASK_TEXT, out)
         assert res.returncode != 0
-        assert "FORGE portfolio requires route=FORGE" in res.stderr
+        assert "BONK portfolio requires route=BONK" in res.stderr
+
+    def test_legacy_forge_route_still_renders(self, tmp_path):
+        """Reader accepts stored route=FORGE as BONK."""
+        run_id = "forge-legacy-read"
+        run_dir = tmp_path / ".ai" / "pizm" / f"run-{run_id}"
+        p1 = pass1_candidates_payload()
+        sha1 = freeze_stage(tmp_path, "explore", run_id, p1).stdout.split()[1]
+        p2 = pass2_candidates_payload()
+        sha2 = freeze_stage(tmp_path, "explore", run_id, p2, artifact_suffix="pass02").stdout.split()[1]
+        sha_sf = freeze_stage(tmp_path, "search-field", run_id, search_field_payload(sha1, sha2)).stdout.split()[1]
+        pv2 = portfolio_v2_payload("TWO_DEFENSIBLE_BUNDLES", field_hash=sha_sf, field_ref="search-field.json")
+        pv2["route"] = "FORGE"
+        raw_port = json.dumps(pv2, indent=2).encode("utf-8")
+        (run_dir / "portfolio.json").write_bytes(raw_port)
+        import hashlib
+        (run_dir / "portfolio.sha256").write_text(hashlib.sha256(raw_port).hexdigest(), encoding="utf-8")
+        sha_b1 = freeze_stage(tmp_path, "development-v2", run_id, development_v2_payload("B1", ["pass01:c01", "pass01:c02"]), target="B1").stdout.split()[1]
+        sha_b2 = freeze_stage(tmp_path, "development-v2", run_id, development_v2_payload("B2", ["pass01:c02", "pass02:c01"]), target="B2").stdout.split()[1]
+        freeze_stage(
+            tmp_path, "comparison-review-v1", run_id,
+            comparison_review_payload("LEFT", b1_ref="development-v2-B1.json", b1_hash=sha_b1, b2_ref="development-v2-B2.json", b2_hash=sha_b2),
+        )
+        out = tmp_path / "legacy.md"
+        res = run_render(run_dir, TASK_TEXT, out)
+        assert res.returncode == 0, res.stderr
+        text = out.read_text(encoding="utf-8")
+        assert text.startswith("# Prism BONK")
+
     def test_forge_render_rejects_v1_portfolio(self, tmp_path):
         """FORGE render rejects pizm-portfolio-selection-v1 (fails closed without coercion)."""
         run_id = "forge-neg-v1"
@@ -818,18 +846,30 @@ class TestForgeRendering:
 class TestForgeContractText:
     @pytest.mark.skipif(not MIRROR_PRESENT, reason="developer-machine skill mirror not installed")
     def test_forge_mirror_byte_identical(self):
-        staged = STAGED_SKILL_ROOT / "references" / "forge.md"
-        installed = INSTALLED_SKILL_ROOT / "references" / "forge.md"
+        staged = STAGED_SKILL_ROOT / "references" / "bonk.md"
+        installed = INSTALLED_SKILL_ROOT / "references" / "bonk.md"
         assert staged.exists()
         assert installed.exists()
         assert staged.read_bytes() == installed.read_bytes()
 
     def test_forge_contract_text_assertions(self):
-        forge_text = (STAGED_SKILL_ROOT / "references" / "forge.md").read_text(encoding="utf-8")
-        assert 'route: "FORGE"' in forge_text or 'route FORGE' in forge_text
+        forge_text = (STAGED_SKILL_ROOT / "references" / "bonk.md").read_text(encoding="utf-8")
+        assert 'route: "BONK"' in forge_text or 'route BONK' in forge_text
         assert "left_bundle_id" in forge_text
         assert "right_bundle_id" in forge_text
         assert "deep-compare.md" in forge_text
         assert 'bundle_a: "B1"' not in forge_text
         assert 'bundle_a' not in forge_text
         assert "review_B1" not in forge_text
+
+    def test_bonk_file_exists_and_forge_reference_gone(self):
+        assert (STAGED_SKILL_ROOT / "references" / "bonk.md").is_file()
+        assert not (STAGED_SKILL_ROOT / "references" / "forge.md").exists()
+
+    def test_forge_cli_alias_documented_in_skill(self):
+        skill = (STAGED_SKILL_ROOT / "SKILL.md").read_text(encoding="utf-8")
+        assert "/pizm bonk" in skill
+        assert "/pizm forge" in skill
+        assert "deprecated compatibility alias" in skill
+        assert "continue as BONK" in skill
+

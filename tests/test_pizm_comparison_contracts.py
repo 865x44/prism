@@ -135,7 +135,7 @@ def valid_portfolio_v2_payload(left_id="B1", right_id="B2", field_hash="abc123")
     return {
         "schema_version": "pizm-portfolio-selection-v2",
         "stage": "portfolio",
-        "route": "FORGE",
+        "route": "BONK",
         "field_ref": "search-field.json",
         "field_hash": field_hash,
         "candidate_assessments": [

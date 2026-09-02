@@ -1,6 +1,6 @@
-# Pizm FORGE Pipeline Contract
+# Pizm BONK Pipeline Contract
 
-FORGE is the heavy automated path of Pizm that performs two-pass Search, judges the accumulated field for competing composite models, develops both models independently (Deep left and Deep right), executes adversarial Critic and comparative reasoning, runs optional LEVER on a ready target, and renders a deterministic final report plus a readable `run.md`.
+BONK is the heavy automated path of Pizm that performs two-pass Search, judges the accumulated field for competing composite models, develops both models independently (Deep left and Deep right), executes adversarial Critic and comparative reasoning, runs optional LEVER on a ready target, and renders a deterministic final report plus a readable `run.md`.
 
 **Date:** 2026-08-25
 **Prerequisite:** Plan 1 semantic primitives (Search Field v1, deterministic B-IDs, Deep v2, Critic v2, LEVER, atomic freeze checkpoints, deterministic session renderer).
@@ -9,13 +9,13 @@ FORGE is the heavy automated path of Pizm that performs two-pass Search, judges 
 
 ## 1. Explicit Delegation Requirement
 
-FORGE executes ONLY via explicit user delegation:
+BONK executes ONLY via explicit user delegation:
 
 ```text
-/pizm forge <task>
+/pizm bonk <task>
 ```
 
-Manual Pizm modes (`/pizm`, `normal`, `explore`, `rift`, `360`, `deep`, `/pizm lever`, `/pizm auto`) NEVER trigger or emulate FORGE behavior. Discussing FORGE with the user remains possible without executing it.
+Manual Pizm modes (`/pizm`, `normal`, `explore`, `rift`, `360`, `deep`, `/pizm lever`, `/pizm auto`) NEVER trigger or emulate BONK behavior. Discussing BONK with the user remains possible without executing it.
 
 ---
 
@@ -29,7 +29,7 @@ Search(residual)
 → freeze explore pass 02 + search-field manifest
 
 Portfolio Judge over accumulated field
-→ identify two defensible competing Bundles when possible (pizm-portfolio-selection-v2, route FORGE)
+→ identify two defensible competing Bundles when possible (pizm-portfolio-selection-v2, route BONK)
 
 Deep(LEFT)
 → freeze development-v2-<left_target_id>
@@ -69,13 +69,13 @@ deterministic run.md rendering (zero model calls)
   - Soft ceiling: ~28 candidates across the accumulated field.
 - Freeze raw `pass02` via `bin/pizm-checkpoint freeze --stage explore --run-id <slug> --artifact-suffix pass02 --input <path>` -> creates `candidates-pass02.{json,sha256,meta.json}`.
 - Update the append-only search-field manifest (`pizm-search-field-v1`) naming `search-field-pass01.json` as `prior_ref` with its verified `prior_hash`, and freeze via `bin/pizm-checkpoint freeze --stage search-field --run-id <slug> --artifact-suffix pass02 --input <path>` -> creates `search-field-pass02.{json,sha256,meta.json}`.
-- **No automatic third Search.** FORGE v1 executes exactly two automatic Search passes.
+- **No automatic third Search.** BONK v1 executes exactly two automatic Search passes.
 
 ### Stage 3: Portfolio Judge over Accumulated Field
 - Reveal `references/explore-selector.md`.
 - Evaluate all accumulated candidates from both passes categorically and structurally.
 - Freeze one portfolio record conforming to `pizm-portfolio-selection-v2`:
-  - Enforce `route: "FORGE"`.
+  - Enforce `route: "BONK"`.
   - Enforce `field_ref` (pointing to the exact frozen search field JSON) and `field_hash` (matching its frozen SHA-256 sidecar).
   - Provide canonical `perspectives` mapping (`{"P1": "pass01:c01", "P2": "pass01:c02", "P3": "pass02:c01", ...}`) which strictly controls rendered perspective labels and continued P-IDs across passes.
   - Enforce `competition_status`: `"TWO_DEFENSIBLE_BUNDLES"` or `"NO_SECOND_DEFENSIBLE_BUNDLE"`.
@@ -155,8 +155,8 @@ If Portfolio records `competition_status: NO_SECOND_DEFENSIBLE_BUNDLE`:
 ## 5. Semantic Stage Budgets and Repairs
 
 ### Stage Budgets
-- **Analytical FORGE (2 Bundles):** Pass 1 + Pass 2 + Portfolio + Deep LEFT + Deep RIGHT + Critic/Compare = **6 semantic stages**.
-- **Action FORGE with LEVER (2 Bundles):** 6 + Lever Design + Lever Review = **8 semantic stages**.
+- **Analytical BONK (2 Bundles):** Pass 1 + Pass 2 + Portfolio + Deep LEFT + Deep RIGHT + Critic/Compare = **6 semantic stages**.
+- **Action BONK with LEVER (2 Bundles):** 6 + Lever Design + Lever Review = **8 semantic stages**.
 - **Degraded Single-Bundle Path:** 5 stages (analytical) or 7 stages (with LEVER).
 - Final assembly and `run.md` rendering add **zero** semantic stages.
 
@@ -171,5 +171,5 @@ The archive manifest records all six normalized counters:
 
 ### Bounded Repair Limits
 - Max 1 model repair per stage.
-- Max 2 model repairs across the entire FORGE run.
+- Max 2 model repairs across the entire BONK run.
 - If budget or repairs are exhausted, fail closed with `BUDGET_EXHAUSTED`.

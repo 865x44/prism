@@ -665,8 +665,8 @@ def _validate_comparison_review(
             raise ValueError("portfolio artifact is not valid JSON")
         if port_data.get("schema_version") != "pizm-portfolio-selection-v2":
             raise ValueError("comparison review requires pizm-portfolio-selection-v2 portfolio")
-        if port_data.get("route") != "FORGE":
-            raise ValueError("comparison review requires portfolio route FORGE")
+        if port_data.get("route") not in {"BONK", "FORGE"}:
+            raise ValueError("comparison review requires portfolio route BONK")
         if port_data.get("competition_status") != "TWO_DEFENSIBLE_BUNDLES":
             raise ValueError("comparison review requires portfolio competition_status TWO_DEFENSIBLE_BUNDLES")
         rec_comp = port_data.get("recommended_competition") or {}
@@ -988,8 +988,11 @@ def _validate_portfolio(
 
     route = data.get("route")
     if schema_version == "pizm-portfolio-selection-v2":
-        if route != "FORGE":
-            raise ValueError(f"pizm-portfolio-selection-v2 requires route 'FORGE', got {route!r}")
+        if route == "FORGE":
+            route = "BONK"
+            data["route"] = "BONK"
+        if route != "BONK":
+            raise ValueError(f"pizm-portfolio-selection-v2 requires route 'BONK', got {route!r}")
         if data.get("auto_target") is not None:
             raise ValueError("pizm-portfolio-selection-v2 forbids auto_target")
     else:
@@ -1443,8 +1446,8 @@ def _resolve_development_v2_next_contract(
 
     schema = port_data.get("schema_version")
     route = port_data.get("route")
-    if schema != "pizm-portfolio-selection-v2" or route != "FORGE":
-        # Non-v2 or route != FORGE (e.g. v1 MANUAL or AUTO) -> reveal deep-reviewer.md
+    if schema != "pizm-portfolio-selection-v2" or route not in {"BONK", "FORGE"}:
+        # Non-v2 or not BONK/legacy FORGE (e.g. v1 MANUAL or AUTO) -> reveal deep-reviewer.md
         return _read_contract_file(skill_root, "references/deep-reviewer.md")
 
     comp_status = port_data.get("competition_status")

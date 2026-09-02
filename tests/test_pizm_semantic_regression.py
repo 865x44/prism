@@ -156,7 +156,7 @@ def make_portfolio_payload(
     recommended_competition: dict = None,
 ):
     if schema_version == "pizm-portfolio-selection-v2" and route == "MANUAL":
-        route = "FORGE"
+        route = "BONK"
     if assessments is None:
         assessments = [
             {
@@ -1746,7 +1746,7 @@ class TestForgeEndToEndFixtures:
             field_hash=sf_hash,
             assessments=assessments,
             bundles=bundles,
-            route="FORGE",
+            route="BONK",
             schema_version="pizm-portfolio-selection-v2",
             competition_status=competition_status,
             recommended_competition=rec_comp,
@@ -1811,7 +1811,7 @@ class TestForgeEndToEndFixtures:
         res = run_render(run_dir, DEFAULT_TASK, out_md)
         assert res.returncode == 0, res.stderr
         content = out_md.read_text(encoding="utf-8")
-        assert "# Prism FORGE" in content
+        assert "# Prism BONK" in content
         assert "## Search Pass 1" in content
         assert "## Search Pass 2" in content
         assert "## Portfolio" in content
@@ -1831,7 +1831,7 @@ class TestForgeEndToEndFixtures:
         res = run_render(run_dir, DEFAULT_TASK, out_md)
         assert res.returncode == 0, res.stderr
         content = out_md.read_text(encoding="utf-8")
-        assert "# Prism FORGE" in content
+        assert "# Prism BONK" in content
         assert "## Deep B1" in content
         assert "## Deep B2" not in content  # No fake B2
         assert "- Outcome: NO_SECOND_DEFENSIBLE_BUNDLE" in content
