@@ -1674,10 +1674,21 @@ def test_render_html_with_ensure_reader_fallback(tmp_path):
     assert "(local reader server inactive)" in res.stdout
 
 
-def test_render_html_with_ensure_reader_active(tmp_path):
-    """When reader server is running, render-html --ensure-reader outputs READER_URL and returns 0."""
-    run_dir = tmp_path / "run-active-test"
-    run_dir.mkdir()
+def test_render_html_with_ensure_reader_canonical_e2e(tmp_path):
+    """Canonical E2E: <project>/.ai/pizm/run-foo/ with default root/output -> ensure -> GET returns 200 with HTML."""
+    import socket
+    import urllib.request
+    sock = socket.socket()
+    sock.bind(("127.0.0.1", 0))
+    free_port = sock.getsockname()[1]
+    sock.close()
+
+    # Canonical project layout
+    project = tmp_path / "my_project"
+    pizm_root = project / ".ai" / "pizm"
+    run_dir = pizm_root / "run-canonical77"
+    run_dir.mkdir(parents=True)
+
     cand = {
         "schema_version": "pizm-candidates-v1",
         "stage": "explore",
@@ -1685,45 +1696,51 @@ def test_render_html_with_ensure_reader_active(tmp_path):
         "candidates": [
             {
                 "candidate_id": "c01",
-                "title": "C1",
-                "semantic_core": {"claim": "c", "structural_shift": "s", "mechanism": "m", "grounding_anchor": "a", "what_becomes_visible": "v", "boundary": "b"},
-                "epistemics": {"supported": ["s"], "inferred": [], "speculative": [], "unknown": []},
+                "title": "Canonical Seed Alpha",
+                "semantic_core": {"claim": "Unique Mechanism", "structural_shift": "Shift", "mechanism": "Mech", "grounding_anchor": "Anchor", "what_becomes_visible": "Vis", "boundary": "Bound"},
+                "epistemics": {"supported": ["Fact"], "inferred": [], "speculative": [], "unknown": []},
             }
         ],
     }
     c_bytes = json.dumps(cand).encode("utf-8")
     (run_dir / "candidates-pass01.json").write_bytes(c_bytes)
-    (run_dir / "candidates-pass01.sha256").write_text(_sha256_hex(c_bytes))
+    sf_hash = _sha256_hex(c_bytes)
+    (run_dir / "candidates-pass01.sha256").write_text(sf_hash)
 
-    out_html = tmp_path / "run.html"
-    # Ephemeral free port test with reader server started
-    import socket
-    sock = socket.socket()
-    sock.bind(("127.0.0.1", 0))
-    free_port = sock.getsockname()[1]
-    sock.close()
-
+    port = {
+        "schema_version": "pizm-portfolio-selection-v1",
+        "stage": "portfolio",
+        "route": "AUTO",
+        "field_hash": sf_hash,
+        "candidate_assessments": [{"candidate_ref": "pass01:c01", "disposition": "KEEP"}],
+        "perspectives": {"P1": "pass01:c01"},
+        "auto_target": {"target_type": "P", "target_id": "P1"},
+    }
+    p_bytes = json.dumps(port).encode("utf-8")
+    (run_dir / "portfolio.json").write_bytes(p_bytes)
+    (run_dir / "portfolio.sha256").write_text(_sha256_hex(p_bytes))
     reader_cli = str(REPO_ROOT / "bin" / "pizm-reader-server")
-    # Start server on free_port
-    start_proc = subprocess.run(
-        [sys.executable, reader_cli, "start", "--port", str(free_port), "--root", str(tmp_path)],
-        capture_output=True,
-        text=True,
-    )
-    assert start_proc.returncode == 0, start_proc.stderr
-
     try:
+        # Run render-html with --ensure-reader WITHOUT --root or --output
         res = run_bundle(
             "render-html",
             "--run-dir", str(run_dir),
-            "--output", str(out_html),
             "--ensure-reader",
             "--port", str(free_port),
-            "--root", str(tmp_path),
         )
         assert res.returncode == 0, res.stderr
-        assert out_html.is_file()
+        expected_html = run_dir / "run.html"
+        assert expected_html.is_file()
         assert "RENDER_HTML_OK" in res.stdout
-        assert f"READER_URL http://127.0.0.1:{free_port}/run/active-test/" in res.stdout
+        expected_url = f"http://127.0.0.1:{free_port}/run/canonical77/"
+        assert f"READER_URL {expected_url}" in res.stdout
+
+        # Real HTTP GET to the printed URL: must return 200 and exact rendered run content
+        with urllib.request.urlopen(expected_url, timeout=3.0) as resp:
+            assert resp.status == 200
+            body = resp.read().decode("utf-8")
+            assert "<!DOCTYPE html>" in body
+            assert "Canonical Seed Alpha" in body
+            assert resp.headers.get("Cache-Control") == "no-store"
     finally:
-        subprocess.run([sys.executable, reader_cli, "stop", "--port", str(free_port), "--root", str(tmp_path)], capture_output=True)
+        subprocess.run([sys.executable, reader_cli, "stop", "--port", str(free_port), "--root", str(pizm_root)], capture_output=True)

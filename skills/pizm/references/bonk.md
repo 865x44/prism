@@ -139,14 +139,14 @@ deterministic run.md and run.html rendering (zero model calls)
   ```bash
   $HOME/.local/bin/pizm-session-bundle render-html --run-dir <run-dir> --task "<task>" --ensure-reader
   ```
-  - If the local reader server is active, the tool outputs `READER_URL http://127.0.0.1:4114/run/<slug>/`. Present this URL in the final report.
+  - If the local reader server is active, the tool outputs `READER_URL http://127.0.0.1:41144/run/<slug>/`. Present this URL in the final report.
   - If inactive or on port collision, the tool outputs `READER_FALLBACK file://<path>/run.html (local reader server inactive)`. Present this deterministic `file://` fallback.
 - In the final user-facing report, include the reading records:
   ```markdown
   ## Reading & Reader Record
   - **Readable Record**: `<run-dir>/run.md`
   - **Interactive Trace**: `<run-dir>/run.html`
-  - **Reader URL**: `http://127.0.0.1:4114/run/<slug>/` (or `file://<absolute-path>/run.html` if local reader server inactive)
+  - **Reader URL**: `http://127.0.0.1:41144/run/<slug>/` (or `file://<absolute-path>/run.html` if local reader server inactive)
   ```
 - Output is a pure, byte-identical function of frozen inputs.
 ---

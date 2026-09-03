@@ -2417,13 +2417,13 @@ def main() -> int:
     hp.add_argument(
         "--port",
         type=int,
-        default=4114,
-        help="Reader server port (default 4114)",
+        default=41144,
+        help="Reader server port (default 41144)",
     )
     hp.add_argument(
         "--root",
         default=None,
-        help="Reader server served root (defaults to parent project root of run_dir)",
+        help="Reader server served root (defaults to parent directory of run_dir)",
     )
 
 
@@ -2470,14 +2470,7 @@ def main() -> int:
 
         if getattr(args, "ensure_reader", False):
             run_dir = Path(args.run_dir).resolve()
-            if args.root:
-                root_path = Path(args.root).resolve()
-            elif run_dir.parent.name == "pizm" and run_dir.parent.parent.name == ".ai":
-                root_path = run_dir.parent.parent.parent.resolve()
-            elif run_dir.parent.name == "pizm":
-                root_path = run_dir.parent.parent.resolve()
-            else:
-                root_path = run_dir.parent.resolve()
+            root_path = Path(args.root).resolve() if args.root else run_dir.parent.resolve()
 
             reader_script = Path(__file__).resolve().parent / "pizm-reader-server"
             slug = run_dir.name

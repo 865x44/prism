@@ -144,11 +144,13 @@ def test_checkpoint_dynamic_skill_root_claude_only(tmp_path, monkeypatch):
     cand_file = project / "candidates.json"
     cand_file.write_text(json.dumps(cand_data), encoding="utf-8")
 
-    # Freeze without --skill-root: should dynamically discover ~/.claude/skills/pizm
+    # Freeze without --skill-root using the INSTALLED helper in ~/.local/bin:
+    # should dynamically discover ~/.claude/skills/pizm with no repo sibling present.
+    installed_checkpoint = str(tmp_path / ".local" / "bin" / "pizm-checkpoint")
     res_freeze = subprocess.run(
         [
             sys.executable,
-            CHECKPOINT_SCRIPT,
+            installed_checkpoint,
             "freeze",
             "--stage", "explore",
             "--run-id", "dyn-root-test",

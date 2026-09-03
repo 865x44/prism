@@ -57,7 +57,7 @@ AUTO TASK
    $HOME/.local/bin/pizm-session-bundle render-html --run-dir <run-dir> --task "<original task>" --ensure-reader
    ```
    - **Reader Link Contract**:
-     - If the local reader server is active, `pizm-session-bundle render-html --ensure-reader` outputs `READER_URL http://127.0.0.1:4114/run/<slug>/`. Present this URL in the final report.
+     - If the local reader server is active, `pizm-session-bundle render-html --ensure-reader` outputs `READER_URL http://127.0.0.1:41144/run/<slug>/`. Present this URL in the final report.
      - If the reader server is inactive or fails to start, the tool outputs `READER_OFFLINE file://<path>/run.html (local reader server inactive)`. Present this deterministic direct file URL.
      - Reader availability must NEVER block or fail the run: the semantic results and frozen artifacts are already authoritative.
    - **Artifact & Suffix Chain**: Checkpoint artifacts follow the standard freeze chain: `candidates-pass01.json`, `search-field-pass01.json`, `candidates-pass02.json`, `search-field-pass02.json`, `portfolio.json`, `development-v2.json`, `deep-review-v2.json` (and optional `design.json` / `review.json`).
@@ -126,7 +126,7 @@ AUTO TASK
 ## Reading & Reader Record
 - **Readable Record**: `<run-dir>/run.md`
 - **Interactive Trace**: `<run-dir>/run.html`
-- **Reader URL**: `http://127.0.0.1:4114/run/<slug>/` (or `file://<absolute-path>/run.html` if local reader server inactive)
+- **Reader URL**: `http://127.0.0.1:41144/run/<slug>/` (or `file://<absolute-path>/run.html` if local reader server inactive)
 ```
 
 After presenting FINAL, render `run.md` and `run.html` for the reading record: all candidate ideas appear compactly, the developed model and critic verdict are rendered fully enough for normal reading, and machine bookkeeping (hashes, schema strings, byte counts, repair/host counters) stays out of the readable document. Resolve the local reader link via `bin/pizm-session-bundle render-html --ensure-reader`, falling back deterministically to the local `file://` URL if the reader server is inactive.

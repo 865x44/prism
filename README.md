@@ -81,7 +81,7 @@ To install the skill and helper binaries:
 ./bin/install-pizm --host opencode      # installs to ~/.config/opencode/skills/pizm/
 ```
 
-This copies the canonical skill directory and symlinks the deterministic helpers (`pizm-checkpoint`, `pizm-session-bundle`, `pizm-reader-server`, `pizm_render_html.py`) to `~/.local/bin/`.
+This copies the canonical skill directory and copies the deterministic helpers (`pizm-checkpoint`, `pizm-session-bundle`, `pizm-reader-server`, `pizm_render_html.py`) to `~/.local/bin/`.
 
 Verify mirror integrity:
 
