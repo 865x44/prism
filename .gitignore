@@ -38,6 +38,7 @@ scratch_patch*.py
 .papercuts.jsonl
 skill.zip
 *.zip
+.reader-server-*.json
 
 # Local AI session logs and backup noise
 .ai/SESSION_LOG*
