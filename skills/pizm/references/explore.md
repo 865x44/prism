@@ -89,7 +89,7 @@ For each residual candidate, populate `difference_from_prior` along with the sem
 Deprecated compatibility alias. Retained for one release solely as a compatibility alias. A request for 360 executes the residual search policy (`Search(residual)`) above; the mode string stays accepted on read. Removal is deferred to a later plan. A 360 request never runs implicitly, is not a distinct semantic pipeline, and never means "a larger NORMAL".
 ### RIFT
 
-Rift is MANUAL-ONLY. It starts solely from an explicit `/pizm rift` user request. AUTO and BONK never auto-trigger a rift pass, and there is no hidden auto-trigger.
+Manual rift starts solely from an explicit `/pizm rift` user request. AUTO incorporates the RIFT search policy as its mandatory second Search pass before Portfolio; BONK uses residual search.
 
 Field handling:
 

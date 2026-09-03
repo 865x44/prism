@@ -1,12 +1,12 @@
 # Pizm AUTO v1 Pipeline Contract
 
-AUTO is an automated execution mode of Pizm that executes exactly one bounded path — Search(initial), Portfolio Judge, Deep on one nominated target, Critic review, optional LEVER — and then renders a deterministic final report plus a deterministic readable `run.md`.
+AUTO is an automated execution mode of Pizm that executes exactly one bounded path — Search(initial), Search(rift), Portfolio Judge, Deep on one nominated target, Critic review, optional LEVER — and then renders a deterministic final report plus a deterministic readable `run.md`.
 
 ## Explicit Delegation Requirement
 
 AUTO executes ONLY via explicit `/pizm auto <task>` user delegation. Manual Pizm modes (`/pizm`, `normal`, `explore`, `rift`, `360`, `deep`, `/pizm lever`) NEVER trigger or emulate AUTO behavior. Discussing AUTO with the user remains possible without executing it.
 
-AUTO enforces a strict single-target rule: exactly one nominated target (P or B) is deepened. There is no second Search pass, no second Deep, no alternative branch, no decide stage or inference, no secondary candidate concept, and no auto-360/RIFT/reroll/research loops.
+AUTO enforces a strict single-target rule: exactly one nominated target (P or B) is deepened. AUTO executes two bounded Search passes before Portfolio: Pass 1 (initial) and Pass 2 (rift). There is no third Search pass, no second Deep, no alternative branch, no decide stage or inference, no secondary candidate concept, and no auto-360 or reroll loops.
 
 ---
 
@@ -15,8 +15,11 @@ AUTO enforces a strict single-target rule: exactly one nominated target (P or B)
 The AUTO pipeline executes dynamic reasoning-budget routing based on the Portfolio Judge decision:
 
 ```text
-AUTO TASK → Search(initial) GENERATE → freeze explore pass + search-field manifest
-→ PORTFOLIO JUDGE → freeze portfolio record (route AUTO)
+AUTO TASK
+→ optional pre-search high-information questions (0–3)
+→ Search(initial) pass01 GENERATE → freeze explore pass01 + search-field manifest pass01
+→ Search(rift) pass02 GENERATE → freeze explore pass02 + search-field manifest pass02
+→ PORTFOLIO JUDGE over accumulated field → freeze portfolio record (route AUTO)
    ├─ [next_reasoning_move: DEEP]
    │  → DEEP(target) DEVELOP (development-v2) → freeze
    │  → CRITIC REVIEW (deep-review-v2) → freeze
@@ -33,21 +36,24 @@ AUTO TASK → Search(initial) GENERATE → freeze explore pass + search-field ma
 ### Stage Execution Details:
 
 1. **AUTO TASK**: Receive the user's task prompt via `/pizm auto <task>`.
-2. **Search(initial)**: Run ONE initial Search pass adhering to `references/explore.md` (soft target 12–16 candidates when supported; hard bounds 1..20 candidates, ≤ 192 KiB total payload, ≤ 12 KiB per candidate). Freeze the raw pass and register it in the append-only search-field manifest exactly as `references/explore.md` prescribes. This is the only Search of the run: no residual Search, no second Search, and no re-judgment loop exists inside AUTO.
-3. **PORTFOLIO JUDGE**: Reveal `references/explore-selector.md`. The judge evaluates the exact frozen field categorically and freezes one portfolio record conforming to `pizm-portfolio-selection-v1` with `route: "AUTO"` and chooses `next_reasoning_move`:
+   - **Optional Pre-search Information Gathering**: If different answers would materially change search territory or a visible route fork, permit 0–3 high-information clarifying questions. Consuming existing context first is mandatory. Pre-search questions are the primary clarification path.
+2. **Search Pass 1 (initial)**: Run initial Search adhering to `references/explore.md` (soft target 12–16 candidates when supported; hard bounds 1..20 candidates, ≤ 192 KiB total payload, ≤ 12 KiB per candidate). Freeze raw pass via `bin/pizm-checkpoint freeze --stage explore --run-id <slug> --artifact-suffix pass01 --input <path>` -> creates `candidates-pass01.json`. Register `pass01` in the append-only search-field manifest conforming to `pizm-search-field-v1` and freeze via `bin/pizm-checkpoint freeze --stage search-field --run-id <slug> --artifact-suffix pass01 --input <path>` -> creates `search-field-pass01.json`. No judging or selector reveal occurs after Pass 1.
+3. **Search Pass 2 (rift)**: Consume the frozen accumulated field from Pass 1. Using the already loaded `references/explore.md`, run second Search pass adhering to the RIFT search policy (searching for distant structural shifts, reframing unit of analysis/causality/scale, avoiding occupied territory). Freeze raw pass via `bin/pizm-checkpoint freeze --stage explore --run-id <slug> --artifact-suffix pass02 --input <path>` -> creates `candidates-pass02.json`. Update the search-field manifest naming `search-field-pass01.json` as `prior_ref` with verified `prior_hash` and freeze via `bin/pizm-checkpoint freeze --stage search-field --run-id <slug> --artifact-suffix pass02 --input <path>` -> creates `search-field-pass02.json`. No automatic third Search exists.
+4. **PORTFOLIO JUDGE**: Only after verified final search-field freeze, reveal `references/explore-selector.md`. The judge evaluates the exact accumulated field from both passes categorically and freezes one portfolio record conforming to `pizm-portfolio-selection-v1` with `route: "AUTO"`, explicit `field_ref: "search-field-pass02.json"` matching `field_hash`, and chooses `next_reasoning_move`:
    - `DEEP`: nominates exactly one `auto_target` (`{"target_type": "P"|"B", "target_id": ...}`) and an optional live `rival_shadow`. Proceeds to Deep development.
-   - `GATHER_INFORMATION`: intentional completed terminal outcome. Emits an `information_request` (1–3 questions for `USER_QUESTION` or observation for `EXTERNAL_OBSERVATION`) and terminates without developing Deep or invoking Critic/LEVER.
+   - `GATHER_INFORMATION`: intentional completed terminal outcome. Reserved strictly for a newly discovered material route fork surfaced by Search/RIFT/Portfolio that could not reasonably have been asked before search. If pre-search questions were already asked, prefer 1 additional question, not a routine questionnaire. Emits an `information_request` (mode `USER_QUESTION` or `EXTERNAL_OBSERVATION`) and terminates without developing Deep or invoking Critic/LEVER.
    - `PRESERVE_ONLY`: intentional completed terminal outcome. Preserves the field without further reasoning spend and terminates without developing Deep or invoking Critic/LEVER.
    - **Task orientation**: while judging, classify the task as `ANALYTICAL` or `ACTION_OR_DECISION`, reusing the existing bounded judgment already exercised in the conversation (no classifier call, no extra model turn, no new semantic abstraction). If genuinely ambiguous, default to `ANALYTICAL`. Orientation is conversational routing metadata; it adds no semantic stage.
-4. **DEEP(target) DEVELOP**: If `next_reasoning_move == "DEEP"`, deepen exactly the nominated target following `references/deep.md` under the development-v2 contract. The developed artifact's target must equal the portfolio's `auto_target` verbatim: a promoted perspective (`P<n>`, identity lock preserving its `p_id`) or a proposed bundle (`B<n>`, identity lock freezing `member_refs`; one Bundle = one Deep, never per-member mini-Deeps). Single Deep only. If `rival_shadow` was frozen in Portfolio, Deep receives it and records `comparative_standing`.
-5. **Freeze Deep**: Freeze the development-v2 artifact before any review begins.
-7. **Conditional LEVER Primitive**:
+5. **DEEP(target) DEVELOP**: If `next_reasoning_move == "DEEP"`, deepen exactly the nominated target following `references/deep.md` under the development-v2 contract. The developed artifact's target must equal the portfolio's `auto_target` verbatim: a promoted perspective (`P<n>`, identity lock preserving its `p_id`) or a proposed bundle (`B<n>`, identity lock freezing `member_refs`; one Bundle = one Deep, never per-member mini-Deeps). Single Deep only. If `rival_shadow` was frozen in Portfolio, Deep receives it and records `comparative_standing`.
+6. **Freeze Deep**: Freeze the development-v2 artifact before any review begins. In AUTO mode, the checkpoint will reveal `references/deep-reviewer.md`.
+7. **CRITIC REVIEW**: Execute independent critic review following `references/deep-reviewer.md` under the `pizm-deep-review-v2` contract and freeze the review artifact.
+8. **Conditional LEVER Primitive**:
    - If `terminal_state == "MODEL_READY"` AND `task_orientation == "ACTION_OR_DECISION"`:
      Execute the same manual LEVER primitive (`references/lever.md` and `references/lever-reviewer.md`) using identical prompts and review logic as `/pizm lever`, with zero duplication.
    - Otherwise (if `task_orientation == "ANALYTICAL"` or `terminal_state != "MODEL_READY"`):
      Do not invoke LEVER.
-8. **FINAL Assembly + run.md**: Assemble the final output deterministically from frozen artifacts (Section 3). You must archive the run via `bin/pizm-session-bundle create` providing the required ephemeral accounting input (`--accounting`). Then render the readable `run.md` deterministically with the session-bundle tool (`bin/pizm-session-bundle render --run-dir <run-dir> --task "<original task>"`). The renderer reads ONLY frozen checkpoint artifacts, emits byte-identical output for identical inputs, and performs zero model calls.
-   - **Artifact & Suffix Chain**: Checkpoint artifacts follow the standard freeze chain: `candidates.json` (or `candidates-pass01.json`), `search-field.json` (or `search-field-pass01.json`), `portfolio.json`, `development-v2.json`, `deep-review-v2.json` (and optional `design.json` / `review.json`).
+9. **FINAL Assembly + run.md**: Assemble the final output deterministically from frozen artifacts (Section 3). You must archive the run via `bin/pizm-session-bundle create` providing the required ephemeral accounting input (`--accounting`). Then render the readable `run.md` deterministically with the session-bundle tool (`bin/pizm-session-bundle render --run-dir <run-dir> --task "<original task>"`). The renderer reads ONLY frozen checkpoint artifacts, emits byte-identical output for identical inputs, and performs zero model calls.
+   - **Artifact & Suffix Chain**: Checkpoint artifacts follow the standard freeze chain: `candidates-pass01.json`, `search-field-pass01.json`, `candidates-pass02.json`, `search-field-pass02.json`, `portfolio.json`, `development-v2.json`, `deep-review-v2.json` (and optional `design.json` / `review.json`).
    - **Ephemeral Accounting Contract**: `--accounting <path>` supplies caller-provided bounded non-derived counts (`host_inference_count`, `model_repair_count`, `checkpoint_retry_count`). The bundle computes and validates derived counts (`semantic_stage_count`, `candidate_bytes`, `development_bytes`). The archive manifest records the normalized six-counter object; the ephemeral accounting file is never archived into inputs.
 
 ---
@@ -120,8 +126,8 @@ After presenting FINAL, render `run.md` for the reading record: all candidate id
 
 ### Semantic Stage Budget
 
-- Base AUTO path: Generate + Portfolio + Deep + Critic = 4 semantic stages.
-- Optional LEVER: Design + Review add 2 semantic stages = 6 semantic stages total.
+- Base AUTO path: Search(initial) + Search(rift) + Portfolio + Deep + Critic = 5 semantic stages.
+- Optional LEVER: Design + Review add 2 semantic stages = 7 semantic stages total.
 - FINAL assembly and `run.md` rendering are deterministic: they add zero semantic stages.
 
 ### Accounting and Counters

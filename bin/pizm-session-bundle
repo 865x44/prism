@@ -1577,7 +1577,12 @@ def _render_search_pass(candidates_data: dict, pass_num: int) -> str:
     lines = [f"## Search Pass {pass_num}", ""]
     mode = candidates_data.get("mode")
     if isinstance(mode, str):
-        policy_label = "residual" if pass_num == 2 else "initial"
+        if mode.upper() == "RIFT":
+            policy_label = "rift"
+        elif pass_num == 2:
+            policy_label = "residual"
+        else:
+            policy_label = "initial"
         lines.append(f"Search policy: {policy_label} pass ({mode}).")
         lines.append("")
     cands = [c for c in candidates_data.get("candidates") or [] if isinstance(c, dict)]
@@ -1612,6 +1617,20 @@ def _render_search_pass(candidates_data: dict, pass_num: int) -> str:
             ]
             if parts:
                 lines.append(_bullet("Epistemics", "; ".join(parts)))
+        bc = c.get("break_condition")
+        if isinstance(bc, str) and bc.strip():
+            lines.append(_bullet("Break condition", bc))
+        rextras = c.get("rift_extras")
+        if isinstance(rextras, dict):
+            src_struct = rextras.get("source_structure")
+            if isinstance(src_struct, str) and src_struct.strip():
+                lines.append(_bullet("Source structure", src_struct))
+            fn_map = rextras.get("functional_mapping")
+            if isinstance(fn_map, str) and fn_map.strip():
+                lines.append(_bullet("Functional mapping", fn_map))
+            ret_p = rextras.get("return_path")
+            if isinstance(ret_p, str) and ret_p.strip():
+                lines.append(_bullet("Return path", ret_p))
         lines.append("")
     return "\n".join(lines).rstrip("\n")
 
@@ -1871,20 +1890,36 @@ def _render_auto_run_md(
     portfolio: dict,
 ) -> int:
     try:
-        candidates_name = "candidates.json"
-        if not (run_dir / candidates_name).is_file():
+        pass1_file = "candidates.json"
+        if not (run_dir / pass1_file).is_file():
             if (run_dir / "candidates-pass01.json").is_file():
-                candidates_name = "candidates-pass01.json"
+                pass1_file = "candidates-pass01.json"
             else:
                 return _die("missing artifact: candidates.json")
-        _verify_frozen_sidecar(run_dir, candidates_name)
-        candidates_data = _load_frozen_json(run_dir, candidates_name)
+        _verify_frozen_sidecar(run_dir, pass1_file)
+        pass1_data = _load_frozen_json(run_dir, pass1_file)
 
-        cand_index = _candidate_index(candidates_data, 'pass01')
+        pass2_file = None
+        pass2_data = None
+        for p2_cand in ("candidates-pass02.json", "search-pass02.json"):
+            if (run_dir / p2_cand).is_file():
+                pass2_file = p2_cand
+                pass2_data = _load_frozen_json(run_dir, p2_cand)
+                _verify_frozen_sidecar(run_dir, p2_cand)
+                break
+
+        cand_index = _candidate_index(pass1_data, "pass01")
+        if pass2_data:
+            cand_index.update(_candidate_index(pass2_data, "pass02"))
+
         auto_target, p_map = _validate_auto_portfolio(portfolio, cand_index)
         next_move = portfolio.get("next_reasoning_move")
 
-        search_field_name = _SEARCH_FIELD_NAME if (run_dir / _SEARCH_FIELD_NAME).is_file() else None
+        search_field_name = None
+        for sf_cand in ("search-field-pass02.json", "search-field-pass01.json", _SEARCH_FIELD_NAME):
+            if (run_dir / sf_cand).is_file():
+                search_field_name = sf_cand
+                break
         if search_field_name:
             _verify_frozen_sidecar(run_dir, search_field_name)
             sf_data = _load_frozen_json(run_dir, search_field_name)
@@ -1896,12 +1931,18 @@ def _render_auto_run_md(
                 if entry not in cand_index:
                     raise ValueError(f"unknown search field entry: {entry!r}")
 
+        search_sections = []
+        if pass2_data:
+            search_sections.append(_render_search_pass(pass1_data, 1))
+            search_sections.append(_render_search_pass(pass2_data, 2))
+        else:
+            search_sections.append(_render_search_section(pass1_data))
         if next_move in ("GATHER_INFORMATION", "PRESERVE_ONLY"):
             sections = [
                 "# Prism AUTO",
                 "## Task\n\n" + task.strip(),
             ]
-            sections.append(_render_search_section(candidates_data))
+            sections.extend(search_sections)
             sections.append(_render_portfolio_section(portfolio, cand_index, p_map))
             bundles_section = _render_bundles_section(portfolio, cand_index, p_map)
             if bundles_section:
@@ -1937,11 +1978,12 @@ def _render_auto_run_md(
                 final_lines.append("- Honest stop: PRESERVE_ONLY — field preserved without deep development; no further primitives executed.")
             sections.append("\n".join(final_lines))
 
-            machine_names = [
-                candidates_name,
-                search_field_name,
-                "portfolio.json",
-            ]
+            machine_names = [pass1_file]
+            if pass2_file:
+                machine_names.append(pass2_file)
+            if search_field_name:
+                machine_names.append(search_field_name)
+            machine_names.append("portfolio.json")
             machine_lines = ["## Machine artifacts", ""]
             machine_lines.extend(f"- {n}" for n in sorted(n for n in machine_names if n))
             sections.append("\n".join(machine_lines))
@@ -1991,7 +2033,7 @@ def _render_auto_run_md(
         "# Prism AUTO",
         "## Task\n\n" + task.strip(),
     ]
-    sections.append(_render_search_section(candidates_data))
+    sections.extend(search_sections)
     sections.append(_render_portfolio_section(portfolio, cand_index, p_map))
     bundles_section = _render_bundles_section(portfolio, cand_index, p_map)
     if bundles_section:
@@ -2003,15 +2045,18 @@ def _render_auto_run_md(
         sections.append(_render_lever_section(design, lever_review))
     sections.append(_render_final_section(auto_target, development, review, lever_review))
 
-    machine_names = [
-        candidates_name,
-        search_field_name,
+    machine_names = [pass1_file]
+    if pass2_file:
+        machine_names.append(pass2_file)
+    if search_field_name:
+        machine_names.append(search_field_name)
+    machine_names.extend([
         "portfolio.json",
         dev_name,
         rev_name,
         _LEVER_DESIGN_NAME if design else None,
         _LEVER_REVIEW_NAME if lever_review else None,
-    ]
+    ])
     machine_lines = ["## Machine artifacts", ""]
     machine_lines.extend(f"- {n}" for n in sorted(n for n in machine_names if n))
     sections.append("\n".join(machine_lines))

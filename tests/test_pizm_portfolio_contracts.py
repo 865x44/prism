@@ -29,6 +29,7 @@ INSTALLED_SELECTOR = INSTALLED_ROOT / "references" / "explore-selector.md"
 EXPECTED_OUTLINE = {
     "schema_version": "pizm-portfolio-selection-v1",
     "route": "MANUAL|AUTO",
+    "field_ref": "search-field-pass02.json",
     "field_hash": "...",
     "candidate_assessments": [
         {
@@ -281,9 +282,8 @@ class TestCheckpointWiring:
         assert "_PORTFOLIO_MAX_TOTAL_BYTES = 163840" in checkpoint_source
 
     def test_contract_map_entries(self, checkpoint_source):
-        assert '"search-field": "references/explore.md"' in checkpoint_source
-        assert '"portfolio": "references/explore-selector.md"' in checkpoint_source
-
+        assert '"search-field": None' in checkpoint_source
+        assert '"portfolio": None' in checkpoint_source
     def test_schema_versions_registered(self, checkpoint_source):
         assert '"search-field": "pizm-search-field-v1"' in checkpoint_source
         assert '"portfolio": "pizm-portfolio-selection-v1"' in checkpoint_source

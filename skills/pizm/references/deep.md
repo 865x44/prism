@@ -165,9 +165,23 @@ This is a tool-only pre-freeze turn. Emit ZERO visible prose. The assistant turn
 ```bash
 $HOME/.local/bin/pizm-checkpoint freeze --stage development-v2 --run-id <random-lowercase-slug> --input <pending-json-path>
 ```
+The checkpoint will freeze the artifact. In AUTO mode, it reveals the critic contract. In manual mode, it reveals nothing (STOP).
 
-The checkpoint will freeze the artifact and reveal the next contract.
+## Post-Freeze User Presentation (Manual Mode)
 
+In manual mode (when no AUTO contract is revealed after FREEZE_OK):
+1. Stop execution: do not auto-chain into Critic or start another Explore pass.
+2. Present the developed deliverable directly in this turn from the frozen development artifact (without new semantic reasoning or regeneration):
+   - **Target identity & thesis**: `<target_id>` — `<title>` and `<thesis>`.
+   - **Synthesis**: render the full analytical synthesis prose for the user (do not summarize or drop it).
+   - **Load-bearing claims**: list the claims with their developer epistemic statuses (`SUPPORTED`, `INFERRED`, `SPECULATIVE`, `UNKNOWN`).
+   - **Evidence debt**: state what would need to be checked or measured.
+   - **Manual next-state handoff**: conclude with the explicit handoff:
+     ```text
+     Developed. Not yet Critic-reviewed.
+     Next available: Critic / continue exploration.
+     ```
+     (In Russian / user's language: «Разработано. Ещё не прошло ревью Критика. Доступно далее: Критик / продолжить исследование.»)
 ## Bounded Correction
 
 If the checkpoint fails:

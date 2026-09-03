@@ -479,9 +479,8 @@ def test_contract_present_after_success(workspace):
 
     assert result.returncode == 0
     assert "FREEZE_OK" in result.stdout
-    assert "NEXT CONTRACT" in result.stdout
-    assert "EXPLORE SELECTOR RUBRIC" in result.stdout
-
+    # Explore stage does not auto-reveal selector; manual search halts cleanly
+    assert "NEXT CONTRACT" not in result.stdout
 
 def test_deep_contract_present(workspace):
     project, skill = workspace
@@ -498,9 +497,9 @@ def test_deep_contract_present(workspace):
 
 def test_contract_before_freeze_ok_ordering(workspace):
     project, skill = workspace
-    inp = write_json(project / "cand.json", valid_explore())
+    inp = write_json(project / "dev.json", valid_deep())
 
-    result = run_ck("freeze", "--stage", "explore", "--run-id", "order-test",
+    result = run_ck("freeze", "--stage", "deep", "--run-id", "order-test",
                     "--input", inp, "--project-root", str(project),
                     "--skill-root", str(skill))
 
@@ -510,48 +509,45 @@ def test_contract_before_freeze_ok_ordering(workspace):
     contract_idx = next(i for i, l in enumerate(lines) if "NEXT CONTRACT" in l)
     assert freeze_idx < contract_idx
 
-
 def test_missing_contract_nonzero_and_cleanup(workspace):
     """Missing contract file → nonzero exit, no artifacts left behind, retry succeeds."""
     project, skill = workspace
-    # Delete the explore contract
-    contract_path = skill / "references" / "explore-selector.md"
+    # Delete the deep reviewer contract
+    contract_path = skill / "references" / "deep-reviewer.md"
     contract_path.unlink()
 
-    inp = write_json(project / "cand.json", valid_explore())
-    result = run_ck("freeze", "--stage", "explore", "--run-id", "no-contract",
+    inp = write_json(project / "dev.json", valid_deep())
+    result = run_ck("freeze", "--stage", "deep", "--run-id", "no-contract",
                     "--input", inp, "--project-root", str(project),
                     "--skill-root", str(skill))
 
     assert result.returncode != 0
     assert "contract" in result.stderr.lower()
     assert "references/" not in result.stderr
-    assert "explore-selector" not in result.stderr
+    assert "deep-reviewer" not in result.stderr
     run_dir = project / ".ai" / "pizm" / "run-no-contract"
-    assert not (run_dir / "candidates.json").exists()
-    assert not (run_dir / "candidates.sha256").exists()
-    assert not (run_dir / "candidates.meta.json").exists()
+    assert not (run_dir / "development.json").exists()
+    assert not (run_dir / "development.sha256").exists()
+    assert not (run_dir / "development.meta.json").exists()
 
     # Restore contract and retry with SAME run-id
-    contract_path.write_text("# EXPLORE SELECTOR RUBRIC\nhidden rubric")
-    retry = run_ck("freeze", "--stage", "explore", "--run-id", "no-contract",
+    contract_path.write_text("# DEEP REVIEWER RUBRIC\nhidden rubric")
+    retry = run_ck("freeze", "--stage", "deep", "--run-id", "no-contract",
                    "--input", inp, "--project-root", str(project),
                    "--skill-root", str(skill))
     assert retry.returncode == 0
     assert "FREEZE_OK" in retry.stdout
-    assert (run_dir / "candidates.json").exists()
-    assert (run_dir / "candidates.sha256").exists()
-    assert (run_dir / "candidates.meta.json").exists()
-
-
+    assert (run_dir / "development.json").exists()
+    assert (run_dir / "development.sha256").exists()
+    assert (run_dir / "development.meta.json").exists()
 
 def test_no_hidden_path_in_errors(workspace):
     """Error messages must not reveal hidden contract file paths."""
     project, skill = workspace
-    (skill / "references" / "explore-selector.md").unlink()
+    (skill / "references" / "deep-reviewer.md").unlink()
 
-    inp = write_json(project / "cand.json", valid_explore())
-    result = run_ck("freeze", "--stage", "explore", "--run-id", "no-path-leak",
+    inp = write_json(project / "dev.json", valid_deep())
+    result = run_ck("freeze", "--stage", "deep", "--run-id", "no-path-leak",
                     "--input", inp, "--project-root", str(project),
                     "--skill-root", str(skill))
 
@@ -559,7 +555,6 @@ def test_no_hidden_path_in_errors(workspace):
     assert "explore-selector" not in result.stderr
     assert "deep-reviewer" not in result.stderr
     assert "references/" not in result.stderr
-
 
 # ── Corrupted read-back ───────────────────────────────────────────────
 
@@ -897,10 +892,8 @@ def test_checkpoint_from_unrelated_cwd(tmp_path):
     expected_hash = hashlib.sha256(candidates.read_bytes()).hexdigest()
     assert sidecar.read_text() == expected_hash
 
-    # Verify contract was revealed
-    assert "NEXT CONTRACT" in result.stdout
-    assert "Explore Selector Stub" in result.stdout
-
+    # Verify explore does not auto-reveal selector
+    assert "NEXT CONTRACT" not in result.stdout
     # Verify nothing landed in the unrelated cwd
     assert not (unrelated_cwd / ".ai").exists()
 
@@ -924,8 +917,7 @@ def test_candidate_count_up_to_20_accepted(workspace):
 
     assert result.returncode == 0, result.stderr
     assert "FREEZE_OK" in result.stdout
-    assert "NEXT CONTRACT" in result.stdout
-
+    assert "NEXT CONTRACT" not in result.stdout
 
 def test_candidate_count_21_rejected_payload_too_large(workspace):
     """Candidate pool of 21 must be rejected with PAYLOAD_TOO_LARGE and fail closed."""
@@ -1385,9 +1377,7 @@ def test_search_field_freeze_success(workspace):
     assert (run_dir / "search-field.meta.json").exists()
     meta = json.loads((run_dir / "search-field.meta.json").read_text())
     assert meta["schema_version"] == "pizm-search-field-v1"
-    assert meta["stage"] == "search-field"
-    assert "# EXPLORE GENERATOR CONTRACT" in result.stdout
-
+    assert "NEXT CONTRACT" not in result.stdout
 
 def test_search_field_payload_too_large(workspace):
     project, skill = workspace
@@ -1512,9 +1502,8 @@ def test_portfolio_manual_freeze_success(workspace):
     assert (run_dir / "portfolio.meta.json").exists()
     meta = json.loads((run_dir / "portfolio.meta.json").read_text())
     assert meta["schema_version"] == "pizm-portfolio-selection-v1"
-    # Contract map: portfolio reveals the selector reference after freeze.
-    assert "EXPLORE SELECTOR RUBRIC" in result.stdout
-
+    # Contract map: manual portfolio does not reveal selector
+    assert "NEXT CONTRACT" not in result.stdout
 
 @pytest.mark.parametrize(
     "target,valid",
@@ -1851,9 +1840,36 @@ def test_development_v2_freeze_success_p(workspace):
     result = freeze_dev_v2(workspace, valid_dev_v2("P", "P7"), "dev2-p")
     assert result.returncode == 0, result.stderr
     assert "FREEZE_OK" in result.stdout
-    # Reveal semantics: development-v2 freeze reveals the hidden critic contract
-    assert "DEEP REVIEWER RUBRIC" in result.stdout
+    # Reveal semantics: manual development-v2 freeze does NOT reveal critic (STOP)
+    assert "NEXT CONTRACT" not in result.stdout
+    assert "DEEP REVIEWER RUBRIC" not in result.stdout
     run_dir = project / ".ai" / "pizm" / "run-dev2-p"
+    assert (run_dir / "development-v2.json").exists()
+    assert (run_dir / "development-v2.sha256").exists()
+    assert (run_dir / "development-v2.meta.json").exists()
+
+
+def test_development_v2_freeze_auto_reveals_critic(workspace):
+    """AUTO route development-v2 freeze reveals deep-reviewer.md."""
+    project, skill = workspace
+    run_id = "dev2-auto"
+    run_dir = project / ".ai" / "pizm" / f"run-{run_id}"
+    run_dir.mkdir(parents=True, exist_ok=True)
+
+    auto_port = valid_portfolio()
+    auto_port["route"] = "AUTO"
+    auto_port["next_reasoning_move"] = "DEEP"
+    auto_port["next_reasoning_rationale"] = "Developing P7."
+    auto_port["auto_target"] = {"target_type": "P", "target_id": "P7"}
+    write_json(run_dir / "portfolio.json", auto_port)
+    port_raw = (run_dir / "portfolio.json").read_bytes()
+    (run_dir / "portfolio.sha256").write_text(hashlib.sha256(port_raw).hexdigest())
+
+    result = freeze_dev_v2(workspace, valid_dev_v2("P", "P7"), run_id)
+    assert result.returncode == 0, result.stderr
+    assert "FREEZE_OK" in result.stdout
+    assert "--- NEXT CONTRACT ---" in result.stdout
+    assert "DEEP REVIEWER RUBRIC" in result.stdout
     assert (run_dir / "development-v2.json").exists()
     assert (run_dir / "development-v2.sha256").exists()
     assert (run_dir / "development-v2.meta.json").exists()
@@ -2289,36 +2305,35 @@ def test_post_write_cleanup_and_retry_parameterized(workspace, stage_kind, failu
     script_to_run = CHECKPOINT
     contract_to_restore = None
 
+    corrupt_script = project / f"corrupt_{failure_type}.py"
+    orig_code = Path(CHECKPOINT).read_text(encoding="utf-8")
     if failure_type == "contract_fail":
-        contract_path = skill / "references" / "explore-selector.md" if failing_stage == "explore" else skill / "references" / "deep-reviewer.md"
-        if contract_path.exists():
-            contract_content = contract_path.read_text(encoding="utf-8")
-            contract_path.unlink()
-            contract_to_restore = (contract_path, contract_content)
-    else:
-        corrupt_script = project / f"corrupt_{failure_type}.py"
-        orig_code = Path(CHECKPOINT).read_text(encoding="utf-8")
-        if failure_type == "sha_fail":
-            # Break sha256 writing
-            patched = orig_code.replace(
-                '_durable_exclusive_write(sha_path, computed_hash.encode("utf-8"))',
-                'raise OSError("injected sha write failure")',
-            )
-        elif failure_type == "meta_fail":
-            # Break metadata writing
-            patched = orig_code.replace(
-                'meta_path, json.dumps(meta, indent=2).encode("utf-8")',
-                'raise OSError("injected meta write failure")',
-            )
-        elif failure_type == "readback_corrupt":
-            # Force readback hash mismatch
-            patched = orig_code.replace(
-                'if _sha256_hex(readback) != computed_hash:',
-                'if True:  # forced hash mismatch',
-            )
-        corrupt_script.write_text(patched, encoding="utf-8")
-        corrupt_script.chmod(0o755)
-        script_to_run = str(corrupt_script)
+        # Inject failure at post-write contract reveal point
+        patched = orig_code.replace(
+            "# Read contract AFTER hash-confirmed freeze.",
+            '_cleanup_stage(run_dir, prefix)\n    return _die("cannot read next-stage contract")',
+        )
+    elif failure_type == "sha_fail":
+        # Break sha256 writing
+        patched = orig_code.replace(
+            '_durable_exclusive_write(sha_path, computed_hash.encode("utf-8"))',
+            'raise OSError("injected sha write failure")',
+        )
+    elif failure_type == "meta_fail":
+        # Break metadata writing
+        patched = orig_code.replace(
+            'meta_path, json.dumps(meta, indent=2).encode("utf-8")',
+            'raise OSError("injected meta write failure")',
+        )
+    elif failure_type == "readback_corrupt":
+        # Force readback hash mismatch
+        patched = orig_code.replace(
+            'if _sha256_hex(readback) != computed_hash:',
+            'if True:  # forced hash mismatch',
+        )
+    corrupt_script.write_text(patched, encoding="utf-8")
+    corrupt_script.chmod(0o755)
+    script_to_run = str(corrupt_script)
 
     # Run failing freeze
     cmd = [
@@ -2609,3 +2624,126 @@ class TestForgeRoute:
                      "--project-root", str(project), "--skill-root", str(skill))
         assert res.returncode == 0, res.stderr
         assert "FREEZE_OK" in res.stdout
+
+
+class TestPolishingWaveInvariants:
+    """Invariants for AUTO two-pass, field provenance, and manual deep stop."""
+
+    def test_multi_pass_portfolio_without_field_ref_fails_closed(self, workspace):
+        project, skill = workspace
+        run_id = "pw-multi-no-ref"
+        run_dir = project / ".ai" / "pizm" / f"run-{run_id}"
+        run_dir.mkdir(parents=True, exist_ok=True)
+
+        # Pre-populate multi-pass search fields
+        sf1 = write_json(run_dir / "search-field-pass01.json", {"dummy": 1})
+        (run_dir / "search-field-pass01.sha256").write_text("1" * 64)
+        sf2 = write_json(run_dir / "search-field-pass02.json", {"dummy": 2})
+        (run_dir / "search-field-pass02.sha256").write_text("2" * 64)
+
+        port = valid_portfolio()
+        port["field_ref"] = None  # omitted
+        inp = write_json(project / "port_no_ref.json", port)
+        res = run_ck("freeze", "--stage", "portfolio", "--run-id", run_id, "--input", inp,
+                     "--project-root", str(project), "--skill-root", str(skill))
+        assert res.returncode != 0
+        assert "multi-pass portfolio requires explicit field_ref pointing to final search field" in res.stderr
+
+    def test_multi_pass_portfolio_with_field_ref_verifies_ok(self, workspace):
+        project, skill = workspace
+        run_id = "pw-multi-with-ref"
+        run_dir = project / ".ai" / "pizm" / f"run-{run_id}"
+        run_dir.mkdir(parents=True, exist_ok=True)
+
+        cand1_raw = json.dumps(valid_explore()).encode("utf-8")
+        (run_dir / "candidates-pass01.json").write_bytes(cand1_raw)
+        cand1_hash = hashlib.sha256(cand1_raw).hexdigest()
+        (run_dir / "candidates-pass01.sha256").write_text(cand1_hash)
+
+        sf_data = {
+            "schema_version": "pizm-search-field-v1",
+            "stage": "search-field",
+            "passes": [{"pass_id": "pass01", "candidates_ref": "candidates-pass01.json", "frozen_hash": cand1_hash}],
+            "entries": ["pass01:c01", "pass01:c02"],
+        }
+        sf_raw = json.dumps(sf_data, indent=2).encode("utf-8")
+        (run_dir / "search-field-pass02.json").write_bytes(sf_raw)
+        sf_hash = hashlib.sha256(sf_raw).hexdigest()
+        (run_dir / "search-field-pass02.sha256").write_text(sf_hash)
+
+        port = valid_portfolio()
+        port["field_ref"] = "search-field-pass02.json"
+        port["field_hash"] = sf_hash
+        inp = write_json(project / "port_with_ref.json", port)
+        res = run_ck("freeze", "--stage", "portfolio", "--run-id", run_id, "--input", inp,
+                     "--project-root", str(project), "--skill-root", str(skill))
+        assert res.returncode == 0, res.stderr
+        assert "FREEZE_OK" in res.stdout
+
+    def test_manual_portfolio_development_stops_without_critic(self, workspace):
+        project, skill = workspace
+        run_id = "pw-man-stop"
+        run_dir = project / ".ai" / "pizm" / f"run-{run_id}"
+        run_dir.mkdir(parents=True, exist_ok=True)
+
+        port_raw = json.dumps(valid_portfolio()).encode("utf-8")
+        (run_dir / "portfolio.json").write_bytes(port_raw)
+        (run_dir / "portfolio.sha256").write_text(hashlib.sha256(port_raw).hexdigest())
+
+        dev_payload = valid_dev_v2("P", "P7")
+        inp_dev = write_json(project / "dev_man.json", dev_payload)
+        res = run_ck("freeze", "--stage", "development-v2", "--run-id", run_id,
+                     "--input", inp_dev, "--project-root", str(project), "--skill-root", str(skill))
+        assert res.returncode == 0, res.stderr
+        assert "FREEZE_OK" in res.stdout
+        assert "NEXT CONTRACT" not in res.stdout
+
+    def test_p_target_suffixed_development_resolved_symmetrically(self, workspace):
+        project, skill = workspace
+        run_id = "pw-p-suffix"
+        run_dir = project / ".ai" / "pizm" / f"run-{run_id}"
+        run_dir.mkdir(parents=True, exist_ok=True)
+
+        # Freeze development with --target P3 (generates development-v2-P3.json)
+        dev_p3 = valid_dev_v2("P", "P3")
+        inp_dev = write_json(project / "dev_p3.json", dev_p3)
+        res_dev = run_ck("freeze", "--stage", "development-v2", "--run-id", run_id, "--target", "P3",
+                         "--input", inp_dev, "--project-root", str(project), "--skill-root", str(skill))
+        assert res_dev.returncode == 0, res_dev.stderr
+        dev_hash = res_dev.stdout.split()[1]
+        assert (run_dir / "development-v2-P3.json").is_file()
+
+        # Review target P3 without explicit target_ref -> must resolve development-v2-P3.json symmetrically
+        rev_data = {
+            "schema_version": "pizm-deep-review-v2",
+            "stage": "deep-review-v2",
+            "frozen_hash": dev_hash,
+            "target_type": "P",
+            "target_id": "P3",
+            "terminal_state": "MODEL_READY",
+            "identity_verified": True,
+            "independent_countermodel": "Countermodel.",
+            "load_bearing_reassessment": [
+                {"claim": "Claim 1", "critic_epistemic_status": "SUPPORTED"}
+            ],
+            "findings": {
+                "identity_drift": None,
+                "cross_field_contradictions": [],
+                "readiness_blockers": [],
+                "readiness_blocker_details": {},
+                "unsupported_specificity": [],
+                "epistemic_laundering": [],
+                "cost_relocation": None,
+                "round_trip_skeleton": "claim -> mechanism",
+            },
+            "evidence_debt": [],
+            "cheapest_discriminating_test": "Test 1.",
+            "verdict_rationale": "Grounded.",
+            "inquiry_program": None,
+        }
+        inp_rev = write_json(project / "rev_p3.json", rev_data)
+        res_rev = run_ck("freeze", "--stage", "deep-review-v2", "--run-id", run_id, "--target", "P3",
+                         "--input", inp_rev, "--project-root", str(project), "--skill-root", str(skill))
+        assert res_rev.returncode == 0, res_rev.stderr
+        assert "FREEZE_OK" in res_rev.stdout
+        assert (run_dir / "deep-review-v2-P3.json").is_file()

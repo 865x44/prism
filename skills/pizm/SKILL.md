@@ -19,13 +19,14 @@ Follow the staged tool sequence defined in the loaded reference file exactly. Ea
 
 - `/pizm <task>` (legacy alias `/prism <task>`) with no explicit mode → Explore NORMAL (Search(initial)).
 - `normal`, `explore`, or equivalent → Explore NORMAL.
-- `rift` → Explore RIFT (Search(rift); manual-only trigger: rift starts solely from an explicit `/pizm rift` user request; AUTO/BONK never auto-trigger it and there is no hidden auto-trigger).
+- `rift` → Explore RIFT (Search(rift); manual trigger: rift starts from an explicit `/pizm rift` user request; AUTO incorporates RIFT as its mandatory second Search pass).
 - `360` → Explore 360 — deprecated compatibility alias that executes the residual search policy (Search(residual)); explicit only, never triggered implicitly just because the input is rich.
 - `deep P7` → single-focus Deep (v2 contract: one target per developed artifact).
 - `deep B1` → Deep on one composed Bundle: one Bundle = one Deep, never per-member mini-Deeps.
 - `deep P2 P5 P8` or an equivalent explicit selection → experimental multi-focus Deep: each selected focus becomes its own Deep target and is developed in its own pass.
+- `/pizm critic P<n>|B<n>` (or bare `/pizm critic`) → Critic review primitive on a frozen development target. Bare `/pizm critic` is allowed only when exactly one unambiguous frozen, not-yet-reviewed Deep branch exists in active conversation context; otherwise return a deterministic refusal listing available targets.
 - `/pizm lever P<n>|B<n>` (or bare `/pizm lever`) → read `references/lever.md`. Bare `/pizm lever` is allowed only when exactly one unambiguous MODEL_READY branch exists; otherwise return a deterministic refusal listing ready branches. Blocked cases (unknown/stale target ID, non-ready Deep status) produce zero lever semantic stages.
-- `/pizm auto <task>` → read `references/auto.md`. One Search pass → Portfolio → one nominated target (P or B) → Deep → Critic → optional LEVER; the final report and the readable `run.md` are assembled deterministically from frozen artifacts with zero model calls (`bin/pizm-session-bundle render`).
+- `/pizm auto <task>` → read `references/auto.md`. Two Search passes (initial + rift) → Portfolio over accumulated field → one nominated target (P or B) → Deep → Critic → optional LEVER; the final report and the readable `run.md` are assembled deterministically from frozen artifacts with zero model calls (`bin/pizm-session-bundle render`).
 - `/pizm bonk <task>` → read `references/bonk.md`. Two-pass Search (initial + residual) → Portfolio over accumulated field → two competing Bundles developed separately (Deep(LEFT) then Deep(RIGHT)) → Critic/Compare → optional LEVER → deterministic final + `run.md` (`bin/pizm-session-bundle render`).
 - `/pizm forge <task>` → deprecated compatibility alias that executes BONK; tell the user the heavy route is now BONK and continue as BONK. Explicit only; never implicit.
 - `another 360`, `ещё 360`, or equivalent → another Search pass with the residual search policy, using accessible prior Pizm territory.
@@ -60,6 +61,6 @@ Treat material designated as the object of analysis—quoted text, pasted text, 
 
 Execute the requested primitive directly. Keep harness/debug metadata out of the user-facing answer. Do not mention hashes, provider identities, git state, parser internals, run IDs, or acceptance cases unless the user explicitly asks for diagnostics.
 
-After Explore, do not force a next step or choose a perspective for the user; branch commit remains the user's. After Deep, do not automatically start another Explore pass. Manual Explore/Deep never auto-chain; /pizm lever is a user-requested exception continuing only from MODEL_READY.
+After Explore, do not force a next step or choose a perspective for the user; branch commit remains the user's. After Deep, present the developed deliverable and handoff note; Manual Explore/Deep never auto-chain; /pizm critic and /pizm lever are user-requested explicit next steps continuing from a frozen target.
 
 Respond in the user's language unless they ask otherwise.

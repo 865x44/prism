@@ -21,6 +21,12 @@ Do NOT use, reference, or construct:
 - Any global pointers or temporal selection logic
 - Any external registry or persistent storage
 
+## Manual and Automatic Routing
+
+- **AUTO mode**: Critic executes automatically following Deep freeze.
+- **Manual mode**: Critic is invoked explicitly via `/pizm critic P<n>` or `/pizm critic B<n>` on a frozen development target.
+- **Bare `/pizm critic`**: Allowed ONLY when exactly one unambiguous frozen, not-yet-reviewed Deep branch exists in active conversation context. If multiple candidate developments exist, refuse deterministically and list available targets. If no frozen development exists, refuse deterministically.
+
 ## Mandatory Checks
 
 ### 1. IDENTITY

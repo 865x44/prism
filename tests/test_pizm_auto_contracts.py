@@ -374,9 +374,7 @@ def test_a1_explicit_auto_legal_and_manual_modes_non_auto(skill_md_text, auto_md
         "After Explore, do not force a next step or choose a perspective for the user; "
         "branch commit remains the user's."
     ) in skill_md_text
-    assert (
-        "Manual Explore/Deep never auto-chain; /pizm lever is a user-requested exception continuing only from MODEL_READY."
-    ) in skill_md_text
+    assert "Manual Explore/Deep never auto-chain" in skill_md_text
 
     # auto.md must state explicit delegation requirement
     assert "AUTO executes ONLY via explicit `/pizm auto <task>` user delegation" in auto_md_text
@@ -581,9 +579,9 @@ def test_a10_budgets_fail_closed_and_ceilings(auto_md_text):
     assert "Fail-Closed Budget Enforcement" in auto_md_text
     assert "Do not reveal unreached future-stage contracts" in auto_md_text
 
-    # Semantic stage budget: base 4, optional LEVER brings it to 6
-    assert "= 4 semantic stages" in auto_md_text
-    assert "= 6 semantic stages total" in auto_md_text
+    # Semantic stage budget: base 5, optional LEVER brings it to 7
+    assert "= 5 semantic stages" in auto_md_text
+    assert "= 7 semantic stages total" in auto_md_text
     # Repairs accounted separately, bounded
     assert "accounted separately" in auto_md_text
     assert "max 1 model repair per stage" in auto_md_text
@@ -596,17 +594,16 @@ def test_a10_budgets_fail_closed_and_ceilings(auto_md_text):
 # ---------------------------------------------------------------------------
 
 
-def test_a11_one_search_one_deep_only(auto_md_text):
-    # The pipeline names exactly one Search pass and forbids residual/re-judgment
-    assert "ONE initial Search pass" in auto_md_text
-    assert "no residual Search, no second Search" in auto_md_text
-    assert "Search(residual)" not in auto_md_text
+def test_a11_two_search_one_deep_only(auto_md_text):
+    # The pipeline executes two Search passes (initial + rift) before Portfolio
+    assert "two bounded Search passes before Portfolio" in auto_md_text
+    assert "Pass 1 (initial) and Pass 2 (rift)" in auto_md_text
+    assert "No automatic third Search exists" in auto_md_text
     # Exactly one nominated target is deepened; no second Deep exists
     assert "no second Deep" in auto_md_text
     assert "Single Deep only" in auto_md_text
     # Honest-stop reinforces: no other search primitive starts afterward
     assert "No other search or refinement primitive starts afterward" in auto_md_text
-
 
 # ---------------------------------------------------------------------------
 # A12: Dynamic reasoning spend branching (Information Gathering & Preserve)
@@ -656,3 +653,125 @@ def test_auto_preserve_only_stops_without_deep(tmp_path):
     assert (run_dir / "portfolio.json").is_file()
     assert not (run_dir / "development-v2.json").exists()
     assert not (run_dir / "deep-review-v2.json").exists()
+
+
+def test_auto_two_pass_rift_renders_cleanly(tmp_path):
+    """AUTO two-pass (Initial + RIFT) renders both passes and handles pass02 targets."""
+    run_dir = tmp_path / "auto_two_pass"
+    run_dir.mkdir(parents=True, exist_ok=True)
+
+    cand1 = valid_explore_candidates()
+    write_frozen(run_dir, "candidates-pass01.json", cand1)
+
+    cand2 = {
+        "schema_version": "pizm-candidates-v1",
+        "stage": "explore",
+        "mode": "RIFT",
+        "candidates": [
+            {
+                "candidate_id": "c01",
+                "title": "Ecological Keystone Species Analogy",
+                "semantic_core": {
+                    "claim": "Reviewers act as keystone predators limiting queue overgrowth",
+                    "structural_shift": "Shifts frame from queue theory to trophic cascade",
+                    "mechanism": "Predation pressure selects against large uncoordinated batches",
+                    "grounding_anchor": "Observed review intervention patterns",
+                    "what_becomes_visible": "Reviewers regulate ecosystem stability",
+                    "boundary": "Applies in dense interdependent codebases",
+                },
+                "break_condition": "Fails when review becomes asynchronous voting",
+                "rift_extras": {
+                    "source_structure": "Trophic cascade ecology",
+                    "functional_mapping": "Predator -> Reviewer, Prey -> Large PRs",
+                    "return_path": "Re-map trophic level to architectural layer",
+                },
+                "epistemics": {
+                    "supported": ["Review intervention data"],
+                    "inferred": ["Trophic pressure dynamics"],
+                    "speculative": [],
+                    "unknown": [],
+                },
+            }
+        ],
+    }
+    write_frozen(run_dir, "candidates-pass02.json", cand2)
+
+    cand1_hash = hashlib.sha256((run_dir / "candidates-pass01.json").read_bytes()).hexdigest()
+    cand2_hash = hashlib.sha256((run_dir / "candidates-pass02.json").read_bytes()).hexdigest()
+
+    sf = {
+        "schema_version": "pizm-search-field-v1",
+        "stage": "search-field",
+        "passes": [
+            {"pass_id": "pass01", "candidates_ref": "candidates-pass01.json", "frozen_hash": cand1_hash},
+            {"pass_id": "pass02", "candidates_ref": "candidates-pass02.json", "frozen_hash": cand2_hash},
+        ],
+        "entries": ["pass01:c01", "pass01:c02", "pass02:c01"],
+    }
+    write_frozen(run_dir, "search-field-pass02.json", sf)
+    sf_hash = hashlib.sha256((run_dir / "search-field-pass02.json").read_bytes()).hexdigest()
+
+    port = {
+        "schema_version": "pizm-portfolio-selection-v1",
+        "stage": "portfolio",
+        "route": "AUTO",
+        "field_ref": "search-field-pass02.json",
+        "field_hash": sf_hash,
+        "candidate_assessments": [
+            {
+                "candidate_ref": "pass01:c01",
+                "disposition": "KEEP",
+                "standalone_quality": "strong",
+                "unique_residue": "Queue latency view",
+                "nearest_overlap": None,
+                "reason": "Clear causal view",
+            },
+            {
+                "candidate_ref": "pass01:c02",
+                "disposition": "DROP",
+                "standalone_quality": "weak",
+                "unique_residue": "",
+                "nearest_overlap": None,
+                "reason": "Weak platitude",
+            },
+            {
+                "candidate_ref": "pass02:c01",
+                "disposition": "KEEP",
+                "standalone_quality": "strong",
+                "unique_residue": "Trophic cascade ecological view",
+                "nearest_overlap": None,
+                "reason": "Distant functional transfer",
+            },
+        ],
+        "bundles": [],
+        "next_reasoning_move": "DEEP",
+        "next_reasoning_rationale": "Ecological keystone view reveals systemic stability constraints.",
+        "auto_target": {"target_type": "P", "target_id": "P2"},
+        "information_request": None,
+        "rival_shadow": None,
+    }
+    write_frozen(run_dir, "portfolio.json", port)
+
+    dev = valid_development_v2("P", "P2")
+    dev["identity_lock"]["title"] = "Ecological Keystone Species"
+    write_frozen(run_dir, "development-v2.json", dev)
+
+    rev = valid_deep_review_v2("P", "P2")
+    write_frozen(run_dir, "deep-review-v2.json", rev)
+
+    out_md = run_dir / "run.md"
+    r = run_render_cli(run_dir, "Analyze review ecosystem", out_md)
+    assert r.returncode == 0, r.stderr
+    assert out_md.is_file()
+
+    content = out_md.read_text(encoding="utf-8")
+    assert "## Search Pass 1" in content
+    assert "Search policy: initial pass (NORMAL)." in content
+    assert "## Search Pass 2" in content
+    assert "Search policy: rift pass (RIFT)." in content
+    assert "Break condition" in content
+    assert "Source structure" in content
+    assert "Functional mapping" in content
+    assert "candidates-pass01.json" in content
+    assert "candidates-pass02.json" in content
+    assert "search-field-pass02.json" in content

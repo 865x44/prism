@@ -569,11 +569,10 @@ class TestSearchPolicies:
     def test_mode_headings_preserved(self, explore_text, mode):
         assert f"### {mode}" in explore_text
 
-    def test_rift_manual_only(self, explore_text):
-        assert "MANUAL-ONLY" in explore_text
+    def test_rift_manual_trigger_and_auto_policy(self, explore_text):
         assert "/pizm rift" in explore_text
-        assert "never auto-trigger" in explore_text.lower()
-        assert "no hidden auto-trigger" in explore_text
+        assert "RIFT search policy" in explore_text
+        assert "BONK uses residual search" in explore_text
 
     def test_rift_negative_context(self, explore_text):
         assert "negative context" in explore_text

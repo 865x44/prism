@@ -33,6 +33,12 @@ Decorative, redundant, and noise-like candidates are all mapped to `weak`; the r
 - `unique_residue`: The irreducible contribution this candidate adds to the field — a mechanism, variable, boundary, consequence, or question no other candidate carries. Empty residue is a legitimate finding, not a defect to paper over.
 - `nearest_overlap`: Composite ref of the most structurally similar other candidate, or null when the residue is genuinely alone. Overlap is judged on mechanism and claim structure, not topic vocabulary.
 
+### Evaluation of RIFT Candidates
+RIFT provenance is neither a bonus nor a penalty.
+Exotic framing alone earns nothing.
+Unfamiliarity alone is not weakness.
+Judge functional structural transfer, grounding, unique residue, and composition gain by the same standards as all candidates.
+
 ### Source-Relative Marginal Value and Delta Test
 Evaluate candidate value relative to the source text/task and the nearest idea already present in the source or context. Ask what materially useful structure the candidate adds beyond the nearest source idea.
 
@@ -99,6 +105,7 @@ The judge freezes its decision as one portfolio record conforming to `pizm-portf
 {
   "schema_version": "pizm-portfolio-selection-v1",
   "route": "MANUAL|AUTO",
+  "field_ref": "search-field-pass02.json",
   "field_hash": "...",
   "candidate_assessments": [
     {"candidate_ref": "pass01:c06", "disposition": "KEEP|BORDERLINE|MERGE|DROP", "standalone_quality": "strong|borderline|weak", "unique_residue": "...", "nearest_overlap": "pass02:c03|null", "reason": "..."}
@@ -130,7 +137,8 @@ Routing rules and fail-closed couplings:
 - `MANUAL`: `auto_target` may be null (along with `next_reasoning_move`, `next_reasoning_rationale`, `information_request`, and `rival_shadow`). The user chooses what to deepen.
 - `AUTO`: `next_reasoning_move` must be `DEEP`, `GATHER_INFORMATION`, or `PRESERVE_ONLY`, and `next_reasoning_rationale` is a non-empty string.
   - `DEEP`: exactly one `auto_target` pointing at a promoted perspective (`target_type` `P`) or at a proposed bundle (`target_type` `B`). `information_request` must be null. `rival_shadow` is nullable; when present, it names the live nearest rival (`target_type`, `target_id`, `core_claim`, `why_remains_live`, `differentiator_or_source_anchor`), where target_id must differ from auto_target.target_id and reference a promoted Perspective or defined Bundle (never synthesize a weak rival).
-  - `GATHER_INFORMATION`: `auto_target` and `rival_shadow` must be null; `information_request` is non-null with `mode` (`USER_QUESTION` with 1–3 non-empty questions and null suggested observation, or `EXTERNAL_OBSERVATION` with empty questions list and non-empty suggested observation), `missing_information`, and `why_it_changes_route`.
+  - `GATHER_INFORMATION`: `auto_target` and `rival_shadow` must be null; `information_request` is non-null with `mode` (`USER_QUESTION` with 1–3 non-empty questions and null suggested observation, or `EXTERNAL_OBSERVATION` with empty questions list and non-empty suggested observation), `missing_information`, and `why_it_changes_route`. In AUTO, this outcome is reserved strictly for a newly discovered material route fork surfaced by Search/RIFT/Portfolio that could not reasonably have been asked before search. If pre-search questions were already asked, prefer 1 additional question, not a routine questionnaire.
+  - `field_ref`: Non-empty string reference to the verified accumulated search field (e.g. `"search-field-pass02.json"` in multi-pass AUTO, or `"search-field.json"` in single-pass). In multi-pass runs, explicit `field_ref` is required and must match the final accumulated field.
   - `PRESERVE_ONLY`: `auto_target`, `information_request`, and `rival_shadow` must all be null.
 - Field survival vs reasoning spend: `KEEP`, `BORDERLINE`, `MERGE`, and `DROP` govern field structure; they do not force `DEEP`.
 ## User-Visible Presentation Rules

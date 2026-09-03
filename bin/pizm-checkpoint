@@ -22,12 +22,12 @@ from pathlib import Path
 #   deep-review-v2 is defined by references/deep-reviewer.md
 #   (hidden until verified freeze, same pattern as the existing deep stage)
 _CONTRACT_MAP = {
-    "explore": "references/explore-selector.md",
+    "explore": None,
     "deep": "references/deep-reviewer.md",
     "lever-design": "references/lever-reviewer.md",
     "lever-review": None,
-    "search-field": "references/explore.md",
-    "portfolio": "references/explore-selector.md",
+    "search-field": None,
+    "portfolio": None,
     "development-v2": None,
     "deep-review-v2": None,
     "comparison-review-v1": None,
@@ -459,7 +459,7 @@ def _validate_deep_review_v2(
     if project_root is not None:
         target_ref = data.get("target_ref") or data.get("development_ref")
         if not target_ref:
-            if target_type == "B" and run_dir is not None and (run_dir / f"development-v2-{target_id}.json").exists():
+            if run_dir is not None and (run_dir / f"development-v2-{target_id}.json").exists():
                 target_ref = f"development-v2-{target_id}.json"
             else:
                 target_ref = "development-v2.json"
@@ -1143,14 +1143,20 @@ def _validate_portfolio(
     else:
         # v1 compatibility
         field_ref = data.get("field_ref")
-        if field_ref and project_root is not None:
-            field_path = _resolve_pizm_artifact(field_ref, project_root, run_dir)
-            _verify_artifact_and_sidecar(
-                field_path,
-                expected_hash=field_hash,
-                field_name="field_ref",
-            )
+        if field_ref:
+            if project_root is not None:
+                field_path = _resolve_pizm_artifact(field_ref, project_root, run_dir)
+                _verify_artifact_and_sidecar(
+                    field_path,
+                    expected_hash=field_hash,
+                    field_name="field_ref",
+                )
         elif run_dir is not None:
+            has_pass_fields = any(run_dir.glob("search-field-pass*.json"))
+            if has_pass_fields:
+                raise ValueError(
+                    "multi-pass portfolio requires explicit field_ref pointing to final search field"
+                )
             legacy_field = run_dir / "search-field.json"
             if legacy_field.is_file():
                 _verify_artifact_and_sidecar(
@@ -1158,7 +1164,6 @@ def _validate_portfolio(
                     expected_hash=field_hash,
                     field_name="search-field.json",
                 )
-
     assessments = data.get("candidate_assessments")
     if not isinstance(assessments, list) or len(assessments) == 0:
         raise ValueError("candidate_assessments must be a non-empty list")
@@ -1668,8 +1673,8 @@ def _resolve_development_v2_next_contract(
     """Context-aware contract resolver for development-v2 stage."""
     portfolio_file = run_dir / "portfolio.json"
     if not portfolio_file.is_file():
-        # Standalone / no portfolio -> reveal deep-reviewer.md
-        return _read_contract_file(skill_root, "references/deep-reviewer.md")
+        # Standalone / no portfolio -> MANUAL -> STOP (reveal nothing)
+        return None
 
     # Portfolio present: verify sidecar
     try:
@@ -1681,10 +1686,16 @@ def _resolve_development_v2_next_contract(
 
     schema = port_data.get("schema_version")
     route = port_data.get("route")
-    if schema != "pizm-portfolio-selection-v2" or route not in {"BONK", "FORGE"}:
-        # Non-v2 or not BONK/legacy FORGE (e.g. v1 MANUAL or AUTO) -> reveal deep-reviewer.md
+    if route == "MANUAL":
+        # Manual portfolio -> STOP (reveal nothing)
+        return None
+
+    if route == "AUTO":
+        # AUTO route -> reveal deep-reviewer.md
         return _read_contract_file(skill_root, "references/deep-reviewer.md")
 
+    if schema != "pizm-portfolio-selection-v2" or route not in {"BONK", "FORGE"}:
+        return None
     comp_status = port_data.get("competition_status")
     if comp_status == "NO_SECOND_DEFENSIBLE_BUNDLE":
         single_target = port_data.get("single_target") or {}

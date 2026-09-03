@@ -1,0 +1,357 @@
+#!/usr/bin/env python3
+"""
+pizm-reader-server: Safe local loopback-only HTTP reader server for rendered Prism runs.
+
+Security guarantees:
+- Binds strictly to 127.0.0.1 (loopback only; no 0.0.0.0, no external interface).
+- Read-only: GET and HEAD methods only (all others return 405 Method Not Allowed).
+- Traversal safe: paths resolved canonically with strict is_relative_to(root) boundary check.
+- Symlink safe: symlink escapes outside root rejected with 403 Forbidden.
+- No directory listing or raw file browsing: only /health and /run/<run-id>/ are served.
+- Host header validation: rejects foreign host headers (loopback/localhost only).
+- Cache control: Cache-Control: no-store on all reader responses.
+"""
+from __future__ import annotations
+
+import argparse
+import http.client
+import json
+import os
+import re
+import signal
+import subprocess
+import sys
+import time
+import urllib.parse
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from pathlib import Path
+
+DEFAULT_PORT = 41144
+DEFAULT_ROOT = ".ai/pizm"
+SERVER_VERSION = "pizm-reader-v1"
+
+
+class ReaderRequestHandler(BaseHTTPRequestHandler):
+    server_version = f"PrismReader/{SERVER_VERSION}"
+
+    def log_message(self, format, *args):
+        # Quiet operation; suppress access logs
+        pass
+
+    def _validate_host(self) -> bool:
+        host = self.headers.get("Host", "")
+        host_name = host.split(":", 1)[0].lower().strip()
+        return host_name in ("127.0.0.1", "localhost", "::1")
+
+    def _send_method_not_allowed(self):
+        self.send_error(405, "Method Not Allowed")
+
+    def do_GET(self):
+        self._handle_request(send_body=True)
+
+    def do_HEAD(self):
+        self._handle_request(send_body=False)
+
+    def do_POST(self):
+        self._send_method_not_allowed()
+
+    def do_PUT(self):
+        self._send_method_not_allowed()
+
+    def do_DELETE(self):
+        self._send_method_not_allowed()
+
+    def do_PATCH(self):
+        self._send_method_not_allowed()
+
+    def do_OPTIONS(self):
+        self._send_method_not_allowed()
+
+    def _handle_request(self, send_body: bool):
+        if not self._validate_host():
+            self.send_error(400, "Bad Request: Invalid Host header")
+            return
+
+        parsed = urllib.parse.urlparse(self.path)
+        path = parsed.path
+
+        if path in ("/health", "/health/"):
+            root_path = self.server.root_path.resolve()
+            payload = json.dumps({
+                "status": "ok",
+                "served_root": str(root_path),
+                "version": SERVER_VERSION,
+            }).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            if send_body:
+                self.wfile.write(payload)
+            return
+
+        match = re.match(r"^/run/([a-zA-Z0-9_-]+)/?$", path)
+        if not match:
+            self.send_error(404, "Not Found")
+            return
+
+        raw_run_id = match.group(1)
+        if ".." in raw_run_id or "/" in raw_run_id or "\\" in raw_run_id:
+            self.send_error(403, "Forbidden")
+            return
+
+        root_path = self.server.root_path.resolve()
+        candidates = []
+        if raw_run_id.startswith("run-"):
+            candidates.append(raw_run_id)
+            if len(raw_run_id) > 4:
+                candidates.append(raw_run_id[4:])
+        else:
+            candidates.append(f"run-{raw_run_id}")
+            candidates.append(raw_run_id)
+
+        target_file = None
+        for cand_name in candidates:
+            cand_dir = root_path / cand_name
+            try:
+                cand_dir_resolved = cand_dir.resolve()
+                if not cand_dir_resolved.is_relative_to(root_path):
+                    self.send_error(403, "Forbidden: Path escape detected")
+                    return
+                cand_html = cand_dir_resolved / "run.html"
+                if cand_html.is_file() and cand_html.resolve().is_relative_to(root_path):
+                    target_file = cand_html
+                    break
+            except (ValueError, OSError):
+                continue
+
+        if target_file is None:
+            self.send_error(404, f"Run not found: {raw_run_id}")
+            return
+
+        try:
+            html_bytes = target_file.read_bytes()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("Content-Length", str(len(html_bytes)))
+            self.end_headers()
+            if send_body:
+                self.wfile.write(html_bytes)
+        except OSError:
+            self.send_error(500, "Internal Server Error")
+
+
+class ReaderServer(HTTPServer):
+    def __init__(self, server_address, RequestHandlerClass, root_path: Path):
+        self.root_path = root_path.resolve()
+        super().__init__(server_address, RequestHandlerClass)
+
+
+def _state_file_path(root_path: Path, port: int) -> Path:
+    return root_path / f".reader-server-{port}.json"
+
+
+def _check_health(port: int, timeout: float = 1.0) -> dict | None:
+    try:
+        conn = http.client.HTTPConnection("127.0.0.1", port, timeout=timeout)
+        conn.request("GET", "/health", headers={"Host": f"127.0.0.1:{port}"})
+        resp = conn.getresponse()
+        if resp.status == 200:
+            data = resp.read().decode("utf-8")
+            return json.loads(data)
+        return None
+    except Exception:
+        return None
+
+
+def run_foreground_server(port: int, root: Path) -> int:
+    root_path = root.resolve()
+    root_path.mkdir(parents=True, exist_ok=True)
+    server = ReaderServer(("127.0.0.1", port), ReaderRequestHandler, root_path)
+    actual_port = server.server_address[1]
+
+    state_file = _state_file_path(root_path, actual_port)
+    state = {
+        "pid": os.getpid(),
+        "port": actual_port,
+        "served_root": str(root_path),
+        "version": SERVER_VERSION,
+        "started_utc": time.time(),
+    }
+    state_file.write_text(json.dumps(state), encoding="utf-8")
+
+    def _shutdown_handler(signum, frame):
+        try:
+            state_file.unlink(missing_ok=True)
+        except Exception:
+            pass
+        sys.exit(0)
+
+    signal.signal(signal.SIGTERM, _shutdown_handler)
+    signal.signal(signal.SIGINT, _shutdown_handler)
+
+    print(f"READER_SERVER_RUNNING http://127.0.0.1:{actual_port}/ (pid={os.getpid()})", flush=True)
+    try:
+        server.serve_forever()
+    finally:
+        server.server_close()
+        try:
+            state_file.unlink(missing_ok=True)
+        except Exception:
+            pass
+    return 0
+
+
+def cmd_start(port: int, root: Path, foreground: bool) -> int:
+    root_path = root.resolve()
+    root_path.mkdir(parents=True, exist_ok=True)
+
+    if foreground:
+        return run_foreground_server(port, root_path)
+
+    # Background spawn
+    existing = _check_health(port, timeout=0.5)
+    if existing and existing.get("served_root") == str(root_path):
+        print(f"READER_SERVER_OK http://127.0.0.1:{port}/")
+        return 0
+
+    cmd = [
+        sys.executable,
+        str(Path(__file__).resolve()),
+        "start",
+        "--port",
+        str(port),
+        "--root",
+        str(root_path),
+        "--foreground",
+    ]
+    proc = subprocess.Popen(
+        cmd,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
+
+    # Poll /health up to 5 seconds
+    deadline = time.time() + 5.0
+    while time.time() < deadline:
+        h = _check_health(port, timeout=0.3)
+        if h and h.get("served_root") == str(root_path):
+            print(f"READER_SERVER_OK http://127.0.0.1:{port}/")
+            return 0
+        time.sleep(0.1)
+
+    print(f"ERROR: reader server on port {port} failed to become healthy", file=sys.stderr)
+    return 1
+
+
+def cmd_status(port: int, root: Path) -> int:
+    h = _check_health(port, timeout=1.0)
+    if h:
+        print(json.dumps(h, indent=2))
+        return 0
+    print(f"READER_SERVER_STOPPED (port {port})", file=sys.stderr)
+    return 1
+
+
+def cmd_stop(port: int, root: Path) -> int:
+    root_path = root.resolve()
+    state_file = _state_file_path(root_path, port)
+    pid = None
+    if state_file.is_file():
+        try:
+            data = json.loads(state_file.read_text(encoding="utf-8"))
+            pid = data.get("pid")
+        except Exception:
+            pass
+
+    stopped = False
+    if pid:
+        try:
+            os.kill(pid, signal.SIGTERM)
+            deadline = time.time() + 3.0
+            while time.time() < deadline:
+                try:
+                    os.kill(pid, 0)
+                    time.sleep(0.1)
+                except ProcessLookupError:
+                    stopped = True
+                    break
+            if not stopped:
+                os.kill(pid, signal.SIGKILL)
+                stopped = True
+        except ProcessLookupError:
+            stopped = True
+        except Exception as e:
+            print(f"Warning: could not kill pid {pid}: {e}", file=sys.stderr)
+
+    state_file.unlink(missing_ok=True)
+    if stopped or pid is None:
+        print(f"READER_SERVER_STOPPED http://127.0.0.1:{port}/")
+        return 0
+    return 1
+
+
+def cmd_ensure(port: int, root: Path) -> int:
+    root_path = root.resolve()
+    h = _check_health(port, timeout=0.5)
+    if h is not None:
+        served = h.get("served_root")
+        if served == str(root_path):
+            print(f"http://127.0.0.1:{port}/")
+            return 0
+        else:
+            print(
+                f"READER_PORT_COLLISION: port {port} occupied by foreign server serving {served}",
+                file=sys.stderr,
+            )
+            return 1
+
+    # Not running: try start
+    res = cmd_start(port, root_path, foreground=False)
+    if res == 0:
+        print(f"http://127.0.0.1:{port}/")
+        return 0
+    return 1
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Prism Local HTML Reader Server")
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    sp = sub.add_parser("start", help="Start reader server")
+    sp.add_argument("--port", type=int, default=DEFAULT_PORT, help=f"Port (default {DEFAULT_PORT})")
+    sp.add_argument("--root", type=str, default=DEFAULT_ROOT, help=f"Run root dir (default {DEFAULT_ROOT})")
+    sp.add_argument("--foreground", action="store_true", help="Run in foreground")
+
+    stp = sub.add_parser("status", help="Check server status")
+    stp.add_argument("--port", type=int, default=DEFAULT_PORT)
+    stp.add_argument("--root", type=str, default=DEFAULT_ROOT)
+
+    stopp = sub.add_parser("stop", help="Stop server")
+    stopp.add_argument("--port", type=int, default=DEFAULT_PORT)
+    stopp.add_argument("--root", type=str, default=DEFAULT_ROOT)
+
+    ep = sub.add_parser("ensure", help="Ensure server is healthy, return URL")
+    ep.add_argument("--port", type=int, default=DEFAULT_PORT)
+    ep.add_argument("--root", type=str, default=DEFAULT_ROOT)
+
+    args = parser.parse_args()
+    root = Path(args.root)
+
+    if args.command == "start":
+        return cmd_start(args.port, root, args.foreground)
+    elif args.command == "status":
+        return cmd_status(args.port, root)
+    elif args.command == "stop":
+        return cmd_stop(args.port, root)
+    elif args.command == "ensure":
+        return cmd_ensure(args.port, root)
+    return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())
