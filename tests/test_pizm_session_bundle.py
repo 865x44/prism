@@ -1563,3 +1563,74 @@ class TestForgeV2ArchiveCollection:
         assert r.returncode != 0
         assert "hash mismatch" in r.stderr.lower()
         assert not (workspace["output"] / "session-tampered-bundle").exists()
+
+
+def test_render_gather_information_as_intentional_terminal(tmp_path):
+    """Rendering an AUTO run that stopped at Portfolio with GATHER_INFORMATION produces clean terminal output."""
+    run_dir = tmp_path / "run-gather-terminal"
+    run_dir.mkdir()
+    cands = {
+        "schema_version": "pizm-candidates-v1",
+        "stage": "explore",
+        "mode": "NORMAL",
+        "candidates": [
+            {
+                "candidate_id": "c01",
+                "title": "Model 1",
+                "semantic_core": {
+                    "claim": "Core claim",
+                    "structural_shift": "Shift",
+                    "mechanism": "Mechanism",
+                    "grounding_anchor": "Anchor",
+                    "what_becomes_visible": "Visible",
+                    "boundary": "Limit",
+                },
+                "epistemics": {"supported": ["Fact 1"], "inferred": [], "speculative": [], "unknown": []},
+            }
+        ],
+    }
+    c_bytes = json.dumps(cands).encode("utf-8")
+    (run_dir / "candidates.json").write_bytes(c_bytes)
+    (run_dir / "candidates.sha256").write_text(_sha256_hex(c_bytes))
+
+    port = {
+        "schema_version": "pizm-portfolio-selection-v1",
+        "stage": "portfolio",
+        "route": "AUTO",
+        "field_hash": _sha256_hex(c_bytes),
+        "candidate_assessments": [
+            {
+                "candidate_ref": "pass01:c01",
+                "disposition": "KEEP",
+                "standalone_quality": "strong",
+                "unique_residue": "Residue 1",
+                "nearest_overlap": None,
+                "reason": "Grounded",
+            }
+        ],
+        "bundles": [],
+        "next_reasoning_move": "GATHER_INFORMATION",
+        "next_reasoning_rationale": "Missing specific customer latency targets.",
+        "auto_target": None,
+        "information_request": {
+            "mode": "USER_QUESTION",
+            "missing_information": "Target latency SLA",
+            "why_it_changes_route": "Determines whether caching or sharding is required",
+            "questions": ["What is the target latency SLA?"],
+            "suggested_observation": None,
+        },
+        "rival_shadow": None,
+    }
+    p_bytes = json.dumps(port).encode("utf-8")
+    (run_dir / "portfolio.json").write_bytes(p_bytes)
+    (run_dir / "portfolio.sha256").write_text(_sha256_hex(p_bytes))
+
+    out_md = tmp_path / "run.md"
+    res = run_bundle("render", "--run-dir", str(run_dir), "--task", "Analyze latency architecture", "--output", str(out_md))
+    assert res.returncode == 0, res.stderr
+    content = out_md.read_text(encoding="utf-8")
+    assert "Terminal state: GATHER_INFORMATION" in content
+    assert "What is the target latency SLA?" in content
+    assert "Honest stop: GATHER_INFORMATION" in content
+    assert "## Deep" not in content
+    assert "## Critic" not in content

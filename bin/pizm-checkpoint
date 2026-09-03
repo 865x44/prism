@@ -65,6 +65,12 @@ _EPISTEMIC_STATUSES = ("SUPPORTED", "INFERRED", "SPECULATIVE", "UNKNOWN")
 # Critic v2 terminal states — identical set to the v1 deep review (no fourth status)
 _DEEP_REVIEW_TERMINAL_STATES = ("MODEL_READY", "NEED_EVIDENCE", "RETURN_TO_EXPLORE")
 _COMPARISON_PREFERENCE_STATES = ("LEFT", "RIGHT", "CONDITIONAL", "UNRESOLVED")
+_VALID_READINESS_BLOCKERS = (
+    "B1_SPECULATIVE_DEPENDENCY",
+    "B2_STRONGER_COUNTERMODEL",
+    "B3_THESIS_LAUNDERING",
+    "B4_COVERAGE_MISMATCH",
+)
 _COMPETITION_STATUSES = ("TWO_DEFENSIBLE_BUNDLES", "NO_SECOND_DEFENSIBLE_BUNDLE")
 _DEEP_IDENTITY_FIELDS = (
     "title",
@@ -367,6 +373,47 @@ def _validate_development_v2(data: dict, raw_bytes_len: int = 0) -> None:
                 "developed_model.member_ablation applies only to Bundle targets (B)"
             )
 
+    if "comparative_standing" not in model:
+        raise ValueError("developed_model.comparative_standing is required (nullable object)")
+    comp_standing = model.get("comparative_standing")
+    if comp_standing is not None:
+        if not isinstance(comp_standing, dict):
+            raise ValueError("developed_model.comparative_standing must be an object or null")
+        for field in (
+            "rival_ref",
+            "material_difference",
+            "selected_target_advantage",
+            "rival_advantage_or_parity",
+            "unresolved_competition",
+        ):
+            val = comp_standing.get(field)
+            if not isinstance(val, str) or not val.strip():
+                raise ValueError(f"developed_model.comparative_standing.{field} must be non-empty string")
+
+    if "development_delta" not in model:
+        raise ValueError("developed_model.development_delta is required")
+    delta = model.get("development_delta")
+    if not isinstance(delta, dict):
+        raise ValueError("developed_model.development_delta must be an object")
+    summary = delta.get("summary")
+    if not isinstance(summary, str) or not summary.strip():
+        raise ValueError("developed_model.development_delta.summary must be non-empty string")
+    for cat in (
+        "new_load_bearing_claims",
+        "strengthened_claims",
+        "new_causal_arrows_or_mechanisms",
+        "material_imports",
+        "scope_expansions",
+    ):
+        if cat not in delta:
+            raise ValueError(f"developed_model.development_delta.{cat} is required (list)")
+        items = delta.get(cat)
+        if not isinstance(items, list):
+            raise ValueError(f"developed_model.development_delta.{cat} must be a list")
+        for idx, item in enumerate(items):
+            if not isinstance(item, str):
+                raise ValueError(f"developed_model.development_delta.{cat}[{idx}] must be a string")
+
 
 def _validate_deep_review_v2(
     data: dict,
@@ -502,6 +549,37 @@ def _validate_deep_review_v2(
         raise ValueError(
             "findings.unresolved_load_bearing_contradiction must be a boolean"
         )
+    if "readiness_blockers" not in findings:
+        raise ValueError("findings.readiness_blockers is required (list)")
+    readiness_blockers = findings.get("readiness_blockers")
+    if not isinstance(readiness_blockers, list):
+        raise ValueError("findings.readiness_blockers must be a list")
+    seen_blockers = set()
+    for i, b in enumerate(readiness_blockers):
+        if b not in _VALID_READINESS_BLOCKERS:
+            raise ValueError(
+                f"findings.readiness_blockers[{i}] must be one of "
+                f"{list(_VALID_READINESS_BLOCKERS)}, got {b!r}"
+            )
+        if b in seen_blockers:
+            raise ValueError(f"duplicate readiness blocker: {b!r}")
+        seen_blockers.add(b)
+
+    if "readiness_blocker_details" not in findings:
+        raise ValueError("findings.readiness_blocker_details is required (object)")
+    blocker_details = findings.get("readiness_blocker_details")
+    if not isinstance(blocker_details, dict):
+        raise ValueError("findings.readiness_blocker_details must be an object")
+    if set(blocker_details.keys()) != seen_blockers:
+        raise ValueError(
+            "findings.readiness_blocker_details keys must match "
+            "findings.readiness_blockers exactly"
+        )
+    for k, v in blocker_details.items():
+        if not isinstance(v, str) or not v.strip():
+            raise ValueError(
+                f"findings.readiness_blocker_details[{k!r}] must be non-empty string"
+            )
     for field in ("identity_drift", "cost_relocation"):
         val = findings.get(field)
         if val is not None and not isinstance(val, str):
@@ -527,11 +605,53 @@ def _validate_deep_review_v2(
     if not isinstance(rationale, str) or not rationale.strip():
         raise ValueError("verdict_rationale must be non-empty string")
 
+    # B6: Inquiry program
+    if "inquiry_program" not in data:
+        raise ValueError("inquiry_program is required (nullable for MODEL_READY/RETURN_TO_EXPLORE, object for NEED_EVIDENCE)")
+    inquiry_program = data.get("inquiry_program")
+    if terminal_state in ("MODEL_READY", "RETURN_TO_EXPLORE"):
+        if inquiry_program is not None:
+            raise ValueError(f"inquiry_program must be null for terminal_state {terminal_state!r}")
+    elif terminal_state == "NEED_EVIDENCE":
+        if not isinstance(inquiry_program, dict):
+            raise ValueError("inquiry_program must be an object for NEED_EVIDENCE")
+        clm = inquiry_program.get("current_leading_models")
+        if not isinstance(clm, list) or len(clm) == 0:
+            raise ValueError("inquiry_program.current_leading_models must be a non-empty list")
+        for i, m in enumerate(clm):
+            if not isinstance(m, str) or not m.strip():
+                raise ValueError(f"inquiry_program.current_leading_models[{i}] must be non-empty string")
+        uq = inquiry_program.get("unresolved_questions")
+        if not isinstance(uq, list) or len(uq) == 0:
+            raise ValueError("inquiry_program.unresolved_questions must be a non-empty list")
+        for i, q in enumerate(uq):
+            if not isinstance(q, str) or not q.strip():
+                raise ValueError(f"inquiry_program.unresolved_questions[{i}] must be non-empty string")
+        slr = inquiry_program.get("strongest_live_rival")
+        if slr is not None and (not isinstance(slr, str) or not slr.strip()):
+            raise ValueError("inquiry_program.strongest_live_rival must be null or non-empty string")
+        rtwcm = inquiry_program.get("result_that_would_change_model")
+        if not isinstance(rtwcm, str) or not rtwcm.strip():
+            raise ValueError("inquiry_program.result_that_would_change_model must be non-empty string")
+        sr = inquiry_program.get("stop_rule")
+        if not isinstance(sr, str) or not sr.strip():
+            raise ValueError("inquiry_program.stop_rule must be non-empty string")
+
+        if len(evidence_debt) == 0:
+            raise ValueError("evidence_debt must be a non-empty list for NEED_EVIDENCE")
+        if not isinstance(cheapest_test, str) or not cheapest_test.strip():
+            raise ValueError("cheapest_discriminating_test must be non-empty string for NEED_EVIDENCE")
+
     # Deterministic decision-rule couplings
     if unresolved_contradiction and terminal_state == "MODEL_READY":
         raise ValueError(
             "MODEL_READY is forbidden while findings.unresolved_load_bearing_contradiction "
             "is true (an unresolved load-bearing contradiction blocks MODEL_READY)"
+        )
+    if len(readiness_blockers) > 0 and terminal_state == "MODEL_READY":
+        raise ValueError(
+            "MODEL_READY is forbidden while findings.readiness_blockers is non-empty "
+            "(readiness blockers forbid MODEL_READY)"
         )
     if not identity_verified and terminal_state != "RETURN_TO_EXPLORE":
         raise ValueError(
@@ -995,6 +1115,9 @@ def _validate_portfolio(
             raise ValueError(f"pizm-portfolio-selection-v2 requires route 'BONK', got {route!r}")
         if data.get("auto_target") is not None:
             raise ValueError("pizm-portfolio-selection-v2 forbids auto_target")
+        for k in ("next_reasoning_move", "next_reasoning_rationale", "information_request", "rival_shadow"):
+            if data.get(k) is not None:
+                raise ValueError(f"pizm-portfolio-selection-v2 forbids {k}")
     else:
         if route not in ("MANUAL", "AUTO"):
             raise ValueError(f"route must be MANUAL or AUTO, got {route!r}")
@@ -1137,27 +1260,139 @@ def _validate_portfolio(
 
     auto_target = data.get("auto_target")
     if schema_version == "pizm-portfolio-selection-v1":
-        if route == "AUTO":
-            if not isinstance(auto_target, dict):
-                raise ValueError("route AUTO requires exactly one auto_target object")
-            ttype = auto_target.get("target_type")
-            if ttype not in ("P", "B"):
-                raise ValueError(f"auto_target.target_type must be P or B, got {ttype!r}")
-            tid = auto_target.get("target_id")
-            if not isinstance(tid, str) or not tid.strip():
-                raise ValueError("auto_target.target_id must be non-empty string")
-            if ttype == "P":
-                if not _P_ID_RE.fullmatch(tid):
-                    raise ValueError(
-                        f"auto_target.target_id {tid!r} must match P[1-9][0-9]* for target_type P"
-                    )
-            elif tid not in seen_bundle_ids:
-                raise ValueError(
-                    f"auto_target.target_id {tid!r} must reference a bundle_id proposed in this portfolio"
-                )
-        elif auto_target is not None:
-            raise ValueError("route MANUAL requires auto_target to be null")
+        for required_key in ("next_reasoning_move", "next_reasoning_rationale", "information_request", "rival_shadow"):
+            if required_key not in data:
+                raise ValueError(f"pizm-portfolio-selection-v1 requires {required_key}")
 
+        next_move = data.get("next_reasoning_move")
+        next_rationale = data.get("next_reasoning_rationale")
+        info_req = data.get("information_request")
+        rival_shadow = data.get("rival_shadow")
+
+        if route == "MANUAL":
+            if next_move is not None:
+                raise ValueError("route MANUAL requires next_reasoning_move to be null")
+            if next_rationale is not None:
+                raise ValueError("route MANUAL requires next_reasoning_rationale to be null")
+            if info_req is not None:
+                raise ValueError("route MANUAL requires information_request to be null")
+            if rival_shadow is not None:
+                raise ValueError("route MANUAL requires rival_shadow to be null")
+            if auto_target is not None:
+                raise ValueError("route MANUAL requires auto_target to be null")
+        elif route == "AUTO":
+            if next_move not in ("DEEP", "GATHER_INFORMATION", "PRESERVE_ONLY"):
+                raise ValueError(
+                    "route AUTO requires next_reasoning_move to be DEEP|GATHER_INFORMATION|PRESERVE_ONLY, "
+                    f"got {next_move!r}"
+                )
+            if not isinstance(next_rationale, str) or not next_rationale.strip():
+                raise ValueError("route AUTO requires non-empty next_reasoning_rationale")
+
+            if next_move == "DEEP":
+                if not isinstance(auto_target, dict):
+                    raise ValueError("next_reasoning_move DEEP requires exactly one auto_target object")
+                ttype = auto_target.get("target_type")
+                if ttype not in ("P", "B"):
+                    raise ValueError(f"auto_target.target_type must be P or B, got {ttype!r}")
+                tid = auto_target.get("target_id")
+                if not isinstance(tid, str) or not tid.strip():
+                    raise ValueError("auto_target.target_id must be non-empty string")
+                if ttype == "P":
+                    if not (_P_ID_RE.fullmatch(tid) or tid == "DIRECT_SEED"):
+                        raise ValueError(
+                            f"auto_target.target_id {tid!r} must match P[1-9][0-9]* for target_type P"
+                        )
+                elif tid not in seen_bundle_ids:
+                    raise ValueError(
+                        f"auto_target.target_id {tid!r} must reference a bundle_id proposed in this portfolio"
+                    )
+
+                if info_req is not None:
+                    raise ValueError("next_reasoning_move DEEP requires information_request to be null")
+
+                if rival_shadow is not None:
+                    if not isinstance(rival_shadow, dict):
+                        raise ValueError("rival_shadow must be an object or null")
+                    r_ttype = rival_shadow.get("target_type")
+                    if r_ttype not in ("P", "B"):
+                        raise ValueError(f"rival_shadow.target_type must be P or B, got {r_ttype!r}")
+                    r_tid = rival_shadow.get("target_id")
+                    if not isinstance(r_tid, str) or not r_tid.strip():
+                        raise ValueError("rival_shadow.target_id must be non-empty string")
+                    if r_tid == tid:
+                        raise ValueError("rival_shadow.target_id must differ from auto_target.target_id")
+                    if r_ttype == "P":
+                        if not _P_ID_RE.fullmatch(r_tid):
+                            raise ValueError(
+                                f"rival_shadow.target_id {r_tid!r} must match P[1-9][0-9]* for target_type P"
+                            )
+                        if "perspectives" in data and isinstance(data["perspectives"], dict) and r_tid not in data["perspectives"]:
+                            raise ValueError(f"rival_shadow.target_id {r_tid!r} not found in perspectives")
+                    else:
+                        if not _B_ID_RE.fullmatch(r_tid):
+                            raise ValueError(
+                                f"rival_shadow.target_id {r_tid!r} must match B[1-9][0-9]* for target_type B"
+                            )
+                        if r_tid not in seen_bundle_ids:
+                            raise ValueError(
+                                f"rival_shadow.target_id {r_tid!r} must reference a bundle proposed in this portfolio"
+                            )
+                    for field in ("core_claim", "why_remains_live", "differentiator_or_source_anchor"):
+                        val = rival_shadow.get(field)
+                        if not isinstance(val, str) or not val.strip():
+                            raise ValueError(f"rival_shadow.{field} must be non-empty string")
+
+            elif next_move == "GATHER_INFORMATION":
+                if auto_target is not None:
+                    raise ValueError("next_reasoning_move GATHER_INFORMATION requires auto_target to be null")
+                if rival_shadow is not None:
+                    raise ValueError("next_reasoning_move GATHER_INFORMATION requires rival_shadow to be null")
+                if not isinstance(info_req, dict):
+                    raise ValueError("next_reasoning_move GATHER_INFORMATION requires an information_request object")
+                mode = info_req.get("mode")
+                if mode not in ("USER_QUESTION", "EXTERNAL_OBSERVATION"):
+                    raise ValueError(
+                        f"information_request.mode must be USER_QUESTION or EXTERNAL_OBSERVATION, got {mode!r}"
+                    )
+                missing = info_req.get("missing_information")
+                if not isinstance(missing, str) or not missing.strip():
+                    raise ValueError("information_request.missing_information must be non-empty string")
+                why = info_req.get("why_it_changes_route")
+                if not isinstance(why, str) or not why.strip():
+                    raise ValueError("information_request.why_it_changes_route must be non-empty string")
+                if mode == "USER_QUESTION":
+                    questions = info_req.get("questions")
+                    if not isinstance(questions, list) or not (1 <= len(questions) <= 3):
+                        raise ValueError(
+                            "information_request.questions must be a list of 1..3 non-empty strings for USER_QUESTION"
+                        )
+                    for idx, q in enumerate(questions):
+                        if not isinstance(q, str) or not q.strip():
+                            raise ValueError(f"information_request.questions[{idx}] must be non-empty string")
+                    if info_req.get("suggested_observation") is not None:
+                        raise ValueError(
+                            "information_request.suggested_observation must be null for USER_QUESTION"
+                        )
+                else:
+                    questions = info_req.get("questions")
+                    if not isinstance(questions, list) or len(questions) != 0:
+                        raise ValueError(
+                            "information_request.questions must be an empty list for EXTERNAL_OBSERVATION"
+                        )
+                    obs = info_req.get("suggested_observation")
+                    if not isinstance(obs, str) or not obs.strip():
+                        raise ValueError(
+                            "information_request.suggested_observation must be non-empty string for EXTERNAL_OBSERVATION"
+                        )
+
+            elif next_move == "PRESERVE_ONLY":
+                if auto_target is not None:
+                    raise ValueError("next_reasoning_move PRESERVE_ONLY requires auto_target to be null")
+                if info_req is not None:
+                    raise ValueError("next_reasoning_move PRESERVE_ONLY requires information_request to be null")
+                if rival_shadow is not None:
+                    raise ValueError("next_reasoning_move PRESERVE_ONLY requires rival_shadow to be null")
     prior_bundles = data.get("prior_bundles")
     if prior_bundles is not None:
         if not isinstance(prior_bundles, list):

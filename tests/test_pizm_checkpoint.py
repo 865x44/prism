@@ -1141,7 +1141,11 @@ def valid_portfolio():
             },
         ],
         "bundles": [],
+        "next_reasoning_move": None,
+        "next_reasoning_rationale": None,
         "auto_target": None,
+        "information_request": None,
+        "rival_shadow": None,
     }
 
 def valid_portfolio_v2(left_id="B1", right_id="B2"):
@@ -1525,6 +1529,8 @@ def test_portfolio_auto_targets(workspace, target, valid):
     project, skill = workspace
     data = valid_portfolio()
     data["route"] = "AUTO"
+    data["next_reasoning_move"] = "DEEP"
+    data["next_reasoning_rationale"] = "Developing nominated target."
     data["bundles"] = [bundle()]
     data["auto_target"] = target
     inp = write_json(project / "portfolio_auto.json", data)
@@ -1539,6 +1545,8 @@ def test_portfolio_auto_without_target_rejected(workspace):
     project, skill = workspace
     data = valid_portfolio()
     data["route"] = "AUTO"
+    data["next_reasoning_move"] = "DEEP"
+    data["next_reasoning_rationale"] = "Developing nominated target."
     del data["auto_target"]
     inp = write_json(project / "portfolio_auto_missing.json", data)
     result = run_ck(
@@ -1561,6 +1569,45 @@ def test_portfolio_manual_with_target_rejected(workspace):
     assert result.returncode != 0
     assert "null" in result.stderr
 
+
+
+def test_portfolio_auto_gather_information_success(workspace):
+    project, skill = workspace
+    data = valid_portfolio()
+    data["route"] = "AUTO"
+    data["next_reasoning_move"] = "GATHER_INFORMATION"
+    data["next_reasoning_rationale"] = "Clarification needed from user."
+    data["auto_target"] = None
+    data["information_request"] = {
+        "mode": "USER_QUESTION",
+        "missing_information": "latency constraints",
+        "why_it_changes_route": "changes target choice",
+        "questions": ["What is the target latency budget?"],
+        "suggested_observation": None,
+    }
+    inp = write_json(project / "portfolio_gather.json", data)
+    result = run_ck(
+        "freeze", "--stage", "portfolio", "--run-id", "auto-gather-info",
+        "--input", inp, "--project-root", str(project), "--skill-root", str(skill),
+    )
+    assert result.returncode == 0, result.stderr
+
+
+def test_portfolio_auto_preserve_only_success(workspace):
+    project, skill = workspace
+    data = valid_portfolio()
+    data["route"] = "AUTO"
+    data["next_reasoning_move"] = "PRESERVE_ONLY"
+    data["next_reasoning_rationale"] = "Preserving search field without deep development."
+    data["auto_target"] = None
+    data["information_request"] = None
+    data["rival_shadow"] = None
+    inp = write_json(project / "portfolio_preserve.json", data)
+    result = run_ck(
+        "freeze", "--stage", "portfolio", "--run-id", "auto-preserve",
+        "--input", inp, "--project-root", str(project), "--skill-root", str(skill),
+    )
+    assert result.returncode == 0, result.stderr
 
 def test_portfolio_payload_too_large(workspace):
     project, skill = workspace
@@ -1761,6 +1808,15 @@ def valid_dev_v2(target_type="P", target_id="P7"):
                 "what_would_weaken_or_refute": "observation y",
             },
         ],
+        "comparative_standing": None,
+        "development_delta": {
+            "summary": "initial development",
+            "new_load_bearing_claims": [],
+            "strengthened_claims": [],
+            "new_causal_arrows_or_mechanisms": [],
+            "material_imports": [],
+            "scope_expansions": [],
+        },
     }
     if target_type == "B":
         model["member_contributions"] = {

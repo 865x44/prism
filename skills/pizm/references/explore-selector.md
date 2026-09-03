@@ -33,16 +33,43 @@ Decorative, redundant, and noise-like candidates are all mapped to `weak`; the r
 - `unique_residue`: The irreducible contribution this candidate adds to the field — a mechanism, variable, boundary, consequence, or question no other candidate carries. Empty residue is a legitimate finding, not a defect to paper over.
 - `nearest_overlap`: Composite ref of the most structurally similar other candidate, or null when the residue is genuinely alone. Overlap is judged on mechanism and claim structure, not topic vocabulary.
 
+### Source-Relative Marginal Value and Delta Test
+Evaluate candidate value relative to the source text/task and the nearest idea already present in the source or context. Ask what materially useful structure the candidate adds beyond the nearest source idea.
+
+Valid material structures include:
+- causal mechanism
+- synthesis
+- boundary
+- unit of analysis
+- conflict
+- prediction
+- discriminator
+- failure mode
+- decision implication
+- explanatory compression
+- experiential possibility
+
+**Non-sufficient rhetorical changes**: Mere restatement, re-phrasing, naming or labeling things without functional transfer, poetic analogies without structural difference, or vocabulary swaps do NOT provide unique residue or justify separate promotion. A candidate that merely summarizes, re-labels, or paraphrases source observations carries no material delta.
+
+### Separate-Survivor Test
+For candidates close to an already selected survivor, ask what materially useful thing the user loses if the candidate is not shown separately.
+
+If the distinction is merely an additional nuance, angle, sub-theme, or facet that does not change downstream decisions, predictions, failure modes, or causal understanding, it does NOT earn separate survivor status. Nuance without downstream consequence clusters under the primary survivor.
+
 **Failure to avoid**: a uniform outcome — every candidate marked strong with no structural distinctions drawn between them — is itself a judging failure, not evidence of an exceptionally good pool. If no distinctions exist, say so explicitly per candidate instead of inflating uniform praise.
 
 ### Categorical Dispositions
 Assign exactly one disposition to each candidate:
-- `KEEP`: Candidate carries real unique residue and stands on its own. Promoted to a visible perspective.
-- `BORDERLINE`: Viable but unresolved — noticeable gaps, or real residue entangled with weak grounding. Kept visible as open territory, without promotion pressure.
-- `MERGE`: Obvious duplicate sharing a core mechanism with another candidate while contributing complementary facets. The unified perspective retains one primary target candidate.
-- `DROP`: Weak standalone quality or empty unique residue. Excluded from visible output.
+- `KEEP`: Candidate carries real unique residue and stands on its own as a distinct survivor. Promoted to a visible perspective.
+- `BORDERLINE`: Viable but unresolved — noticeable gaps, or real residue entangled with weak grounding. Kept visible as open territory, without promotion pressure. Source summaries or restatements with slight exploratory ambiguity may map to `BORDERLINE` when holding as open territory is justified.
+- `MERGE`: Obvious duplicate sharing a core mechanism with another candidate while contributing complementary facets. The unified perspective retains one primary target candidate. Complementary facets and sub-angles are expressed by `MERGE` (or clustering under a primary survivor target), preserving the primary candidate ref.
+- `DROP`: Weak standalone quality, empty unique residue, or negligible source-relative delta. Excluded from visible output. Source summaries, restatements, or decorative rewordings with zero or negligible delta map to `DROP` with the rationale documented in `reason`.
 
 There is no rejection quota and no forced distribution. A high count of positive dispositions is acceptable when the unique residues are genuinely real; the failure mode to avoid is uniformity without structural distinctions, not generosity.
+
+Field survival is separated from reasoning spend: `KEEP`, `BORDERLINE`, `MERGE`, and `DROP` govern field structure and perspective survival; they do not force Deep development.
+### Honest Pass-Level Exhaustion
+The selector is explicitly permitted to report that no additional high-confidence marginal shifts were found in the current pass without making false claims of global semantic space exhaustion. It is a valid and honest outcome for a pass to produce zero new survivors when the generated pool offers no genuine marginal delta over prior passes or source material.
 
 **Strict Prohibition**: Do NOT use numeric scores, score arithmetic, percentages, ranking formulas, or top-N quotas. Evaluation must be entirely categorical.
 
@@ -79,14 +106,33 @@ The judge freezes its decision as one portfolio record conforming to `pizm-portf
   "bundles": [
     {"bundle_id": "B1", "member_refs": ["pass01:c02","pass01:c08"], "bundle_thesis": "...", "composition_gain": "...", "member_roles": {}, "member_ablation": {}, "internal_tension": "...", "weakest_link": "...", "new_consequence_or_prediction": "..."}
   ],
-  "auto_target": {"target_type": "P|B", "target_id": "..."}
+  "next_reasoning_move": "DEEP|GATHER_INFORMATION|PRESERVE_ONLY|null",
+  "next_reasoning_rationale": "...",
+  "auto_target": {"target_type": "P|B", "target_id": "..."},
+  "information_request": {
+    "mode": "USER_QUESTION|EXTERNAL_OBSERVATION",
+    "missing_information": "...",
+    "why_it_changes_route": "...",
+    "questions": ["..."],
+    "suggested_observation": "..."
+  },
+  "rival_shadow": {
+    "target_type": "P|B",
+    "target_id": "P2|B2",
+    "core_claim": "...",
+    "why_remains_live": "...",
+    "differentiator_or_source_anchor": "..."
+  }
 }
 ```
 
-Routing rules:
-- `MANUAL`: `auto_target` may be null. The user chooses what to deepen.
-- `AUTO`: exactly one `auto_target`, pointing at a promoted perspective (`target_type` `P`) or at a proposed bundle id (`target_type` `B`).
-
+Routing rules and fail-closed couplings:
+- `MANUAL`: `auto_target` may be null (along with `next_reasoning_move`, `next_reasoning_rationale`, `information_request`, and `rival_shadow`). The user chooses what to deepen.
+- `AUTO`: `next_reasoning_move` must be `DEEP`, `GATHER_INFORMATION`, or `PRESERVE_ONLY`, and `next_reasoning_rationale` is a non-empty string.
+  - `DEEP`: exactly one `auto_target` pointing at a promoted perspective (`target_type` `P`) or at a proposed bundle (`target_type` `B`). `information_request` must be null. `rival_shadow` is nullable; when present, it names the live nearest rival (`target_type`, `target_id`, `core_claim`, `why_remains_live`, `differentiator_or_source_anchor`), where target_id must differ from auto_target.target_id and reference a promoted Perspective or defined Bundle (never synthesize a weak rival).
+  - `GATHER_INFORMATION`: `auto_target` and `rival_shadow` must be null; `information_request` is non-null with `mode` (`USER_QUESTION` with 1–3 non-empty questions and null suggested observation, or `EXTERNAL_OBSERVATION` with empty questions list and non-empty suggested observation), `missing_information`, and `why_it_changes_route`.
+  - `PRESERVE_ONLY`: `auto_target`, `information_request`, and `rival_shadow` must all be null.
+- Field survival vs reasoning spend: `KEEP`, `BORDERLINE`, `MERGE`, and `DROP` govern field structure; they do not force `DEEP`.
 ## User-Visible Presentation Rules
 
 1. **Tool-only portfolio record write**: From the checkpoint `ARTIFACT` path of the last frozen pass, use its parent run directory and freeze the portfolio record via tool call with stage `portfolio` (written as `<ARTIFACT-parent>/portfolio.json`). Never write a cwd-global `portfolio.json` and never render the portfolio JSON in chat prose.

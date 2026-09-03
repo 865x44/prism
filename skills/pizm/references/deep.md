@@ -63,6 +63,21 @@ If a referenced P-ID cannot be recovered reliably from the active conversation, 
    - `break_conditions`: conditions under which the claim fails.
    - `unresolved_tensions`: what the model leaves unreconciled. Non-empty for bundle targets: the internal tension of the composition is mandatory.
    - `evidence_debt`: what would need to be checked, measured, or sourced to move speculative or unknown claims toward supported.
+   - `comparative_standing`: required nullable field. When a live rival shadow is provided from Portfolio, compare the developed model against the rival:
+     - `rival_ref`: reference to the rival perspective or bundle (e.g., `"P2"` or `"B2"`)
+     - `material_difference`: structural / causal difference between the two models
+     - `selected_target_advantage`: where the selected target is stronger or more parsimonious
+     - `rival_advantage_or_parity`: where the rival is stronger or on equal footing (wording explicitly permits the rival to remain equal or stronger)
+     - `unresolved_competition`: what empirical or conceptual uncertainty remains live between them
+     If no rival shadow was nominated in Portfolio, `comparative_standing` must be `null`.
+   - `development_delta`: required object capturing the compact provenance of this development pass:
+     - `summary`: non-empty string summarizing the delta (or stating explicitly when no material delta occurred)
+     - `new_load_bearing_claims`: list of strings
+     - `strengthened_claims`: list of strings
+     - `new_causal_arrows_or_mechanisms`: list of strings
+     - `material_imports`: list of strings
+     - `scope_expansions`: list of strings
+     All five list keys are required and may be empty (`[]`).
 
 3. **Stay honest in the census**: the census you write will be independently audited. Mark speculation `SPECULATIVE`; do not launder it into `SUPPORTED` by phrasing. Do not bury a serious objection by labeling a fragile claim stronger than it is — status inflation is exactly what the audit looks for.
 
@@ -100,8 +115,22 @@ Emit a JSON artifact with this structure, then perform a tool-only pre-freeze:
     ],
     "break_conditions": ["..."],
     "unresolved_tensions": ["..."],
-    "evidence_debt": ["..."]
-  }
+    "evidence_debt": ["..."],
+    "comparative_standing": {
+      "rival_ref": "P2",
+      "material_difference": "...",
+      "selected_target_advantage": "...",
+      "rival_advantage_or_parity": "...",
+      "unresolved_competition": "..."
+    },
+    "development_delta": {
+      "summary": "...",
+      "new_load_bearing_claims": [],
+      "strengthened_claims": [],
+      "new_causal_arrows_or_mechanisms": [],
+      "material_imports": [],
+      "scope_expansions": []
+    }
 }
 ```
 

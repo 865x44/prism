@@ -127,6 +127,15 @@ def valid_development_payload(target_id="B1", member_refs=None):
             "predictions_or_observables": ["Batches shrink when review SLA < 4h"],
             "break_conditions": ["If reviewers have dedicated uninterrupted focus time"],
             "evidence_debt": [],
+            "comparative_standing": None,
+            "development_delta": {
+                "summary": "Initial development",
+                "new_load_bearing_claims": [],
+                "strengthened_claims": [],
+                "new_causal_arrows_or_mechanisms": [],
+                "material_imports": [],
+                "scope_expansions": [],
+            },
         },
     }
 

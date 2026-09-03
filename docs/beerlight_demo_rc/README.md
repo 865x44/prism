@@ -7,6 +7,18 @@
 - Python 3.14+ (project `.venv` only — system Python fails collection)
 - No network, no provider, no evaluator, no external service
 
+## Setup
+
+```bash
+cd /home/alx/projects/prism
+python3 -m venv .venv
+.venv/bin/pip install -e '.[dev]'   # editable install; tests import prism.*
+```
+
+Note: plain `pytest` after installing only `pytest` fails collection
+(`ModuleNotFoundError: No module named 'prism'`). The editable install (or
+`PYTHONPATH=src`) is required.
+
 ## Exact demo command
 
 ```bash

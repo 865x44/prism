@@ -12,27 +12,35 @@ AUTO enforces a strict single-target rule: exactly one nominated target (P or B)
 
 ## 1. Pipeline Execution Sequence
 
-The AUTO pipeline proceeds through the following sequential stages in exact order:
+The AUTO pipeline executes dynamic reasoning-budget routing based on the Portfolio Judge decision:
 
 ```text
 AUTO TASK → Search(initial) GENERATE → freeze explore pass + search-field manifest
-→ PORTFOLIO JUDGE → freeze portfolio record (route AUTO; exactly one auto_target: P or B)
-→ DEEP(target) DEVELOP (development-v2) → freeze
-→ CRITIC REVIEW (deep-review-v2) → freeze
-→ [conditional] same manual LEVER primitive (design + review)
-→ deterministic FINAL assembly (zero model calls)
-→ deterministic run.md rendering (zero model calls)
+→ PORTFOLIO JUDGE → freeze portfolio record (route AUTO)
+   ├─ [next_reasoning_move: DEEP]
+   │  → DEEP(target) DEVELOP (development-v2) → freeze
+   │  → CRITIC REVIEW (deep-review-v2) → freeze
+   │  → [conditional] same manual LEVER primitive (design + review)
+   │  → deterministic FINAL assembly + run.md
+   ├─ [next_reasoning_move: GATHER_INFORMATION]
+   │  → intentional terminal outcome: freeze information request (no Deep/Critic)
+   │  → deterministic FINAL assembly + run.md (renders questions / observation)
+   └─ [next_reasoning_move: PRESERVE_ONLY]
+      → intentional terminal outcome: freeze preserved field (no Deep/Critic)
+      → deterministic FINAL assembly + run.md (renders preserved field)
 ```
 
 ### Stage Execution Details:
 
 1. **AUTO TASK**: Receive the user's task prompt via `/pizm auto <task>`.
 2. **Search(initial)**: Run ONE initial Search pass adhering to `references/explore.md` (soft target 12–16 candidates when supported; hard bounds 1..20 candidates, ≤ 192 KiB total payload, ≤ 12 KiB per candidate). Freeze the raw pass and register it in the append-only search-field manifest exactly as `references/explore.md` prescribes. This is the only Search of the run: no residual Search, no second Search, and no re-judgment loop exists inside AUTO.
-3. **PORTFOLIO JUDGE**: Reveal `references/explore-selector.md`. The judge evaluates the exact frozen field categorically and freezes one portfolio record conforming to `pizm-portfolio-selection-v1` with `route: "AUTO"` and exactly one `auto_target` (`{"target_type": "P"|"B", "target_id": ...}`), pointing either at a promoted perspective (`P<n>`) or at a proposed bundle (`B<n>`). The portfolio record is the sole routing authority; no secondary routing file is created. There is no ranked ordering and no alternative branch.
+3. **PORTFOLIO JUDGE**: Reveal `references/explore-selector.md`. The judge evaluates the exact frozen field categorically and freezes one portfolio record conforming to `pizm-portfolio-selection-v1` with `route: "AUTO"` and chooses `next_reasoning_move`:
+   - `DEEP`: nominates exactly one `auto_target` (`{"target_type": "P"|"B", "target_id": ...}`) and an optional live `rival_shadow`. Proceeds to Deep development.
+   - `GATHER_INFORMATION`: intentional completed terminal outcome. Emits an `information_request` (1–3 questions for `USER_QUESTION` or observation for `EXTERNAL_OBSERVATION`) and terminates without developing Deep or invoking Critic/LEVER.
+   - `PRESERVE_ONLY`: intentional completed terminal outcome. Preserves the field without further reasoning spend and terminates without developing Deep or invoking Critic/LEVER.
    - **Task orientation**: while judging, classify the task as `ANALYTICAL` or `ACTION_OR_DECISION`, reusing the existing bounded judgment already exercised in the conversation (no classifier call, no extra model turn, no new semantic abstraction). If genuinely ambiguous, default to `ANALYTICAL`. Orientation is conversational routing metadata; it adds no semantic stage.
-4. **DEEP(target) DEVELOP**: Deepen exactly the nominated target following `references/deep.md` under the development-v2 contract. The developed artifact's target must equal the portfolio's `auto_target` verbatim: a promoted perspective (`P<n>`, identity lock preserving its `p_id`) or a proposed bundle (`B<n>`, identity lock freezing `member_refs`; one Bundle = one Deep, never per-member mini-Deeps). Single Deep only.
+4. **DEEP(target) DEVELOP**: If `next_reasoning_move == "DEEP"`, deepen exactly the nominated target following `references/deep.md` under the development-v2 contract. The developed artifact's target must equal the portfolio's `auto_target` verbatim: a promoted perspective (`P<n>`, identity lock preserving its `p_id`) or a proposed bundle (`B<n>`, identity lock freezing `member_refs`; one Bundle = one Deep, never per-member mini-Deeps). Single Deep only. If `rival_shadow` was frozen in Portfolio, Deep receives it and records `comparative_standing`.
 5. **Freeze Deep**: Freeze the development-v2 artifact before any review begins.
-6. **CRITIC REVIEW**: Reveal `references/deep-reviewer.md`. The critic independently evaluates the frozen developed model and freezes a deep-review-v2 record whose `terminal_state` is one of `{"MODEL_READY", "NEED_EVIDENCE", "RETURN_TO_EXPLORE"}`.
 7. **Conditional LEVER Primitive**:
    - If `terminal_state == "MODEL_READY"` AND `task_orientation == "ACTION_OR_DECISION"`:
      Execute the same manual LEVER primitive (`references/lever.md` and `references/lever-reviewer.md`) using identical prompts and review logic as `/pizm lever`, with zero duplication.
@@ -46,11 +54,10 @@ AUTO TASK → Search(initial) GENERATE → freeze explore pass + search-field ma
 
 ## 2. Honest-Stop Rules
 
-If the Critic produces `terminal_state == "NEED_EVIDENCE"` or `terminal_state == "RETURN_TO_EXPLORE"`:
-- Execution MUST stop honestly at that point with the stated reason from the review verdict.
+- **Portfolio Terminal Outcomes**: If the Portfolio Judge produces `next_reasoning_move == "GATHER_INFORMATION"` or `next_reasoning_move == "PRESERVE_ONLY"`, execution stops honestly as a completed run at Portfolio. No Deep/Critic/LEVER artifacts are created, and execution does not auto-resume. Continuation requires explicit fresh user instruction or a fresh run.
+- **Critic Non-Ready Outcomes**: If the Critic produces `terminal_state == "NEED_EVIDENCE"` or `terminal_state == "RETURN_TO_EXPLORE"`, execution MUST stop honestly at that point with the stated reason from the review verdict.
 - No other search or refinement primitive starts afterward (no second Deep, no alternative branch, no reroll, no auto-recovery).
 - The pipeline proceeds directly to FINAL assembly to render the honest-stop report and its `run.md`.
-
 ---
 
 ## 3. Deterministic FINAL Assembly

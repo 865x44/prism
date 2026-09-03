@@ -184,6 +184,7 @@ Within the active referenceable conversation/context:
 
 If supplied material cannot support materially distinct grounded models, do not manufacture breadth. Limit, abstain, or request only the critical context required for grounded analysis.
 
+Permit 0–3 clarifying questions only if different answers would materially change search territory, constraints, evidence interpretation, or the next reasoning spend. Bounded reasoning checks and existing context must be consumed before asking; "more context would help" is never sufficient.
 Separate what is supported by the source/task from inference and added assumptions. Do not imply completeness that the material cannot support.
 
 ## Boundary

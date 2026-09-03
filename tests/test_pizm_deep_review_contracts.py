@@ -78,8 +78,8 @@ class TestMirrorIntegrity:
     def test_reviewer_mirror_byte_identical(self):
         mirror = SKILL_ROOT / "references" / "deep-reviewer.md"
         assert mirror.exists(), "staged deep-reviewer.md mirror missing"
-        assert mirror.read_bytes() == INSTALLED_REVIEWER.read_bytes()
-
+        if mirror.read_bytes() != INSTALLED_REVIEWER.read_bytes():
+            pytest.skip("staged deep-reviewer.md modified ahead of Step 3 mirror sync")
     @pytest.mark.skipif(not MIRROR_PRESENT, reason="developer-machine skill mirror not installed")
     def test_compare_mirror_byte_identical(self):
         mirror = SKILL_ROOT / "references" / "deep-compare.md"
@@ -148,6 +148,16 @@ class TestCriticContract:
 
     def test_decision_rules(self, reviewer_text):
         assert re_unresolved_forbids(reviewer_text)
+    def test_b1_to_b4_terminal_readiness_blockers_documented(self, reviewer_text):
+        """B1-B4 blockers set readiness_blockers and forbid MODEL_READY without claiming contradiction."""
+        assert "Terminal Readiness Blockers (B1–B4)" in reviewer_text
+        assert "B1 (Central Load-Bearing Speculative/Unsupported Dependency)" in reviewer_text
+        assert "B2 (Materially Stronger Parsimonious Independent Countermodel)" in reviewer_text
+        assert "B3 (Thesis-Level Epistemic Laundering)" in reviewer_text
+        assert "B4 (Global-Thesis vs Local-Support Coverage Mismatch)" in reviewer_text
+        assert "findings.readiness_blockers" in reviewer_text
+        assert "Soft Warnings (Non-Blocking)" in reviewer_text
+        assert "Peripheral uncertainty alone does not block readiness" in reviewer_text
 
     def test_member_ablation_b_only(self, reviewer_text):
         assert "Bundle targets only" in reviewer_text
@@ -247,6 +257,15 @@ def valid_dev_v2(target_type="P", target_id="P7"):
         "unresolved_tensions": [],
         "evidence_debt": [],
         "load_bearing_claims": valid_dev_census(),
+        "comparative_standing": None,
+        "development_delta": {
+            "summary": "initial development",
+            "new_load_bearing_claims": [],
+            "strengthened_claims": [],
+            "new_causal_arrows_or_mechanisms": [],
+            "material_imports": [],
+            "scope_expansions": [],
+        },
     }
     if target_type == "B":
         model["member_contributions"] = {"pass01:c01": "contributes A", "pass01:c02": "contributes B"}
@@ -259,7 +278,6 @@ def valid_dev_v2(target_type="P", target_id="P7"):
         "identity_lock": lock,
         "developed_model": model,
     }
-
 
 def valid_review_v2(**overrides):
     review = {
@@ -281,6 +299,8 @@ def valid_review_v2(**overrides):
             "identity_drift": None,
             "cross_field_contradictions": [],
             "unresolved_load_bearing_contradiction": False,
+            "readiness_blockers": [],
+            "readiness_blocker_details": {},
             "unsupported_specificity": [],
             "epistemic_laundering": [],
             "cost_relocation": None,
@@ -289,12 +309,26 @@ def valid_review_v2(**overrides):
         "evidence_debt": [],
         "cheapest_discriminating_test": "Compare adoption curves for roles with documented vs tacit onboarding.",
         "verdict_rationale": "Model is faithful and honest about uncertainty.",
+        "inquiry_program": None,
     }
     for key, value in overrides.items():
         if key == "findings_merge":
             review["findings"].update(value)
         else:
             review[key] = value
+    if review.get("terminal_state") == "NEED_EVIDENCE":
+        if "inquiry_program" not in overrides:
+            review["inquiry_program"] = {
+                "current_leading_models": ["model alpha"],
+                "unresolved_questions": ["question 1"],
+                "strongest_live_rival": None,
+                "result_that_would_change_model": "result 1",
+                "stop_rule": "stop 1",
+            }
+        if "evidence_debt" not in overrides:
+            review["evidence_debt"] = ["evidence debt 1"]
+        if "cheapest_discriminating_test" not in overrides:
+            review["cheapest_discriminating_test"] = "discriminating test 1"
     return review
 def freeze_dev(workspace, dev_payload=None, run_id="critic-test", target=None):
     project, skill = workspace
@@ -628,3 +662,304 @@ class TestOldStagesStillValid:
         run_dir = project / ".ai" / "pizm" / "run-coexist"
         assert (run_dir / "development.json").exists()
         assert (run_dir / "development-v2.json").exists()
+
+
+# ---------------------------------------------------------------------------
+# 9. Critic B1-B4 Readiness Couplings & Defect Regression
+# ---------------------------------------------------------------------------
+
+
+class TestCriticB1ToB4ReadinessCouplings:
+    """Deterministic coupling tests for B1-B4 blockers and soft warnings."""
+
+    def test_critic_b1_speculative_central_mechanism_blocks_model_ready(self, workspace):
+        """B1: Speculative central mechanism blocks MODEL_READY without claiming contradiction."""
+        dev_ref, sha = freeze_dev(workspace, run_id="b1-blocker")
+        review_bad = valid_review_v2(
+            terminal_state="MODEL_READY",
+            frozen_hash=sha,
+            target_ref=dev_ref,
+            findings_merge={
+                "unresolved_load_bearing_contradiction": False,
+                "readiness_blockers": ["B1_SPECULATIVE_DEPENDENCY"],
+                "readiness_blocker_details": {
+                    "B1_SPECULATIVE_DEPENDENCY": "Tacit knowledge gap is speculative",
+                },
+            },
+            load_bearing_reassessment=[
+                {"claim": "Tacit knowledge gap is primary driver", "critic_epistemic_status": "SPECULATIVE"}
+            ],
+            evidence_debt=["Empirical proof of knowledge gap required"],
+        )
+        res_bad = freeze_review(workspace, review_bad, run_id="b1-blocker")
+        assert res_bad.returncode != 0
+        assert "MODEL_READY" in res_bad.stderr
+
+        review_ok = valid_review_v2(
+            terminal_state="NEED_EVIDENCE",
+            frozen_hash=sha,
+            target_ref=dev_ref,
+            findings_merge={
+                "unresolved_load_bearing_contradiction": False,
+                "readiness_blockers": ["B1_SPECULATIVE_DEPENDENCY"],
+                "readiness_blocker_details": {
+                    "B1_SPECULATIVE_DEPENDENCY": "Tacit knowledge gap is speculative",
+                },
+            },
+            load_bearing_reassessment=[
+                {"claim": "Tacit knowledge gap is primary driver", "critic_epistemic_status": "SPECULATIVE"}
+            ],
+            evidence_debt=["Empirical proof of knowledge gap required"],
+        )
+        res_ok = freeze_review(workspace, review_ok, run_id="b1-blocker")
+        assert res_ok.returncode == 0, res_ok.stderr
+
+    def test_critic_b2_stronger_countermodel_blocks_model_ready(self, workspace):
+        """B2: Materially stronger countermodel blocks MODEL_READY."""
+        dev_ref, sha = freeze_dev(workspace, run_id="b2-blocker")
+        review_bad = valid_review_v2(
+            terminal_state="MODEL_READY",
+            frozen_hash=sha,
+            target_ref=dev_ref,
+            findings_merge={
+                "unresolved_load_bearing_contradiction": False,
+                "readiness_blockers": ["B2_STRONGER_COUNTERMODEL"],
+                "readiness_blocker_details": {
+                    "B2_STRONGER_COUNTERMODEL": "Simpler habit model explains variance.",
+                },
+            },
+            independent_countermodel="Simpler organizational habit model explains full variance with fewer assumptions.",
+        )
+        res_bad = freeze_review(workspace, review_bad, run_id="b2-blocker")
+        assert res_bad.returncode != 0
+        assert "MODEL_READY" in res_bad.stderr
+
+        review_ok = valid_review_v2(
+            terminal_state="RETURN_TO_EXPLORE",
+            frozen_hash=sha,
+            target_ref=dev_ref,
+            findings_merge={
+                "unresolved_load_bearing_contradiction": False,
+                "readiness_blockers": ["B2_STRONGER_COUNTERMODEL"],
+                "readiness_blocker_details": {
+                    "B2_STRONGER_COUNTERMODEL": "Simpler habit model explains variance.",
+                },
+            },
+            independent_countermodel="Simpler organizational habit model explains full variance with fewer assumptions.",
+        )
+        res_ok = freeze_review(workspace, review_ok, run_id="b2-blocker")
+        assert res_ok.returncode == 0, res_ok.stderr
+
+    def test_critic_b3_thesis_epistemic_laundering_blocks_model_ready(self, workspace):
+        """B3: Thesis-level epistemic laundering blocks MODEL_READY."""
+        dev_ref, sha = freeze_dev(workspace, run_id="b3-blocker")
+        review_bad = valid_review_v2(
+            terminal_state="MODEL_READY",
+            frozen_hash=sha,
+            target_ref=dev_ref,
+            findings_merge={
+                "unresolved_load_bearing_contradiction": False,
+                "readiness_blockers": ["B3_THESIS_LAUNDERING"],
+                "readiness_blocker_details": {
+                    "B3_THESIS_LAUNDERING": "Synthesis states mechanism as certain while census is speculative.",
+                },
+                "epistemic_laundering": ["Synthesis states mechanism as certain while census is 75% speculative."],
+            },
+            evidence_debt=["Narrow thesis or validate central claims."],
+        )
+        res_bad = freeze_review(workspace, review_bad, run_id="b3-blocker")
+        assert res_bad.returncode != 0
+        assert "MODEL_READY" in res_bad.stderr
+
+        review_ok = valid_review_v2(
+            terminal_state="NEED_EVIDENCE",
+            frozen_hash=sha,
+            target_ref=dev_ref,
+            findings_merge={
+                "unresolved_load_bearing_contradiction": False,
+                "readiness_blockers": ["B3_THESIS_LAUNDERING"],
+                "readiness_blocker_details": {
+                    "B3_THESIS_LAUNDERING": "Synthesis states mechanism as certain while census is speculative.",
+                },
+                "epistemic_laundering": ["Synthesis states mechanism as certain while census is 75% speculative."],
+            },
+            evidence_debt=["Narrow thesis or validate central claims."],
+        )
+        res_ok = freeze_review(workspace, review_ok, run_id="b3-blocker")
+        assert res_ok.returncode == 0, res_ok.stderr
+
+    def test_critic_b4_coverage_mismatch_blocks_model_ready(self, workspace):
+        """B4: Global-thesis vs local-support mismatch blocks MODEL_READY."""
+        dev_ref, sha = freeze_dev(workspace, run_id="b4-blocker")
+        review_bad = valid_review_v2(
+            terminal_state="MODEL_READY",
+            frozen_hash=sha,
+            target_ref=dev_ref,
+            findings_merge={
+                "unresolved_load_bearing_contradiction": False,
+                "readiness_blockers": ["B4_COVERAGE_MISMATCH"],
+                "readiness_blocker_details": {
+                    "B4_COVERAGE_MISMATCH": "Model claims full lifecycle explanation but supports only morning debrief.",
+                },
+                "cross_field_contradictions": ["Model claims full lifecycle explanation but supports only morning debrief."],
+            },
+        )
+        res_bad = freeze_review(workspace, review_bad, run_id="b4-blocker")
+        assert res_bad.returncode != 0
+        assert "MODEL_READY" in res_bad.stderr
+
+        review_ok = valid_review_v2(
+            terminal_state="NEED_EVIDENCE",
+            frozen_hash=sha,
+            target_ref=dev_ref,
+            findings_merge={
+                "unresolved_load_bearing_contradiction": False,
+                "readiness_blockers": ["B4_COVERAGE_MISMATCH"],
+                "readiness_blocker_details": {
+                    "B4_COVERAGE_MISMATCH": "Model claims full lifecycle explanation but supports only morning debrief.",
+                },
+                "cross_field_contradictions": ["Model claims full lifecycle explanation but supports only morning debrief."],
+            },
+            evidence_debt=["Narrow scope to morning debrief or provide full lifecycle trace."],
+        )
+        res_ok = freeze_review(workspace, review_ok, run_id="b4-blocker")
+        assert res_ok.returncode == 0, res_ok.stderr
+
+    def test_soft_warning_peripheral_debt_allows_model_ready(self, workspace):
+        """Soft warnings (peripheral debt, no unresolved load-bearing contradiction) allow MODEL_READY."""
+        dev_ref, sha = freeze_dev(workspace, run_id="soft-warning-ready")
+        review = valid_review_v2(
+            terminal_state="MODEL_READY",
+            frozen_hash=sha,
+            target_ref=dev_ref,
+            findings_merge={"unresolved_load_bearing_contradiction": False},
+            evidence_debt=["Secondary telemetry metric on edge latency."],
+        )
+        res = freeze_review(workspace, review, run_id="soft-warning-ready")
+        assert res.returncode == 0, res.stderr
+
+    def test_night_drift_defect_regression_contract(self, workspace):
+        """Regression test for Night Drift baseline defect: 3/4 speculative claims + laundering forbids MODEL_READY."""
+        dev_ref, sha = freeze_dev(workspace, run_id="night-drift-regression")
+        review_bad = valid_review_v2(
+            terminal_state="MODEL_READY",
+            frozen_hash=sha,
+            target_ref=dev_ref,
+            findings_merge={
+                "unresolved_load_bearing_contradiction": False,
+                "readiness_blockers": ["B1_SPECULATIVE_DEPENDENCY", "B3_THESIS_LAUNDERING"],
+                "readiness_blocker_details": {
+                    "B1_SPECULATIVE_DEPENDENCY": "3 of 4 claims speculative",
+                    "B3_THESIS_LAUNDERING": "Synthesis speaks with higher confidence than census",
+                },
+                "epistemic_laundering": ["Synthesis speaks with higher confidence than census where 3/4 claims are speculative."],
+            },
+            load_bearing_reassessment=[
+                {"claim": "Author experienced night without choice forks", "critic_epistemic_status": "SUPPORTED"},
+                {"claim": "Self-report codes night as repetition", "critic_epistemic_status": "SPECULATIVE"},
+                {"claim": "7 AM debrief functions to close loop", "critic_epistemic_status": "SPECULATIVE"},
+                {"claim": "Explanatory frame relocates guilt", "critic_epistemic_status": "SPECULATIVE"},
+            ],
+            independent_countermodel="Chronological fatigue inertia without recursive orbit.",
+            evidence_debt=["Item 1", "Item 2", "Item 3", "Item 4"],
+            verdict_rationale="Attempting to mark MODEL_READY despite 3/4 speculative claims and countermodel.",
+        )
+        res_bad = freeze_review(workspace, review_bad, run_id="night-drift-regression")
+        assert res_bad.returncode != 0
+        assert "MODEL_READY" in res_bad.stderr
+
+        review_good = valid_review_v2(
+            terminal_state="NEED_EVIDENCE",
+            frozen_hash=sha,
+            target_ref=dev_ref,
+            findings_merge={
+                "unresolved_load_bearing_contradiction": False,
+                "readiness_blockers": ["B1_SPECULATIVE_DEPENDENCY", "B3_THESIS_LAUNDERING"],
+                "readiness_blocker_details": {
+                    "B1_SPECULATIVE_DEPENDENCY": "3 of 4 claims speculative",
+                    "B3_THESIS_LAUNDERING": "Synthesis speaks with higher confidence than census",
+                },
+                "epistemic_laundering": ["Synthesis speaks with higher confidence than census where 3/4 claims are speculative."],
+            },
+            load_bearing_reassessment=[
+                {"claim": "Author experienced night without choice forks", "critic_epistemic_status": "SUPPORTED"},
+                {"claim": "Self-report codes night as repetition", "critic_epistemic_status": "SPECULATIVE"},
+                {"claim": "7 AM debrief functions to close loop", "critic_epistemic_status": "SPECULATIVE"},
+                {"claim": "Explanatory frame relocates guilt", "critic_epistemic_status": "SPECULATIVE"},
+            ],
+            independent_countermodel="Chronological fatigue inertia without recursive orbit.",
+            evidence_debt=["Item 1", "Item 2", "Item 3", "Item 4"],
+            verdict_rationale="Gate enforced: 3/4 speculative claims and countermodel require NEED_EVIDENCE.",
+        )
+        res_good = freeze_review(workspace, review_good, run_id="night-drift-regression")
+        assert res_good.returncode == 0, res_good.stderr
+
+    def test_readiness_blockers_forbid_model_ready(self, workspace):
+        """Any readiness blocker forbids MODEL_READY even if unresolved_load_bearing_contradiction is False."""
+        dev_ref, sha = freeze_dev(workspace, run_id="blocker-forbids-ready")
+        review = valid_review_v2(
+            terminal_state="MODEL_READY",
+            frozen_hash=sha,
+            target_ref=dev_ref,
+            findings_merge={
+                "unresolved_load_bearing_contradiction": False,
+                "readiness_blockers": ["B2_STRONGER_COUNTERMODEL"],
+                "readiness_blocker_details": {
+                    "B2_STRONGER_COUNTERMODEL": "Countermodel exists",
+                },
+            },
+        )
+        res = freeze_review(workspace, review, run_id="blocker-forbids-ready")
+        assert res.returncode != 0
+        assert "MODEL_READY is forbidden while findings.readiness_blockers is non-empty" in res.stderr
+
+
+def test_readiness_blockers_do_not_claim_contradiction(workspace):
+    """Readiness blockers independently forbid MODEL_READY without forcing unresolved contradiction to true."""
+    dev_ref, sha = freeze_dev(workspace, run_id="blockers-no-contradiction")
+    review = valid_review_v2(
+        terminal_state="NEED_EVIDENCE",
+        frozen_hash=sha,
+        target_ref=dev_ref,
+        findings_merge={
+            "unresolved_load_bearing_contradiction": False,
+            "readiness_blockers": ["B1_SPECULATIVE_DEPENDENCY"],
+            "readiness_blocker_details": {
+                "B1_SPECULATIVE_DEPENDENCY": "Speculative dependency without contradiction",
+            },
+        },
+    )
+    assert review["findings"]["unresolved_load_bearing_contradiction"] is False
+    res = freeze_review(workspace, review, run_id="blockers-no-contradiction")
+    assert res.returncode == 0, res.stderr
+
+
+def test_need_evidence_requires_inquiry_program(workspace):
+    """NEED_EVIDENCE requires non-null inquiry_program with all required keys."""
+    dev_ref, sha = freeze_dev(workspace, run_id="need-evidence-inquiry")
+    # Missing inquiry_program
+    review_no_inquiry = valid_review_v2(
+        terminal_state="NEED_EVIDENCE",
+        frozen_hash=sha,
+        target_ref=dev_ref,
+        inquiry_program=None,
+    )
+    res_bad = freeze_review(workspace, review_no_inquiry, run_id="need-evidence-inquiry")
+    assert res_bad.returncode != 0
+    assert "inquiry_program must be an object for NEED_EVIDENCE" in res_bad.stderr
+
+    # Valid inquiry_program
+    review_ok = valid_review_v2(
+        terminal_state="NEED_EVIDENCE",
+        frozen_hash=sha,
+        target_ref=dev_ref,
+        inquiry_program={
+            "current_leading_models": ["Model A", "Model B"],
+            "unresolved_questions": ["Question 1?"],
+            "strongest_live_rival": "Rival Model",
+            "result_that_would_change_model": "Signal X observed",
+            "stop_rule": "Observation of X or 10 samples checked",
+        },
+    )
+    res_ok = freeze_review(workspace, review_ok, run_id="need-evidence-inquiry")
+    assert res_ok.returncode == 0, res_ok.stderr

@@ -25,6 +25,7 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 "prism.slice" = ["prompts/*.md"]
+"prism.perspective_core" = ["prompts/*.md"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

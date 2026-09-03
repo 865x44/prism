@@ -33,7 +33,19 @@ beerlight-sessions/
 
 # Local scratch, backups, and tool clutter
 scratch_patch*.py
-*.bak
+*.bak*
 .qwen/
 .papercuts.jsonl
 skill.zip
+*.zip
+
+# Local AI session logs and backup noise
+.ai/SESSION_LOG*
+.ai/*.bak*
+.ai/STATE.md.bak*
+
+# Local review, tool, and scratch artifacts
+review/
+candidates.json
+in.json
+out.md

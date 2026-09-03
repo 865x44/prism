@@ -12,34 +12,32 @@ Prism helps users move beyond surface-level brainstorming. Instead of generating
 
 ## Product Surface
 
-### Manual Primitives
-- **Search (Explore)**: Generates a structured field of distinct candidate perspectives ($P\langle n\rangle$). Supports three internal search policies:
-  - `initial` (NORMAL): Broad structural divergence across the problem space.
-  - `residual`: Divergence directed away from accumulated prior perspectives (*`360` is a deprecated compatibility alias for residual Search*).
-  - `rift` (RIFT): Non-obvious, distant structural reframings that preserve the underlying mechanism of the source while rejecting decorative analogy.
-- **Portfolio Judge**: Evaluates frozen candidate pools categorically, promoting valid perspectives ($P\langle n\rangle$) and assembling composed Bundles ($B\langle n\rangle$) with explicit composition gains.
-- **Deep**: Develops a selected perspective ($P\langle n\rangle$), composed bundle ($B\langle n\rangle$), or direct seed into a comprehensive causal model (`pizm-development-v2`).
-- **Critic**: Performs independent adversarial reassessment of a developed model (`pizm-deep-review-v2`), determining its readiness (`MODEL_READY`, `NEED_EVIDENCE`, `RETURN_TO_EXPLORE`).
+### Manual Primitives (Cumulative Reference Experience)
+- **Search (Explore)**: Generates a structured field of distinct candidate perspectives ($P\langle n\rangle$). Supports three internal search policies (`initial` / NORMAL, `residual` / 360, `rift` / RIFT) and an explicit Information Gathering budget (0–3 clarifying questions allowed only when answers materially fork search territory or downstream reasoning spend; no standalone probe subsystem).
+- **Portfolio Judge**: Evaluates frozen candidate pools categorically, promoting valid perspectives ($P\langle n\rangle$) and assembling composed Bundles ($B\langle n\rangle$) with explicit composition gains. Separates field survival (`KEEP`/`BORDERLINE`/`MERGE`/`DROP`) from downstream reasoning spend.
+- **Deep**: Develops a selected perspective ($P\langle n\rangle$), composed bundle ($B\langle n\rangle$), or direct seed into a comprehensive causal model (`pizm-development-v2`), recording a compact development delta and comparative standing against a live rival shadow when present.
+- **Critic**: Performs independent adversarial reassessment of a developed model (`pizm-deep-review-v2`), distinguishing readiness blockers (B1–B4) from logical contradictions, determining terminal readiness (`MODEL_READY`, `NEED_EVIDENCE` with structured inquiry program, `RETURN_TO_EXPLORE`).
 - **LEVER**: Formulates bounded interventions and testable moves from a validated `MODEL_READY` model.
 
 *Note: "Breadth" is superseded terminology and is not a public user mode. "MAX" is superseded and eliminated as a product route.*
 
 ### Automated Pipelines
-- **AUTO (`/pizm auto <task>`)**: Bounded single-target pipeline: Search $\to$ Portfolio $\to$ Deep(best $P$ or $B$) $\to$ Critic $\to$ optional LEVER $\to$ deterministic final synthesis.
+- **AUTO (`/pizm auto <task>`)**: Dynamic single-target pipeline: Search $\to$ Portfolio $\to$ dynamic reasoning-budget branch (Deep on nominated target $\to$ Critic $\to$ optional LEVER; intentional Information Gathering stop; or field Preservation stop) $\to$ deterministic final synthesis.
 - **BONK (`/pizm bonk <task>`)**: Heavy dual-competition pipeline: Search(initial) $\to$ Search(residual) $\to$ Portfolio $\to$ Deep(LEFT) $\to$ Deep(RIGHT) $\to$ Compare $\to$ optional LEVER $\to$ deterministic final synthesis.
-
 ---
 
 ## Mental Model & Topologies
 
-### Core Mental Model
+### Core Mental Model (Cumulative Manual Reference)
 ```text
-Search
+Search (Information Gathering: 0–3 questions if route-forking)
   └─► Portfolio Judge
-        ├─► Perspectives P<n> / Bundles B<n>
-        └─► Deep (Development v2)
-              └─► Critic (Review v2)
-                    └─► [Optional] LEVER
+        ├─► Perspectives P<n> / Bundles B<n> (Field Survival)
+        └─► Deep (Development v2 + Delta + Comparative Standing)
+              └─► Critic (Review v2: Blockers vs Contradiction)
+                    ├─► MODEL_READY ──► [Optional] LEVER
+                    ├─► NEED_EVIDENCE ──► Inquiry Program
+                    └─► RETURN_TO_EXPLORE
 ```
 
 ### AUTO Topology
@@ -47,27 +45,23 @@ Search
 /pizm auto <task>
   │
   ├─► Search(initial) ────────► Freeze candidates + search-field manifest
-  ├─► Portfolio Judge ────────► Freeze portfolio (route: AUTO, one auto_target: P or B)
-  ├─► Deep(target) ───────────► Freeze development-v2
-  ├─► Critic Review ──────────► Freeze deep-review-v2 (MODEL_READY | NEED_EVIDENCE | RETURN_TO_EXPLORE)
-  ├─► [Conditional LEVER] ───► Freeze design + review (if MODEL_READY and ACTION_OR_DECISION)
+  ├─► Portfolio Judge ────────► Freeze portfolio (route: AUTO)
+  │     │
+  │     ├─► [next_reasoning_move: DEEP]
+  │     │     ├─► Deep(target) ───────► Freeze development-v2 (with delta & rival standing)
+  │     │     ├─► Critic Review ──────► Freeze deep-review-v2 (MODEL_READY | NEED_EVIDENCE | RETURN_TO_EXPLORE)
+  │     │     └─► [Conditional LEVER] ► Freeze design + review (if MODEL_READY and ACTION_OR_DECISION)
+  │     │
+  │     ├─► [next_reasoning_move: GATHER_INFORMATION]
+  │     │     └─► Intentional terminal stop (freeze information request; 0 Deep/Critic/LEVER files)
+  │     │
+  │     └─► [next_reasoning_move: PRESERVE_ONLY]
+  │           └─► Intentional terminal stop (freeze preserved field; 0 Deep/Critic/LEVER files)
+  │
   └─► Deterministic FINAL ────► Session bundle archive & deterministic run.md (0 model calls)
 ```
 
-### BONK Topology
-```text
-/pizm bonk <task>
-  │
-  ├─► Search(initial) ───────────────► Freeze pass01 + search-field
-  ├─► Search(residual) ──────────────► Freeze pass02 + search-field
-  ├─► Portfolio Judge ───────────────► Freeze portfolio-v2 (TWO_DEFENSIBLE_BUNDLES or NO_SECOND_DEFENSIBLE_BUNDLE)
-  ├─► Deep(LEFT) ────────────────────► Freeze development-v2-<left_id>
-  ├─► Deep(RIGHT) ───────────────────► Freeze development-v2-<right_id>
-  ├─► Reveal deep-compare.md ────────► Freeze comparison-review-v1 (Critic LEFT + Critic RIGHT + Compare)
-  ├─► [Conditional LEVER] ───────────► Freeze design + review on preferred MODEL_READY bundle
-  └─► Deterministic FINAL ───────────► Session bundle archive & deterministic run.md (0 model calls)
-```
-
+*AUTO Honest Stops*: When the Portfolio Judge produces `GATHER_INFORMATION` or `PRESERVE_ONLY`, AUTO stops immediately as a completed run without creating Deep/Critic/LEVER files. When the Critic produces `NEED_EVIDENCE` (with structured inquiry program) or `RETURN_TO_EXPLORE`, execution stops honestly at Critic.
 ---
 
 ## Installation & Skill Setup

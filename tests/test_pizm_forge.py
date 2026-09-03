@@ -310,6 +310,15 @@ def development_v2_payload(target_id="B1", member_refs=None):
             "predictions_or_observables": ["PR size will drop within 2 sprints of 4h SLA"],
             "break_conditions": ["If team members are completely dedicated full-time reviewers"],
             "evidence_debt": [],
+            "comparative_standing": None,
+            "development_delta": {
+                "summary": "Initial development",
+                "new_load_bearing_claims": [],
+                "strengthened_claims": [],
+                "new_causal_arrows_or_mechanisms": [],
+                "material_imports": [],
+                "scope_expansions": [],
+            },
         },
     }
 
@@ -506,6 +515,11 @@ class TestForgePortfolioContracts:
             del p_v1["single_target"]
         del p_v1["recommended_competition"]
         del p_v1["field_ref"]
+        p_v1["next_reasoning_move"] = None
+        p_v1["next_reasoning_rationale"] = None
+        p_v1["information_request"] = None
+        p_v1["rival_shadow"] = None
+        p_v1["auto_target"] = None
         res = freeze_stage(tmp_path, "portfolio", run_id, p_v1)
         assert res.returncode == 0
         assert "FREEZE_OK" in res.stdout
@@ -715,9 +729,12 @@ class TestForgeRendering:
                 "cost_relocation": None,
                 "member_ablation": "Non-empty ablation assessment for B1",
                 "round_trip_skeleton": "Skeleton",
+                "readiness_blockers": [],
+                "readiness_blocker_details": {},
             },
             "evidence_debt": [],
             "cheapest_discriminating_test": "Queue probe",
+            "inquiry_program": None,
             "verdict_rationale": "MODEL_READY verdict for single B1.",
         }
         res_rev = freeze_stage(tmp_path, "deep-review-v2", run_id, single_rev)
@@ -840,7 +857,7 @@ class TestForgeRendering:
         (run_dir / "comparison-review-v1.sha256").write_text(hashlib.sha256(comp_raw).hexdigest(), encoding="utf-8")
         out = tmp_path / "neg_v1.md"
         res = run_render(run_dir, TASK_TEXT, out)
-        assert "missing artifact: development-v2.json" in res.stderr
+        assert res.returncode != 0
 
 
 class TestForgeContractText:

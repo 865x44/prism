@@ -166,8 +166,12 @@ def portfolio_payload(field_hash: str, target_type="P", target_id="P1"):
                 "reason": "Generic platitude lacking structural mechanism",
             },
         ],
-        "bundles": [],
+        "next_reasoning_move": "DEEP",
+        "next_reasoning_rationale": "Clear causal mechanism linking latency to batch sizing",
         "auto_target": {"target_type": target_type, "target_id": target_id},
+        "information_request": None,
+        "rival_shadow": None,
+        "bundles": [],
     }
     if target_type == "B":
         data["candidate_assessments"][1]["disposition"] = "KEEP"
@@ -244,6 +248,15 @@ def development_payload(target_type="P", target_id="P1"):
                 "epistemic_status": "SUPPORTED",
             },
         ],
+        "comparative_standing": None,
+        "development_delta": {
+            "summary": "initial development",
+            "new_load_bearing_claims": [],
+            "strengthened_claims": [],
+            "new_causal_arrows_or_mechanisms": [],
+            "material_imports": [],
+            "scope_expansions": [],
+        },
     }
     if target_type == "B":
         members = identity_lock["member_refs"]
@@ -265,6 +278,8 @@ def review_payload(target_type="P", target_id="P1"):
         "unsupported_specificity": [],
         "epistemic_laundering": [],
         "unresolved_load_bearing_contradiction": False,
+        "readiness_blockers": [],
+        "readiness_blocker_details": {},
         "identity_drift": None,
         "cost_relocation": None,
         "round_trip_skeleton": "latency -> batching -> larger diffs -> slower reviews",
@@ -287,6 +302,7 @@ def review_payload(target_type="P", target_id="P1"):
         "findings": findings,
         "evidence_debt": [],
         "verdict_rationale": "Mechanism survives the countermodel; predictions observable.",
+        "inquiry_program": None,
     }
 
 
@@ -351,6 +367,16 @@ def _freeze_full_run(project_root: Path, target_type="P", with_lever=True,
     review = review_payload(target_type, tid)
     review["terminal_state"] = terminal_state
     review["frozen_hash"] = dev_sha
+    if terminal_state == "NEED_EVIDENCE":
+        review["inquiry_program"] = {
+            "current_leading_models": ["Model 1"],
+            "unresolved_questions": ["Question 1?"],
+            "strongest_live_rival": None,
+            "result_that_would_change_model": "Result 1",
+            "stop_rule": "Stop 1",
+        }
+        review["evidence_debt"] = ["Evidence debt 1"]
+        review["cheapest_discriminating_test"] = "Test 1"
     freeze_stage(project_root, "deep-review-v2", run_id, review)
 
     if with_lever:
@@ -639,7 +665,11 @@ def test_auto_render_accepts_v1_auto_layout(tmp_path):
             }
         ],
         "bundles": [],
+        "next_reasoning_move": "DEEP",
+        "next_reasoning_rationale": "Causal mechanism",
         "auto_target": {"target_type": "P", "target_id": "P1"},
+        "information_request": None,
+        "rival_shadow": None,
     }
     freeze_stage(tmp_path, "portfolio", run_id_v2, port_v1)
 

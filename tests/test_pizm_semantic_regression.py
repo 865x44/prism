@@ -177,7 +177,11 @@ def make_portfolio_payload(
         "bundles": bundles or [],
     }
     if schema_version == "pizm-portfolio-selection-v1":
+        payload["next_reasoning_move"] = "DEEP" if route == "AUTO" else None
+        payload["next_reasoning_rationale"] = "Clear causal mechanism" if route == "AUTO" else None
         payload["auto_target"] = auto_target
+        payload["information_request"] = None
+        payload["rival_shadow"] = None
     if field_ref is not None:
         payload["field_ref"] = field_ref
     if prior_bundles is not None:
@@ -281,6 +285,15 @@ def make_development_v2_payload(
         ),
         "evidence_debt": evidence_debt or ["Longitudinal data on review window compliance"],
         "load_bearing_claims": claims_data,
+        "comparative_standing": None,
+        "development_delta": {
+            "summary": "Initial development",
+            "new_load_bearing_claims": [],
+            "strengthened_claims": [],
+            "new_causal_arrows_or_mechanisms": [],
+            "material_imports": [],
+            "scope_expansions": [],
+        },
     }
 
     if target_type == "B":
@@ -339,6 +352,8 @@ def make_deep_review_v2_payload(
         "unsupported_specificity": unsupported_specificity or [],
         "epistemic_laundering": epistemic_laundering or [],
         "unresolved_load_bearing_contradiction": unresolved_contradiction,
+        "readiness_blockers": [],
+        "readiness_blocker_details": {},
         "identity_drift": identity_drift,
         "cost_relocation": cost_relocation,
         "round_trip_skeleton": rt_skel,
@@ -372,6 +387,19 @@ def make_deep_review_v2_payload(
         "evidence_debt": debt,
         "verdict_rationale": verdict_rationale or "Model structure is sound and epistemic boundaries are clear.",
     }
+    if terminal_state in ("MODEL_READY", "RETURN_TO_EXPLORE"):
+        payload["inquiry_program"] = None
+    else:
+        payload["inquiry_program"] = {
+            "current_leading_models": ["Leading model 1"],
+            "unresolved_questions": ["Question 1?"],
+            "strongest_live_rival": None,
+            "result_that_would_change_model": "Result 1",
+            "stop_rule": "Stop 1",
+        }
+        if not debt:
+            debt.append("Evidence required for unverified claims")
+            payload["evidence_debt"] = debt
     if target_ref is not None:
         payload["target_ref"] = target_ref
     return payload
@@ -1237,7 +1265,7 @@ class TestObservedDogfoodReproduction:
 
 
 class TestCriticRegression:
-    """CR1-CR10 deterministic critic contracts and validator couplings."""
+    """CR1-CR12 deterministic critic contracts and validator couplings."""
 
     def test_cr1_direct_cross_field_contradiction_blocks_model_ready(self, tmp_path):
         """CR1: Unresolved cross-field contradiction strictly blocks MODEL_READY."""
@@ -1449,6 +1477,109 @@ class TestCriticRegression:
         )
         res = freeze_stage(tmp_path, "deep-review-v2", run_id, rev)
         assert res.returncode == 0, res.stderr
+
+    def test_cr11_speculative_central_mechanism_yields_need_evidence(self, tmp_path):
+        """CR11: Speculative central mechanism with unresolved contradiction forces NEED_EVIDENCE."""
+        run_id = "cr11-speculative-central"
+        p = make_candidates_payload(pass_num=1)
+        freeze_stage(tmp_path, "explore", run_id, p)
+        run_dir = tmp_path / ".ai" / "pizm" / f"run-{run_id}"
+
+        dev = make_development_v2_payload(target_type="P", target_id="P1")
+        freeze_stage(tmp_path, "development-v2", run_id, dev)
+        dev_hash = (run_dir / "development-v2.sha256").read_text().strip()
+
+        # B1 blocker with MODEL_READY fails closed
+        rev_bad = make_deep_review_v2_payload(
+            frozen_hash=dev_hash,
+            terminal_state="MODEL_READY",
+            unresolved_contradiction=True,
+            reassessments=[
+                {"claim": "Primary causal driver operates via tacit knowledge gap", "critic_epistemic_status": "SPECULATIVE"}
+            ],
+            evidence_debt=["Empirical telemetry on tacit knowledge transfer lag required"],
+            verdict_rationale="Central claim is speculative but trying to mark ready.",
+        )
+        res_bad = freeze_stage(tmp_path, "deep-review-v2", run_id, rev_bad)
+        assert res_bad.returncode != 0
+        assert "unresolved_load_bearing_contradiction" in res_bad.stderr
+
+        # B1 blocker with NEED_EVIDENCE passes
+        rev_ok = make_deep_review_v2_payload(
+            frozen_hash=dev_hash,
+            terminal_state="NEED_EVIDENCE",
+            unresolved_contradiction=True,
+            reassessments=[
+                {"claim": "Primary causal driver operates via tacit knowledge gap", "critic_epistemic_status": "SPECULATIVE"}
+            ],
+            evidence_debt=["Empirical telemetry on tacit knowledge transfer lag required"],
+            verdict_rationale="Central mechanism is speculative; gate enforced -> NEED_EVIDENCE.",
+        )
+        res_ok = freeze_stage(tmp_path, "deep-review-v2", run_id, rev_ok)
+        assert res_ok.returncode == 0, res_ok.stderr
+
+    def test_cr12_night_drift_critic_gate_enforcement(self, tmp_path):
+        """CR12: Night Drift defect profile (3/4 speculative, laundering, countermodel) enforces gate."""
+        run_id = "cr12-night-drift"
+        p = make_candidates_payload(pass_num=1)
+        freeze_stage(tmp_path, "explore", run_id, p)
+        run_dir = tmp_path / ".ai" / "pizm" / f"run-{run_id}"
+
+        dev = make_development_v2_payload(target_type="B", target_id="B8")
+        freeze_stage(tmp_path, "development-v2", run_id, dev, target="B8")
+        dev_hash = (run_dir / "development-v2-B8.sha256").read_text().strip()
+
+        reassessments = [
+            {"claim": "Author experienced night without choice forks", "critic_epistemic_status": "SUPPORTED"},
+            {"claim": "Self-report codes night as repetition", "critic_epistemic_status": "SPECULATIVE"},
+            {"claim": "7 AM debrief functions to close loop", "critic_epistemic_status": "SPECULATIVE"},
+            {"claim": "Explanatory frame relocates guilt", "critic_epistemic_status": "SPECULATIVE"},
+        ]
+        debts = [
+            "Check independent witness corroboration",
+            "Measure chronometric lag across debrief",
+            "Test alternative fatigue model against journal log",
+            "Validate whether guilt shift altered subsequent routine",
+        ]
+        laundering = [
+            "Synthesis speaks with higher certainty than census where 3/4 claims are speculative."
+        ]
+        countermodel = "Chronological fatigue inertia without recursive orbit."
+
+        # Attempting MODEL_READY with unresolved contradiction fails closed
+        rev_bad = make_deep_review_v2_payload(
+            frozen_hash=dev_hash,
+            target_type="B",
+            target_id="B8",
+            terminal_state="MODEL_READY",
+            unresolved_contradiction=True,
+            reassessments=reassessments,
+            countermodel=countermodel,
+            epistemic_laundering=laundering,
+            member_ablation_finding="All members contribute distinct structural facets.",
+            evidence_debt=debts,
+            verdict_rationale="Attempting MODEL_READY despite 3/4 speculative claims and countermodel.",
+        )
+        res_bad = freeze_stage(tmp_path, "deep-review-v2", run_id, rev_bad, target="B8")
+        assert res_bad.returncode != 0
+        assert "unresolved_load_bearing_contradiction" in res_bad.stderr
+
+        # Honest gate enforcement: NEED_EVIDENCE succeeds
+        rev_ok = make_deep_review_v2_payload(
+            frozen_hash=dev_hash,
+            target_type="B",
+            target_id="B8",
+            terminal_state="NEED_EVIDENCE",
+            unresolved_contradiction=True,
+            reassessments=reassessments,
+            countermodel=countermodel,
+            epistemic_laundering=laundering,
+            member_ablation_finding="All members contribute distinct structural facets.",
+            evidence_debt=debts,
+            verdict_rationale="Gate enforced: 3/4 speculative claims and stronger countermodel require NEED_EVIDENCE.",
+        )
+        res_ok = freeze_stage(tmp_path, "deep-review-v2", run_id, rev_ok, target="B8")
+        assert res_ok.returncode == 0, res_ok.stderr
 
 
 # ===========================================================================

@@ -43,6 +43,8 @@ def test_adapt_synthetic_v0_h1() -> None:
     assert seed["core_premise"] == "vault births create new money and new property"
 
     dumped = dump(seed)
+    assert 'title: "Case H1: vault-born rats"' in dumped
+
     loaded = load(dumped)
     assert loaded == seed
 

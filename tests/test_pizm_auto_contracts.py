@@ -145,9 +145,12 @@ def valid_auto_portfolio(target_type: str = "P", target_id: str = "P1"):
             },
         ],
         "bundles": [],
+        "next_reasoning_move": "DEEP",
+        "next_reasoning_rationale": "Clear causal mechanism linking latency to batch sizing.",
         "auto_target": {"target_type": target_type, "target_id": target_id},
+        "information_request": None,
+        "rival_shadow": None,
     }
-
 
 def valid_auto_portfolio_bundle_target():
     port = valid_auto_portfolio("B", "B1")
@@ -223,6 +226,15 @@ def valid_development_v2(target_type: str = "P", target_id: str = "P1"):
                 "epistemic_status": "SUPPORTED",
             },
         ],
+        "comparative_standing": None,
+        "development_delta": {
+            "summary": "initial development",
+            "new_load_bearing_claims": [],
+            "strengthened_claims": [],
+            "new_causal_arrows_or_mechanisms": [],
+            "material_imports": [],
+            "scope_expansions": [],
+        },
     }
     if target_type == "B":
         members = identity_lock["member_refs"]
@@ -244,6 +256,8 @@ def valid_deep_review_v2(target_type: str = "P", target_id: str = "P1"):
         "unsupported_specificity": [],
         "epistemic_laundering": [],
         "unresolved_load_bearing_contradiction": False,
+        "readiness_blockers": [],
+        "readiness_blocker_details": {},
         "identity_drift": None,
         "cost_relocation": None,
         "round_trip_skeleton": "latency -> batching -> larger diffs -> slower reviews",
@@ -271,6 +285,7 @@ def valid_deep_review_v2(target_type: str = "P", target_id: str = "P1"):
         "findings": findings,
         "evidence_debt": [],
         "verdict_rationale": "Mechanism survives the countermodel; predictions observable.",
+        "inquiry_program": None,
     }
 
 
@@ -318,16 +333,22 @@ def make_frozen_run(
     tmp_path: Path,
     *,
     portfolio=None,
-    development=None,
-    review=None,
+    development=...,
+    review=...,
     with_lever=False,
     lever_outcome="LEVER",
 ):
     tmp_path.mkdir(parents=True, exist_ok=True)
     write_frozen(tmp_path, "candidates.json", valid_explore_candidates())
-    write_frozen(tmp_path, "portfolio.json", portfolio or valid_auto_portfolio())
-    write_frozen(tmp_path, "development-v2.json", development or valid_development_v2())
-    write_frozen(tmp_path, "deep-review-v2.json", review or valid_deep_review_v2())
+    write_frozen(tmp_path, "portfolio.json", portfolio if portfolio is not None else valid_auto_portfolio())
+    if development is ...:
+        development = valid_development_v2()
+    if development is not None:
+        write_frozen(tmp_path, "development-v2.json", development)
+    if review is ...:
+        review = valid_deep_review_v2()
+    if review is not None:
+        write_frozen(tmp_path, "deep-review-v2.json", review)
     if with_lever:
         write_frozen(tmp_path, "design.json", valid_lever_design())
         write_frozen(tmp_path, "review.json", valid_lever_review(lever_outcome))
@@ -585,3 +606,53 @@ def test_a11_one_search_one_deep_only(auto_md_text):
     assert "Single Deep only" in auto_md_text
     # Honest-stop reinforces: no other search primitive starts afterward
     assert "No other search or refinement primitive starts afterward" in auto_md_text
+
+
+# ---------------------------------------------------------------------------
+# A12: Dynamic reasoning spend branching (Information Gathering & Preserve)
+# ---------------------------------------------------------------------------
+
+
+def test_auto_gather_information_stops_before_deep(tmp_path):
+    """AUTO GATHER_INFORMATION stops after portfolio and does not create Deep artifacts."""
+    port = valid_auto_portfolio()
+    port["next_reasoning_move"] = "GATHER_INFORMATION"
+    port["next_reasoning_rationale"] = "Need clarification on meeting cadence data."
+    port["auto_target"] = None
+    port["information_request"] = {
+        "mode": "USER_QUESTION",
+        "missing_information": "Weekly meeting hours distribution",
+        "why_it_changes_route": "If meeting load is low, batching is driven by different mechanism",
+        "questions": ["How many hours per week are spent in synchronous meetings?"],
+        "suggested_observation": None,
+    }
+    run_dir = make_frozen_run(
+        tmp_path,
+        portfolio=port,
+        development=None,
+        review=None,
+    )
+    assert (run_dir / "candidates.json").is_file()
+    assert (run_dir / "portfolio.json").is_file()
+    assert not (run_dir / "development-v2.json").exists()
+    assert not (run_dir / "deep-review-v2.json").exists()
+
+
+def test_auto_preserve_only_stops_without_deep(tmp_path):
+    """AUTO PRESERVE_ONLY stops after portfolio and does not create Deep artifacts."""
+    port = valid_auto_portfolio()
+    port["next_reasoning_move"] = "PRESERVE_ONLY"
+    port["next_reasoning_rationale"] = "Explored field is balanced; user will select manually."
+    port["auto_target"] = None
+    port["information_request"] = None
+    port["rival_shadow"] = None
+    run_dir = make_frozen_run(
+        tmp_path,
+        portfolio=port,
+        development=None,
+        review=None,
+    )
+    assert (run_dir / "candidates.json").is_file()
+    assert (run_dir / "portfolio.json").is_file()
+    assert not (run_dir / "development-v2.json").exists()
+    assert not (run_dir / "deep-review-v2.json").exists()

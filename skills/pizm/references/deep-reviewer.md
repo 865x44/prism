@@ -82,6 +82,22 @@ Name the cheapest observation, check, or probe that would discriminate between t
 - Central unsupported specificity requires recorded `evidence_debt` and usually forces `NEED_EVIDENCE` or a revision demand; never launder it into accepted support.
 - Identity or composition collapse — the target itself not defensible — forces `RETURN_TO_EXPLORE`.
 
+### Terminal Readiness Blockers (B1–B4)
+
+A true blocker sets `findings.readiness_blockers` and strictly forbids `MODEL_READY` (forcing `NEED_EVIDENCE` or `RETURN_TO_EXPLORE`). Readiness blockers independently forbid `MODEL_READY` without setting `findings.unresolved_load_bearing_contradiction: true` (the contradiction carrier is reserved solely for actual logical contradictions):
+
+1. **B1 (Central Load-Bearing Speculative/Unsupported Dependency)**: The central explanatory mechanism or core causal chain materially depends on unresolved claims that independent reassessment marked `SPECULATIVE` or `UNKNOWN`. Speculative central dependencies cannot be rationalized as acceptable for analytical tasks under `MODEL_READY`; they require recorded `evidence_debt` and force `NEED_EVIDENCE` (or `RETURN_TO_EXPLORE` if the core mechanism collapses).
+2. **B2 (Materially Stronger Parsimonious Independent Countermodel)**: The reviewer constructs an independent countermodel that explains the primary phenomenon materially better with lower assumption burden, and the developed model offers no compensating explanatory advantage. Forces `NEED_EVIDENCE` or `RETURN_TO_EXPLORE`.
+3. **B3 (Thesis-Level Epistemic Laundering)**: The synthesis or thesis presents central claims with assertive or settled certainty while the underlying census is speculative, or where epistemic debt is concealed in rhetorical prose rather than declared. Forces `NEED_EVIDENCE` until the thesis is narrowed or evidence obtained.
+4. **B4 (Global-Thesis vs Local-Support Coverage Mismatch)**: The model asserts a global explanatory scope (e.g., explaining the whole system, lifecycle, or trajectory) while empirical grounding or mechanism support covers only a local or late-stage slice, and the thesis has not been narrowed to match the support. Forces `NEED_EVIDENCE` or `RETURN_TO_EXPLORE`.
+### Soft Warnings (Non-Blocking)
+
+Peripheral uncertainty alone does not block readiness. The following findings do NOT set `findings.unresolved_load_bearing_contradiction: true` and do not by themselves forbid `MODEL_READY`:
+
+- Peripheral edge uncertainty or secondary boundary questions not load-bearing for the central thesis.
+- Minor missing secondary predictions or non-critical details that do not undermine the core mechanism.
+- Localized evidence debt on non-central claims where the central causal chain remains well-supported.
+
 ## Terminal States
 
 Return exactly one of three terminal states:
@@ -91,10 +107,9 @@ Return exactly one of three terminal states:
 Use when:
 
 - The developed model is strong, honest, and faithful to the locked identity.
-- Your independent reassessment did not surface an unresolved load-bearing contradiction.
+- Your independent reassessment did not surface an unresolved load-bearing contradiction (none of B1–B4 blockers apply).
 - Unsupported specificity has been flagged and debt recorded where found.
-- Remaining uncertainty does not block the user's current purpose.
-
+- Remaining uncertainty is confined to soft warnings (peripheral uncertainty, non-central debt) that do not block the user's current purpose.
 ### NEED_EVIDENCE
 
 Use when:
@@ -102,15 +117,16 @@ Use when:
 - A decisive conclusion depends on genuinely missing evidence.
 - The model is structurally sound but cannot be judged complete without specific facts.
 
-State clearly:
+When returning `NEED_EVIDENCE`, populate the required `inquiry_program`:
+- `current_leading_models`: list of 1 or more leading models under consideration.
+- `unresolved_questions`: list of 1 or more specific empirical/conceptual questions.
+- `strongest_live_rival`: strongest rival model (or null if none).
+- `result_that_would_change_model`: what finding would update or refute the model.
+- `stop_rule`: explicit stopping rule for the inquiry.
 
-- What evidence is missing.
-- Which conclusion depends on it.
-- The current claim boundary.
-- The cheapest useful check when obvious.
+Also record non-empty `evidence_debt` and `cheapest_discriminating_test`. Discriminators and inquiry checks may be empirical, conceptual, interpretive, or creative (counterexamples, missing sources, rival readings, scope conditions, audience consequences, or design experiments).
 
 Do not launder missing evidence into speculation.
-
 ### RETURN_TO_EXPLORE
 
 Use when:
@@ -148,6 +164,10 @@ Write the review JSON beside the frozen artifact, then freeze it:
     "identity_drift": "string | null",
     "cross_field_contradictions": ["..."],
     "unresolved_load_bearing_contradiction": false,
+    "readiness_blockers": ["B1_SPECULATIVE_DEPENDENCY"],
+    "readiness_blocker_details": {
+      "B1_SPECULATIVE_DEPENDENCY": "..."
+    },
     "unsupported_specificity": ["..."],
     "epistemic_laundering": ["..."],
     "cost_relocation": "string | null",
@@ -156,7 +176,14 @@ Write the review JSON beside the frozen artifact, then freeze it:
   },
   "evidence_debt": ["..."],
   "cheapest_discriminating_test": "...",
-  "verdict_rationale": "string"
+  "verdict_rationale": "string",
+  "inquiry_program": {
+    "current_leading_models": ["..."],
+    "unresolved_questions": ["..."],
+    "strongest_live_rival": "..." | null,
+    "result_that_would_change_model": "...",
+    "stop_rule": "..."
+  } | null
 }
 ```
 
@@ -164,6 +191,8 @@ Structural rules enforced by the checkpoint (fail closed):
 
 - `terminal_state` outside the three-state set is rejected.
 - `unresolved_load_bearing_contradiction: true` with `MODEL_READY` is rejected.
+- Non-empty `readiness_blockers` with `MODEL_READY` is rejected.
+- `inquiry_program` is required: must be `null` for `MODEL_READY` / `RETURN_TO_EXPLORE`, and a non-null object for `NEED_EVIDENCE`.
 - `identity_verified: false` with anything but `RETURN_TO_EXPLORE` is rejected.
 - Non-empty `unsupported_specificity` with empty `evidence_debt` is rejected.
 - A B target without a `member_ablation` finding is rejected.

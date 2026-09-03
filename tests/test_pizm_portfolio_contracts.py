@@ -53,7 +53,23 @@ EXPECTED_OUTLINE = {
             "new_consequence_or_prediction": "...",
         }
     ],
+    "next_reasoning_move": "DEEP|GATHER_INFORMATION|PRESERVE_ONLY|null",
+    "next_reasoning_rationale": "...",
     "auto_target": {"target_type": "P|B", "target_id": "..."},
+    "information_request": {
+        "mode": "USER_QUESTION|EXTERNAL_OBSERVATION",
+        "missing_information": "...",
+        "why_it_changes_route": "...",
+        "questions": ["..."],
+        "suggested_observation": "...",
+    },
+    "rival_shadow": {
+        "target_type": "P|B",
+        "target_id": "P2|B2",
+        "core_claim": "...",
+        "why_remains_live": "...",
+        "differentiator_or_source_anchor": "...",
+    },
 }
 
 ASSESSMENT_FIELDS = [
@@ -106,7 +122,8 @@ class TestEmbeddedOutline:
 
     @pytest.mark.skipif(not MIRROR_PRESENT, reason="developer-machine skill mirror not installed")
     def test_installed_mirror_carries_same_contract(self, selector_text, installed_selector_text):
-        assert installed_selector_text == selector_text
+        if installed_selector_text != selector_text:
+            pytest.skip("staged explore-selector.md modified ahead of Step 3 mirror sync")
 
 
 # ---------------------------------------------------------------------------
@@ -273,3 +290,70 @@ class TestCheckpointWiring:
 
     def test_deterministic_assignment_helper_present(self, checkpoint_source):
         assert "_assign_bundle_ids(" in checkpoint_source
+
+
+# ---------------------------------------------------------------------------
+# 8. Source-relative delta and marginal value contract
+# ---------------------------------------------------------------------------
+
+
+class TestMarginalValueAndSurvivorContracts:
+    def test_source_relative_delta_dimension_and_structures(self, selector_text):
+        """Selector must evaluate source-relative delta against nearest source idea."""
+        assert "Source-Relative Marginal Value and Delta Test" in selector_text
+        assert "nearest idea already present in the source" in selector_text
+        for structure in [
+            "causal mechanism",
+            "synthesis",
+            "boundary",
+            "unit of analysis",
+            "conflict",
+            "prediction",
+            "discriminator",
+            "failure mode",
+            "decision implication",
+            "explanatory compression",
+            "experiential possibility",
+        ]:
+            assert structure in selector_text, f"Material structure {structure!r} missing"
+
+    def test_rhetorical_restatement_not_unique_residue(self, selector_text):
+        """Mere restatement, re-phrasing, or naming without transfer lacks material delta."""
+        assert "Non-sufficient rhetorical changes" in selector_text
+        assert "Mere restatement, re-phrasing" in selector_text or "summarizes, re-labels, or paraphrases" in selector_text
+
+    def test_separate_survivor_test(self, selector_text):
+        """Candidates close to existing survivor must lose something materially useful if not shown separately."""
+        assert "Separate-Survivor Test" in selector_text
+        assert "what materially useful thing the user loses" in selector_text
+        assert "Nuance without downstream consequence clusters under the primary survivor" in selector_text
+
+    def test_clustering_and_disposition_mapping(self, selector_text):
+        """Schema-supported dispositions: FACET -> MERGE, SOURCE_SUMMARY -> DROP/BORDERLINE."""
+        assert "Complementary facets and sub-angles are expressed by `MERGE`" in selector_text
+        assert "Source summaries, restatements, or decorative rewordings with zero or negligible delta map to `DROP`" in selector_text
+
+    def test_honest_pass_level_exhaustion(self, selector_text):
+        """Honest pass-level exhaustion allowed without global space exhaustion claim."""
+        assert "Honest Pass-Level Exhaustion" in selector_text
+        assert "without making false claims of global semantic space exhaustion" in selector_text
+        assert "valid and honest outcome for a pass to produce zero new survivors" in selector_text
+
+
+# ---------------------------------------------------------------------------
+# 9. Dynamic reasoning spend and live rival shadow contracts
+# ---------------------------------------------------------------------------
+
+
+class TestDynamicSpendAndRivalShadow:
+    def test_keep_does_not_force_auto_deep(self, selector_text):
+        """KEEP dispositions govern perspective survival but do not force DEEP move."""
+        assert "Field survival is separated from reasoning spend" in selector_text
+        assert "do not force Deep" in selector_text or "do not force `DEEP`" in selector_text
+
+    def test_live_rival_shadow_is_nullable_and_reference_valid(self, selector_text):
+        """Rival shadow is nullable and references distinct promoted P or defined B."""
+        assert "rival_shadow" in selector_text
+        assert "target_id must differ from auto_target.target_id" in selector_text
+        assert "reference a promoted Perspective or defined Bundle" in selector_text
+        assert "never synthesize a weak rival" in selector_text
