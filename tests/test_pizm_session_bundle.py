@@ -1634,3 +1634,96 @@ def test_render_gather_information_as_intentional_terminal(tmp_path):
     assert "Honest stop: GATHER_INFORMATION" in content
     assert "## Deep" not in content
     assert "## Critic" not in content
+
+
+def test_render_html_with_ensure_reader_fallback(tmp_path):
+    """When reader server cannot start, render-html --ensure-reader outputs READER_FALLBACK and returns 0."""
+    run_dir = tmp_path / "run-fallback-test"
+    run_dir.mkdir()
+    # Minimal candidates file for valid run
+    cand = {
+        "schema_version": "pizm-candidates-v1",
+        "stage": "explore",
+        "mode": "NORMAL",
+        "candidates": [
+            {
+                "candidate_id": "c01",
+                "title": "C1",
+                "semantic_core": {"claim": "c", "structural_shift": "s", "mechanism": "m", "grounding_anchor": "a", "what_becomes_visible": "v", "boundary": "b"},
+                "epistemics": {"supported": ["s"], "inferred": [], "speculative": [], "unknown": []},
+            }
+        ],
+    }
+    c_bytes = json.dumps(cand).encode("utf-8")
+    (run_dir / "candidates-pass01.json").write_bytes(c_bytes)
+    (run_dir / "candidates-pass01.sha256").write_text(_sha256_hex(c_bytes))
+
+    out_html = tmp_path / "run.html"
+    # Port 1 is reserved and will fail to bind, exercising deterministic fallback
+    res = run_bundle(
+        "render-html",
+        "--run-dir", str(run_dir),
+        "--output", str(out_html),
+        "--ensure-reader",
+        "--port", "1",
+    )
+    assert res.returncode == 0, res.stderr
+    assert out_html.is_file()
+    assert "RENDER_HTML_OK" in res.stdout
+    assert "READER_OFFLINE file://" in res.stdout
+    assert "(local reader server inactive)" in res.stdout
+
+
+def test_render_html_with_ensure_reader_active(tmp_path):
+    """When reader server is running, render-html --ensure-reader outputs READER_URL and returns 0."""
+    run_dir = tmp_path / "run-active-test"
+    run_dir.mkdir()
+    cand = {
+        "schema_version": "pizm-candidates-v1",
+        "stage": "explore",
+        "mode": "NORMAL",
+        "candidates": [
+            {
+                "candidate_id": "c01",
+                "title": "C1",
+                "semantic_core": {"claim": "c", "structural_shift": "s", "mechanism": "m", "grounding_anchor": "a", "what_becomes_visible": "v", "boundary": "b"},
+                "epistemics": {"supported": ["s"], "inferred": [], "speculative": [], "unknown": []},
+            }
+        ],
+    }
+    c_bytes = json.dumps(cand).encode("utf-8")
+    (run_dir / "candidates-pass01.json").write_bytes(c_bytes)
+    (run_dir / "candidates-pass01.sha256").write_text(_sha256_hex(c_bytes))
+
+    out_html = tmp_path / "run.html"
+    # Ephemeral free port test with reader server started
+    import socket
+    sock = socket.socket()
+    sock.bind(("127.0.0.1", 0))
+    free_port = sock.getsockname()[1]
+    sock.close()
+
+    reader_cli = str(REPO_ROOT / "bin" / "pizm-reader-server")
+    # Start server on free_port
+    start_proc = subprocess.run(
+        [sys.executable, reader_cli, "start", "--port", str(free_port), "--root", str(tmp_path)],
+        capture_output=True,
+        text=True,
+    )
+    assert start_proc.returncode == 0, start_proc.stderr
+
+    try:
+        res = run_bundle(
+            "render-html",
+            "--run-dir", str(run_dir),
+            "--output", str(out_html),
+            "--ensure-reader",
+            "--port", str(free_port),
+            "--root", str(tmp_path),
+        )
+        assert res.returncode == 0, res.stderr
+        assert out_html.is_file()
+        assert "RENDER_HTML_OK" in res.stdout
+        assert f"READER_URL http://127.0.0.1:{free_port}/run/active-test/" in res.stdout
+    finally:
+        subprocess.run([sys.executable, reader_cli, "stop", "--port", str(free_port), "--root", str(tmp_path)], capture_output=True)

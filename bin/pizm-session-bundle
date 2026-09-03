@@ -17,6 +17,7 @@ import random
 import re
 import shutil
 import string
+import subprocess
 import sys
 import tempfile
 from datetime import datetime, timezone
@@ -2408,6 +2409,22 @@ def main() -> int:
         default=None,
         help="Output path for run.html (default: <run-dir>/run.html)",
     )
+    hp.add_argument(
+        "--ensure-reader",
+        action="store_true",
+        help="Attempt to ensure local reader server and print Reader URL (with file:// fallback)",
+    )
+    hp.add_argument(
+        "--port",
+        type=int,
+        default=4114,
+        help="Reader server port (default 4114)",
+    )
+    hp.add_argument(
+        "--root",
+        default=None,
+        help="Reader server served root (defaults to parent project root of run_dir)",
+    )
 
 
     args = parser.parse_args()
@@ -2443,11 +2460,63 @@ def main() -> int:
         from pizm_render_html import render_run_html
 
         output = args.output if args.output else str(Path(args.run_dir) / "run.html")
-        return render_run_html(
+        res = render_run_html(
             run_dir_str=args.run_dir,
             task=args.task,
             output_path=output,
         )
+        if res != 0:
+            return res
+
+        if getattr(args, "ensure_reader", False):
+            run_dir = Path(args.run_dir).resolve()
+            if args.root:
+                root_path = Path(args.root).resolve()
+            elif run_dir.parent.name == "pizm" and run_dir.parent.parent.name == ".ai":
+                root_path = run_dir.parent.parent.parent.resolve()
+            elif run_dir.parent.name == "pizm":
+                root_path = run_dir.parent.parent.resolve()
+            else:
+                root_path = run_dir.parent.resolve()
+
+            reader_script = Path(__file__).resolve().parent / "pizm-reader-server"
+            slug = run_dir.name
+            if slug.startswith("run-"):
+                slug = slug[4:]
+            html_abs = Path(output).resolve()
+            reader_url = None
+            if reader_script.is_file():
+                try:
+                    p = subprocess.run(
+                        [
+                            sys.executable,
+                            str(reader_script),
+                            "ensure",
+                            "--port",
+                            str(args.port),
+                            "--root",
+                            str(root_path),
+                        ],
+                        capture_output=True,
+                        text=True,
+                        timeout=5,
+                    )
+                    if p.returncode == 0:
+                        lines = [line.strip() for line in p.stdout.splitlines() if line.strip()]
+                        if lines:
+                            base_url = lines[-1]
+                            if not base_url.endswith("/"):
+                                base_url += "/"
+                            reader_url = f"{base_url}run/{slug}/"
+                except Exception:
+                    pass
+
+            if reader_url:
+                print(f"READER_URL {reader_url}")
+            else:
+                print(f"READER_OFFLINE file://{html_abs} (local reader server inactive)")
+
+        return 0
 
 
     return _die(f"unknown command: {args.command}")

@@ -52,10 +52,16 @@ AUTO TASK
      Execute the same manual LEVER primitive (`references/lever.md` and `references/lever-reviewer.md`) using identical prompts and review logic as `/pizm lever`, with zero duplication.
    - Otherwise (if `task_orientation == "ANALYTICAL"` or `terminal_state != "MODEL_READY"`):
      Do not invoke LEVER.
-9. **FINAL Assembly + run.md**: Assemble the final output deterministically from frozen artifacts (Section 3). You must archive the run via `bin/pizm-session-bundle create` providing the required ephemeral accounting input (`--accounting`). Then render the readable `run.md` deterministically with the session-bundle tool (`bin/pizm-session-bundle render --run-dir <run-dir> --task "<original task>"`). The renderer reads ONLY frozen checkpoint artifacts, emits byte-identical output for identical inputs, and performs zero model calls.
+9. **FINAL Assembly + run.md**: Assemble the final output deterministically from frozen artifacts (Section 3). You must archive the run via `bin/pizm-session-bundle create` providing the required ephemeral accounting input (`--accounting`). Then render the readable `run.md` deterministically with the session-bundle tool (`bin/pizm-session-bundle render --run-dir <run-dir> --task "<original task>"`). The renderer reads ONLY frozen checkpoint artifacts, emits byte-identical output for identical inputs, and performs zero model calls. Next, render the interactive `run.html` and resolve the reader link deterministically:
+   ```bash
+   $HOME/.local/bin/pizm-session-bundle render-html --run-dir <run-dir> --task "<original task>" --ensure-reader
+   ```
+   - **Reader Link Contract**:
+     - If the local reader server is active, `pizm-session-bundle render-html --ensure-reader` outputs `READER_URL http://127.0.0.1:4114/run/<slug>/`. Present this URL in the final report.
+     - If the reader server is inactive or fails to start, the tool outputs `READER_OFFLINE file://<path>/run.html (local reader server inactive)`. Present this deterministic direct file URL.
+     - Reader availability must NEVER block or fail the run: the semantic results and frozen artifacts are already authoritative.
    - **Artifact & Suffix Chain**: Checkpoint artifacts follow the standard freeze chain: `candidates-pass01.json`, `search-field-pass01.json`, `candidates-pass02.json`, `search-field-pass02.json`, `portfolio.json`, `development-v2.json`, `deep-review-v2.json` (and optional `design.json` / `review.json`).
    - **Ephemeral Accounting Contract**: `--accounting <path>` supplies caller-provided bounded non-derived counts (`host_inference_count`, `model_repair_count`, `checkpoint_retry_count`). The bundle computes and validates derived counts (`semantic_stage_count`, `candidate_bytes`, `development_bytes`). The archive manifest records the normalized six-counter object; the ephemeral accounting file is never archived into inputs.
-
 ---
 
 ## 2. Honest-Stop Rules
@@ -116,11 +122,14 @@ AUTO TASK
 <!-- End For -->
 - **Lever Review Outcome**: <LEVER | NO_DEFENSIBLE_LEVER> (<verdict_rationale>)
 <!-- END IF -->
+
+## Reading & Reader Record
+- **Readable Record**: `<run-dir>/run.md`
+- **Interactive Trace**: `<run-dir>/run.html`
+- **Reader URL**: `http://127.0.0.1:4114/run/<slug>/` (or `file://<absolute-path>/run.html` if local reader server inactive)
 ```
 
-After presenting FINAL, render `run.md` for the reading record: all candidate ideas appear compactly, the developed model and critic verdict are rendered fully enough for normal reading, and machine bookkeeping (hashes, schema strings, byte counts, repair/host counters) stays out of the readable document.
-
----
+After presenting FINAL, render `run.md` and `run.html` for the reading record: all candidate ideas appear compactly, the developed model and critic verdict are rendered fully enough for normal reading, and machine bookkeeping (hashes, schema strings, byte counts, repair/host counters) stays out of the readable document. Resolve the local reader link via `bin/pizm-session-bundle render-html --ensure-reader`, falling back deterministically to the local `file://` URL if the reader server is inactive.
 
 ## 4. Operational Cost Accounting and Ceilings
 
@@ -128,7 +137,7 @@ After presenting FINAL, render `run.md` for the reading record: all candidate id
 
 - Base AUTO path: Search(initial) + Search(rift) + Portfolio + Deep + Critic = 5 semantic stages.
 - Optional LEVER: Design + Review add 2 semantic stages = 7 semantic stages total.
-- FINAL assembly and `run.md` rendering are deterministic: they add zero semantic stages.
+- FINAL assembly, `run.md`, and `run.html` rendering are deterministic: they add zero semantic stages.
 
 ### Accounting and Counters
 

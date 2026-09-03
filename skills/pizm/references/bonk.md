@@ -44,7 +44,7 @@ Critic + Compare(LEFT, RIGHT)
 [conditional] LEVER on preferred MODEL_READY model (design + review)
 
 deterministic FINAL assembly (zero model calls)
-deterministic run.md rendering (zero model calls)
+deterministic run.md and run.html rendering (zero model calls)
 ```
 
 ---
@@ -123,7 +123,7 @@ deterministic run.md rendering (zero model calls)
 - If task orientation is `ANALYTICAL`: do not run LEVER.
 - When executed, runs standard manual LEVER design and review (`references/lever.md` and `references/lever-reviewer.md`).
 
-### Stage 7: Deterministic FINAL Assembly and run.md
+### Stage 7: Deterministic FINAL Assembly, run.md, and run.html
 - Assemble the final user-facing summary from frozen artifacts with zero model calls.
 - You must archive the run via `bin/pizm-session-bundle create` providing the required ephemeral accounting input (`--accounting <path>`) and allowlisted stage labels:
   - `pass-01-normal` (or `pass-01-rift` / `pass-01-360`)
@@ -135,8 +135,20 @@ deterministic run.md rendering (zero model calls)
   - `comparison-review`
 - The bundle derives and verifies `semantic_stage_count`, `candidate_bytes`, and `development_bytes`; caller supplies bounded non-derived counts (`host_inference_count`, `model_repair_count`, `checkpoint_retry_count`). The archive manifest records the normalized six-counter object; the accounting file is ephemeral and never copied into inputs.
 - Render the readable `run.md` deterministically using `bin/pizm-session-bundle render --run-dir <run-dir> --task "<task>"`.
+- Render the interactive full-trace `run.html` and resolve the reader link deterministically:
+  ```bash
+  $HOME/.local/bin/pizm-session-bundle render-html --run-dir <run-dir> --task "<task>" --ensure-reader
+  ```
+  - If the local reader server is active, the tool outputs `READER_URL http://127.0.0.1:4114/run/<slug>/`. Present this URL in the final report.
+  - If inactive or on port collision, the tool outputs `READER_FALLBACK file://<path>/run.html (local reader server inactive)`. Present this deterministic `file://` fallback.
+- In the final user-facing report, include the reading records:
+  ```markdown
+  ## Reading & Reader Record
+  - **Readable Record**: `<run-dir>/run.md`
+  - **Interactive Trace**: `<run-dir>/run.html`
+  - **Reader URL**: `http://127.0.0.1:4114/run/<slug>/` (or `file://<absolute-path>/run.html` if local reader server inactive)
+  ```
 - Output is a pure, byte-identical function of frozen inputs.
-
 ---
 
 ## 4. Degraded Path (Single Defensible Bundle)
@@ -158,7 +170,7 @@ If Portfolio records `competition_status: NO_SECOND_DEFENSIBLE_BUNDLE`:
 - **Analytical BONK (2 Bundles):** Pass 1 + Pass 2 + Portfolio + Deep LEFT + Deep RIGHT + Critic/Compare = **6 semantic stages**.
 - **Action BONK with LEVER (2 Bundles):** 6 + Lever Design + Lever Review = **8 semantic stages**.
 - **Degraded Single-Bundle Path:** 5 stages (analytical) or 7 stages (with LEVER).
-- Final assembly and `run.md` rendering add **zero** semantic stages.
+- Final assembly, `run.md`, and `run.html` rendering add **zero** semantic stages.
 
 ### Accounting and Counters
 The archive manifest records all six normalized counters:

@@ -1657,6 +1657,22 @@ def _durable_exclusive_write(target: Path, data: bytes) -> None:
         raise
 
 
+def _check_skill_roots_divergence(claude_root: Path, opencode_root: Path) -> list[str]:
+    """Check whether Claude Code and OpenCode skill roots have divergent files."""
+    claude_files = {p.relative_to(claude_root): p for p in claude_root.rglob("*") if p.is_file()}
+    opencode_files = {p.relative_to(opencode_root): p for p in opencode_root.rglob("*") if p.is_file()}
+    divergences = []
+    for rel in sorted(set(claude_files.keys()) | set(opencode_files.keys())):
+        if rel not in claude_files:
+            divergences.append(f"+opencode:{rel}")
+        elif rel not in opencode_files:
+            divergences.append(f"+claude:{rel}")
+        else:
+            if claude_files[rel].read_bytes() != opencode_files[rel].read_bytes():
+                divergences.append(f"diff:{rel}")
+    return divergences
+
+
 def _default_skill_root() -> Path:
     env_root = os.environ.get("PIZM_SKILL_ROOT")
     if env_root and env_root.strip():
@@ -1665,13 +1681,25 @@ def _default_skill_root() -> Path:
     if local_checkout.is_dir():
         return local_checkout.resolve()
     claude_root = Path.home() / ".claude" / "skills" / "pizm"
-    if claude_root.is_dir():
-        return claude_root.resolve()
     opencode_root = Path.home() / ".config" / "opencode" / "skills" / "pizm"
-    if opencode_root.is_dir():
+
+    c_exists = claude_root.is_dir()
+    o_exists = opencode_root.is_dir()
+
+    if c_exists and o_exists:
+        divergences = _check_skill_roots_divergence(claude_root, opencode_root)
+        if divergences:
+            raise ValueError(
+                f"Divergent skill roots detected between ~/.claude and ~/.config/opencode "
+                f"({len(divergences)} difference(s): {', '.join(divergences[:3])}). "
+                "Run 'install-pizm --host both' to synchronize, or specify PIZM_SKILL_ROOT."
+            )
+        return claude_root.resolve()
+    elif c_exists:
+        return claude_root.resolve()
+    elif o_exists:
         return opencode_root.resolve()
     return claude_root.resolve()
-
 
 def _read_contract_file(skill_root: Path, rel_path: str) -> str:
     """Read hidden contract from relative path. Raises OSError on failure."""

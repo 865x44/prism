@@ -45,6 +45,13 @@ def test_install_claude_code(tmp_path, monkeypatch):
     assert (local_bin / "pizm-session-bundle").exists()
     assert (local_bin / "pizm-reader-server").exists()
     assert (local_bin / "pizm_render_html.py").exists()
+    # Verify helpers are actual files, NOT symlinks (self-contained)
+    for helper_name in ["pizm-checkpoint", "pizm-session-bundle", "pizm-reader-server", "pizm_render_html.py"]:
+        h_path = local_bin / helper_name
+        assert h_path.is_file(), f"{helper_name} is not a file"
+        assert not h_path.is_symlink(), f"{helper_name} is unexpectedly a symlink"
+        assert os.access(h_path, os.X_OK), f"{helper_name} is not executable"
+    assert "TEST_CHECKPOINT_OK" in res.stdout
 
 
 def test_install_opencode(tmp_path, monkeypatch):
@@ -164,3 +171,66 @@ def test_invalid_host_fails(tmp_path, monkeypatch):
         text=True,
     )
     assert res.returncode == 2
+
+
+def test_install_rejects_divergent_skill_roots(tmp_path, monkeypatch):
+    """If both Claude Code and OpenCode skill roots exist but diverge, install fails unless --host both."""
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    # Install claude-code first
+    res1 = subprocess.run([sys.executable, INSTALLER_SCRIPT, "--host", "claude-code"], capture_output=True, text=True)
+    assert res1.returncode == 0
+
+    # Create divergent OpenCode skill root
+    opencode_skill = tmp_path / ".config" / "opencode" / "skills" / "pizm"
+    opencode_skill.mkdir(parents=True)
+    (opencode_skill / "SKILL.md").write_text("Divergent content", encoding="utf-8")
+
+    # Installing only claude-code must detect divergence and fail
+    res2 = subprocess.run([sys.executable, INSTALLER_SCRIPT, "--host", "claude-code"], capture_output=True, text=True)
+    assert res2.returncode != 0
+    assert "Divergent skill roots detected" in res2.stderr
+
+    # Installing both synchronizes them and must succeed
+    res3 = subprocess.run([sys.executable, INSTALLER_SCRIPT, "--host", "both"], capture_output=True, text=True)
+    assert res3.returncode == 0
+    assert "INSTALL_COMPLETE" in res3.stdout
+
+
+def test_checkpoint_rejects_divergent_skill_roots(tmp_path, monkeypatch):
+    """pizm-checkpoint dynamic skill root resolution raises error if both roots exist and diverge."""
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    # Set up divergent Claude and OpenCode skill roots
+    claude_skill = tmp_path / ".claude" / "skills" / "pizm"
+    claude_skill.mkdir(parents=True)
+    (claude_skill / "SKILL.md").write_text("Claude version", encoding="utf-8")
+
+    opencode_skill = tmp_path / ".config" / "opencode" / "skills" / "pizm"
+    opencode_skill.mkdir(parents=True)
+    (opencode_skill / "SKILL.md").write_text("OpenCode version", encoding="utf-8")
+
+    # Copy checkpoint to standalone dir (no local repo skills/pizm sibling)
+    standalone_bin = tmp_path / "custom_bin"
+    standalone_bin.mkdir()
+    standalone_ck = standalone_bin / "pizm-checkpoint"
+    standalone_ck.write_bytes(Path(CHECKPOINT_SCRIPT).read_bytes())
+    standalone_ck.chmod(0o755)
+
+    project = tmp_path / "proj"
+    project.mkdir()
+    cand_file = project / "candidates.json"
+    cand_file.write_text(json.dumps({
+        "schema_version": "pizm-candidates-v1",
+        "stage": "explore",
+        "mode": "NORMAL",
+        "candidates": [{"candidate_id": "c01", "title": "T", "semantic_core": {"claim": "C", "structural_shift": "S", "mechanism": "M", "grounding_anchor": "A", "what_becomes_visible": "V", "boundary": "B"}, "epistemics": {"supported": ["S"], "inferred": [], "speculative": [], "unknown": []}}],
+    }), encoding="utf-8")
+
+    res = subprocess.run(
+        [sys.executable, str(standalone_ck), "freeze", "--stage", "explore", "--run-id", "div-test", "--input", str(cand_file), "--project-root", str(project)],
+        capture_output=True,
+        text=True,
+    )
+    assert res.returncode != 0
+    assert "Divergent skill roots detected" in res.stderr

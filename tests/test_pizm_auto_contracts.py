@@ -563,6 +563,10 @@ def test_a9_final_and_runmd_zero_model_deterministic(auto_md_text):
     assert "## 2. Developed Model Summary" in auto_md_text
     assert "## 3. Deep Review Verdict" in auto_md_text
 
+    assert "## Reading & Reader Record" in auto_md_text
+    assert "bin/pizm-session-bundle render-html" in auto_md_text
+    assert "READER_URL" in auto_md_text
+    assert "READER_OFFLINE" in auto_md_text
     # Ensure template does not include tool call commands
     template_section = auto_md_text.split("### Fixed FINAL Assembly Template")[1]
     assert "pizm-checkpoint" not in template_section

@@ -13,6 +13,7 @@ import argparse
 import os
 import shutil
 import stat
+import subprocess
 import sys
 from pathlib import Path
 
@@ -24,6 +25,27 @@ HELPERS = [
 ]
 
 
+def check_skill_roots_coherence(home: Path) -> list[str]:
+    """Check if both Claude Code and OpenCode skill roots exist and whether they diverge."""
+    claude_root = home / ".claude" / "skills" / "pizm"
+    opencode_root = home / ".config" / "opencode" / "skills" / "pizm"
+    if not claude_root.is_dir() or not opencode_root.is_dir():
+        return []
+
+    claude_files = {p.relative_to(claude_root): p for p in claude_root.rglob("*") if p.is_file()}
+    opencode_files = {p.relative_to(opencode_root): p for p in opencode_root.rglob("*") if p.is_file()}
+
+    divergences = []
+    for rel in sorted(set(claude_files.keys()) | set(opencode_files.keys())):
+        if rel not in claude_files:
+            divergences.append(f"Missing in Claude root: {rel}")
+        elif rel not in opencode_files:
+            divergences.append(f"Missing in OpenCode root: {rel}")
+        else:
+            if claude_files[rel].read_bytes() != opencode_files[rel].read_bytes():
+                divergences.append(f"Content differs: {rel}")
+
+    return divergences
 def install(
     host: str = "both",
     source_skill_dir: Path | None = None,
@@ -66,7 +88,7 @@ def install(
             print(f"ERROR: failed to install skill to {dest}: {e}", file=sys.stderr)
             return 1
 
-    # 2. Symlink/copy helpers to $HOME/.local/bin/
+    # 2. Copy helpers to $HOME/.local/bin/ (self-contained, no symlinks to repo)
     local_bin = home / ".local" / "bin"
     try:
         local_bin.mkdir(parents=True, exist_ok=True)
@@ -82,23 +104,48 @@ def install(
 
         dest_helper = local_bin / helper
         try:
-            # Make sure source has executable bit
-            current_mode = src_helper.stat().st_mode
-            src_helper.chmod(current_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
-
-            # Try symlink first; if symlink fails (e.g. across filesystems or Windows/unsupported), copy
             if dest_helper.is_symlink() or dest_helper.is_file():
                 dest_helper.unlink()
-            try:
-                dest_helper.symlink_to(src_helper)
-            except OSError:
-                shutil.copy2(src_helper, dest_helper)
-                dest_helper.chmod(dest_helper.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
-
+            shutil.copy2(src_helper, dest_helper)
+            dest_helper.chmod(dest_helper.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
             print(f"INSTALL_HELPER_OK: {dest_helper}")
         except (OSError, PermissionError) as e:
             print(f"ERROR: failed to install helper {helper} to {dest_helper}: {e}", file=sys.stderr)
             return 1
+
+    # 3. Test installed checkpoint executable
+    installed_checkpoint = local_bin / "pizm-checkpoint"
+    if not installed_checkpoint.is_file():
+        print(f"ERROR: installed checkpoint not found: {installed_checkpoint}", file=sys.stderr)
+        return 1
+    try:
+        smoke = subprocess.run(
+            [sys.executable, str(installed_checkpoint), "--help"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if smoke.returncode != 0:
+            print(
+                f"ERROR: installed checkpoint smoke test failed (exit {smoke.returncode}):\n{smoke.stderr}",
+                file=sys.stderr,
+            )
+            return 1
+        print("TEST_CHECKPOINT_OK")
+    except Exception as e:
+        print(f"ERROR: installed checkpoint execution failed: {e}", file=sys.stderr)
+        return 1
+
+    # 4. Enforce coherence across installed skill roots
+    divergences = check_skill_roots_coherence(home)
+    if divergences:
+        print(
+            "ERROR: Divergent skill roots detected between ~/.claude/skills/pizm and ~/.config/opencode/skills/pizm:\n"
+            + "\n".join(f"  - {d}" for d in divergences)
+            + "\nRun 'install-pizm --host both' to synchronize, or remove the stale installation.",
+            file=sys.stderr,
+        )
+        return 1
 
     print("INSTALL_COMPLETE: Native Pizm installed successfully.")
     return 0
