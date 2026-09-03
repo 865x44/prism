@@ -2649,6 +2649,58 @@ class TestPolishingWaveInvariants:
         assert res.returncode != 0
         assert "multi-pass portfolio requires explicit field_ref pointing to final search field" in res.stderr
 
+    def test_multi_pass_portfolio_stale_pass01_ref_rejected(self, workspace):
+        project, skill = workspace
+        run_id = "pw-multi-stale-ref"
+        run_dir = project / ".ai" / "pizm" / f"run-{run_id}"
+        run_dir.mkdir(parents=True, exist_ok=True)
+
+        # Pre-populate multi-pass search fields pass01 and pass02
+        sf1_data = {
+            "schema_version": "pizm-search-field-v1",
+            "stage": "search-field",
+            "passes": [{"pass_id": "pass01", "candidates_ref": "candidates-pass01.json", "frozen_hash": "a" * 64}],
+            "entries": ["pass01:c01"],
+        }
+        sf1_raw = json.dumps(sf1_data, indent=2).encode("utf-8")
+        (run_dir / "search-field-pass01.json").write_bytes(sf1_raw)
+        sf1_hash = hashlib.sha256(sf1_raw).hexdigest()
+        (run_dir / "search-field-pass01.sha256").write_text(sf1_hash)
+
+        sf2_data = {
+            "schema_version": "pizm-search-field-v1",
+            "stage": "search-field",
+            "passes": [
+                {"pass_id": "pass01", "candidates_ref": "candidates-pass01.json", "frozen_hash": "a" * 64},
+                {"pass_id": "pass02", "candidates_ref": "candidates-pass02.json", "frozen_hash": "b" * 64},
+            ],
+            "entries": ["pass01:c01", "pass02:c01"],
+        }
+        sf2_raw = json.dumps(sf2_data, indent=2).encode("utf-8")
+        (run_dir / "search-field-pass02.json").write_bytes(sf2_raw)
+        sf2_hash = hashlib.sha256(sf2_raw).hexdigest()
+        (run_dir / "search-field-pass02.sha256").write_text(sf2_hash)
+
+        # Portfolio referencing pass01 with valid pass01 hash -> MUST REJECT
+        port_stale = valid_portfolio()
+        port_stale["field_ref"] = "search-field-pass01.json"
+        port_stale["field_hash"] = sf1_hash
+        inp_stale = write_json(project / "port_stale.json", port_stale)
+        res_stale = run_ck("freeze", "--stage", "portfolio", "--run-id", run_id, "--input", inp_stale,
+                          "--project-root", str(project), "--skill-root", str(skill))
+        assert res_stale.returncode != 0
+        assert "field_ref must reference the final search field 'search-field-pass02.json', got 'search-field-pass01.json'" in res_stale.stderr
+
+        # Portfolio referencing pass02 with valid pass02 hash -> MUST ACCEPT
+        port_final = valid_portfolio()
+        port_final["field_ref"] = "search-field-pass02.json"
+        port_final["field_hash"] = sf2_hash
+        inp_final = write_json(project / "port_final.json", port_final)
+        res_final = run_ck("freeze", "--stage", "portfolio", "--run-id", run_id, "--input", inp_final,
+                          "--project-root", str(project), "--skill-root", str(skill))
+        assert res_final.returncode == 0, res_final.stderr
+        assert "FREEZE_OK" in res_final.stdout
+
     def test_multi_pass_portfolio_with_field_ref_verifies_ok(self, workspace):
         project, skill = workspace
         run_id = "pw-multi-with-ref"

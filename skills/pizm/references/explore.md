@@ -16,7 +16,17 @@ In staged execution, Search operates as a generator: it produces a structured ca
    $HOME/.local/bin/pizm-checkpoint freeze --stage explore --run-id <slug> --input <path>
    ```
 5. Do not output raw candidate pools or intermediate JSON directly to user chat.
-
+6. Freeze the search field: write `search-field.json` (or `search-field-passNN.json` if multi-pass) and freeze via checkpoint with stage `search-field`:
+   ```bash
+   $HOME/.local/bin/pizm-checkpoint freeze --stage search-field --run-id <slug> --input <path>
+   ```
+7. **Post-freeze Continuation & Adjudication**:
+   - In manual mode: after freezing candidates and the search-field for this manual invocation, read and execute `references/explore-selector.md` with `route: "MANUAL"`.
+   - Freeze `portfolio.json` via checkpoint with stage `portfolio`.
+   - Present the visible Perspectives and Bundles to the user (per the presentation rules in `references/explore-selector.md`).
+   - Conclude with STOP (never auto-Deep).
+   - The raw candidate pool remains strictly hidden from the user throughout.
+   - In automated routes (AUTO / BONK): return control to the pipeline orchestrator (`references/auto.md` or `references/bonk.md`) to perform downstream passes before adjudication.
 ### Bounded Retry and Failure Handling (A2)
 
 - Normal path: write candidate JSON and invoke the checkpoint command once.
@@ -189,10 +199,9 @@ Separate what is supported by the source/task from inference and added assumptio
 
 ## Boundary
 
-Do not select the winning perspective for the user. Do not silently switch into Deep. Do not generate a final article, plan, recommendation, or polished downstream artifact unless the user explicitly changes the task.
+Do not select the winning perspective for the user (in manual mode). Do not silently switch into Deep. Do not generate a final article, plan, recommendation, or polished downstream artifact unless the user explicitly changes the task.
 
-Do not reveal hidden candidate pools, private reasoning, chain-of-thought, internal scores, or hidden selection machinery.
-
+Do not reveal hidden candidate pools, private reasoning, chain-of-thought, internal scores, or hidden selection machinery. In manual mode, complete Search through Portfolio selection, present visible Perspectives and Bundles to the user, and STOP; branch commit remains the user's.
 <!-- migration-notes
 epistemics: kept (supported/inferred/speculative/unknown arrays)
 break_condition: kept, RIFT-required

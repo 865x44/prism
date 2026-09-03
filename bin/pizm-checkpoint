@@ -1129,10 +1129,30 @@ def _validate_portfolio(
         raise ValueError("field_hash must be non-empty string")
 
     # Resolve and verify search-field reference
+    field_ref = data.get("field_ref")
     if schema_version == "pizm-portfolio-selection-v2":
-        field_ref = data.get("field_ref")
         if not isinstance(field_ref, str) or not field_ref.strip():
             raise ValueError("pizm-portfolio-selection-v2 requires field_ref")
+
+    if run_dir is not None:
+        pass_field_files = []
+        for p in run_dir.glob("search-field-pass*.json"):
+            m = re.match(r"^search-field-pass(\d+)\.json$", p.name)
+            if m:
+                pass_field_files.append((int(m.group(1)), p))
+        if pass_field_files:
+            pass_field_files.sort(key=lambda x: x[0])
+            highest_pass_file = pass_field_files[-1][1]
+            if not field_ref or not isinstance(field_ref, str) or not field_ref.strip():
+                raise ValueError(
+                    "multi-pass portfolio requires explicit field_ref pointing to final search field"
+                )
+            if Path(field_ref).name != highest_pass_file.name:
+                raise ValueError(
+                    f"field_ref must reference the final search field {highest_pass_file.name!r}, got {field_ref!r}"
+                )
+
+    if field_ref:
         if project_root is not None:
             field_path = _resolve_pizm_artifact(field_ref, project_root, run_dir)
             _verify_artifact_and_sidecar(
@@ -1141,22 +1161,8 @@ def _validate_portfolio(
                 field_name="field_ref",
             )
     else:
-        # v1 compatibility
-        field_ref = data.get("field_ref")
-        if field_ref:
-            if project_root is not None:
-                field_path = _resolve_pizm_artifact(field_ref, project_root, run_dir)
-                _verify_artifact_and_sidecar(
-                    field_path,
-                    expected_hash=field_hash,
-                    field_name="field_ref",
-                )
-        elif run_dir is not None:
-            has_pass_fields = any(run_dir.glob("search-field-pass*.json"))
-            if has_pass_fields:
-                raise ValueError(
-                    "multi-pass portfolio requires explicit field_ref pointing to final search field"
-                )
+        # v1 compatibility single-pass without field_ref
+        if run_dir is not None:
             legacy_field = run_dir / "search-field.json"
             if legacy_field.is_file():
                 _verify_artifact_and_sidecar(
@@ -1651,6 +1657,22 @@ def _durable_exclusive_write(target: Path, data: bytes) -> None:
         raise
 
 
+def _default_skill_root() -> Path:
+    env_root = os.environ.get("PIZM_SKILL_ROOT")
+    if env_root and env_root.strip():
+        return Path(env_root).resolve()
+    local_checkout = Path(__file__).resolve().parent.parent / "skills" / "pizm"
+    if local_checkout.is_dir():
+        return local_checkout.resolve()
+    claude_root = Path.home() / ".claude" / "skills" / "pizm"
+    if claude_root.is_dir():
+        return claude_root.resolve()
+    opencode_root = Path.home() / ".config" / "opencode" / "skills" / "pizm"
+    if opencode_root.is_dir():
+        return opencode_root.resolve()
+    return claude_root.resolve()
+
+
 def _read_contract_file(skill_root: Path, rel_path: str) -> str:
     """Read hidden contract from relative path. Raises OSError on failure."""
     contract_path = skill_root / rel_path
@@ -1764,10 +1786,12 @@ def _resolve_development_v2_next_contract(
 
 def freeze(
     stage: str, run_id: str, input_path: str,
-    project_root: Path, skill_root: Path,
+    project_root: Path, skill_root: Path | None = None,
     target: str = None,
     artifact_suffix: str = None,
 ) -> int:
+    if skill_root is None:
+        skill_root = _default_skill_root()
     # Validate run-id early
     try:
         _validate_run_id(run_id)
@@ -1990,18 +2014,20 @@ def main() -> int:
     fp.add_argument("--project-root", default=".")
     fp.add_argument(
         "--skill-root",
-        default=os.path.expanduser("~/.config/opencode/skills/pizm"),
+        default=None,
+        help="Path to pizm skill root (defaults dynamically to PIZM_SKILL_ROOT, local checkout, ~/.claude, or ~/.config/opencode)",
     )
 
     args = parser.parse_args()
 
     if args.command == "freeze":
+        skill_root = Path(args.skill_root).resolve() if args.skill_root else _default_skill_root()
         return freeze(
             stage=args.stage,
             run_id=args.run_id,
             input_path=args.input_path,
             project_root=Path(args.project_root).resolve(),
-            skill_root=Path(args.skill_root).resolve(),
+            skill_root=skill_root,
             target=args.target,
             artifact_suffix=args.artifact_suffix,
         )

@@ -92,7 +92,7 @@ def running_reader(run_workspace):
 
 
 def test_health_endpoint(running_reader):
-    _, port, root = running_reader
+    proc, port, root = running_reader
     conn = http.client.HTTPConnection("127.0.0.1", port, timeout=1.0)
     conn.request("GET", "/health", headers={"Host": f"127.0.0.1:{port}"})
     resp = conn.getresponse()
@@ -103,6 +103,7 @@ def test_health_endpoint(running_reader):
     assert data["status"] == "ok"
     assert data["served_root"] == str(root.resolve())
     assert data["version"] == "pizm-reader-v1"
+    assert data["pid"] == proc.pid
     conn.close()
 
 
@@ -310,3 +311,61 @@ def test_ensure_command_lifecycle(run_workspace):
             capture_output=True,
             text=True,
         )
+
+def test_status_root_mismatch(running_reader, tmp_path):
+    """Status check against a foreign root fails with READER_ROOT_MISMATCH."""
+    _, port, _ = running_reader
+    foreign_root = tmp_path / "foreign_root"
+    foreign_root.mkdir(exist_ok=True)
+
+    res = subprocess.run(
+        [sys.executable, READER_SCRIPT, "status", "--port", str(port), "--root", str(foreign_root)],
+        capture_output=True,
+        text=True,
+    )
+    assert res.returncode != 0
+    assert "READER_ROOT_MISMATCH" in res.stderr
+
+
+def test_stop_safe_foreign_root(running_reader, tmp_path):
+    """Stop command with foreign root skips kill to prevent killing wrong server."""
+    proc, port, _ = running_reader
+    foreign_root = tmp_path / "foreign_root"
+    foreign_root.mkdir(exist_ok=True)
+
+    res = subprocess.run(
+        [sys.executable, READER_SCRIPT, "stop", "--port", str(port), "--root", str(foreign_root)],
+        capture_output=True,
+        text=True,
+    )
+    assert res.returncode != 0
+    assert "READER_STOP_SKIPPED" in res.stderr
+    # Server process is still running
+    assert proc.poll() is None
+
+
+def test_stop_safe_pid_mismatch(running_reader):
+    """Stop command skips kill when state PID does not match health PID."""
+    proc, port, root = running_reader
+    state_file = root / f".reader-server-{port}.json"
+    # Intentionally corrupt state file with a different PID (current test runner pid)
+    state_file.write_text(
+        json.dumps({
+            "pid": os.getpid(),
+            "port": port,
+            "served_root": str(root.resolve()),
+            "version": "pizm-reader-v1",
+        }),
+        encoding="utf-8",
+    )
+
+    res = subprocess.run(
+        [sys.executable, READER_SCRIPT, "stop", "--port", str(port), "--root", str(root)],
+        capture_output=True,
+        text=True,
+    )
+    assert res.returncode != 0
+    assert "READER_STOP_SKIPPED" in res.stderr
+    assert "PID mismatch" in res.stderr
+    # Neither reader process nor current process was killed
+    assert proc.poll() is None

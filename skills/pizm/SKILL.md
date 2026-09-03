@@ -1,6 +1,12 @@
 ---
 name: pizm
-description: Use Pizm as an interactive cognitive tool for exploring a problem through materially distinct perspectives and deepening one or several selected perspectives. Trigger when the user invokes /pizm or /prism, asks for Pizm Search / Explore, NORMAL, RIFT, 360, asks to deepen a P-ID, selects several P-IDs to deepen together, or asks for another Pizm exploration pass. This native skill uses the current host model directly; it does not call an external model provider or the offline AUTO/runtime harness.
+description: >
+  Use Pizm as an interactive cognitive tool for exploring a problem through materially
+  distinct perspectives and deepening one or several selected perspectives. Trigger when
+  the user invokes /pizm or /prism, asks for Pizm Search / Explore, NORMAL, RIFT, 360,
+  asks to deepen a P-ID, selects several P-IDs to deepen together, or asks for another
+  Pizm exploration pass. Native Pizm uses the current host model directly; it does not
+  call an external model provider or require API keys.
 ---
 
 # Pizm
@@ -17,10 +23,10 @@ Follow the staged tool sequence defined in the loaded reference file exactly. Ea
 
 ## Route the request
 
-- `/pizm <task>` (legacy alias `/prism <task>`) with no explicit mode → Explore NORMAL (Search(initial)).
-- `normal`, `explore`, or equivalent → Explore NORMAL.
-- `rift` → Explore RIFT (Search(rift); manual trigger: rift starts from an explicit `/pizm rift` user request; AUTO incorporates RIFT as its mandatory second Search pass).
-- `360` → Explore 360 — deprecated compatibility alias that executes the residual search policy (Search(residual)); explicit only, never triggered implicitly just because the input is rich.
+- `/pizm <task>` (legacy alias `/prism <task>`) with no explicit mode → Explore NORMAL: Search(initial) -> Portfolio -> visible Perspectives/Bundles -> STOP.
+- `normal`, `explore`, or equivalent → Explore NORMAL: Search(initial) -> Portfolio -> visible Perspectives/Bundles -> STOP.
+- `rift` → Explore RIFT: Search(rift) -> Portfolio -> visible Perspectives/Bundles -> STOP (manual trigger: rift starts from an explicit `/pizm rift` user request; AUTO incorporates RIFT as its mandatory second Search pass).
+- `360` → Explore 360 — deprecated compatibility alias that executes the residual search policy: Search(residual) -> Portfolio -> visible Perspectives/Bundles -> STOP (explicit only, never triggered implicitly just because the input is rich).
 - `deep P7` → single-focus Deep (v2 contract: one target per developed artifact).
 - `deep B1` → Deep on one composed Bundle: one Bundle = one Deep, never per-member mini-Deeps.
 - `deep P2 P5 P8` or an equivalent explicit selection → experimental multi-focus Deep: each selected focus becomes its own Deep target and is developed in its own pass.
@@ -36,7 +42,7 @@ Follow the staged tool sequence defined in the loaded reference file exactly. Ea
 
 - **Canonical manual primitives**: Search (`references/explore.md`), Deep (`references/deep.md`), LEVER (`references/lever.md`), RIFT (`references/explore.md`).
 - **Canonical automatic pipelines**: AUTO (`references/auto.md`), BONK (`references/bonk.md`).
-- **Internal Search policies**: `initial` (broad structural search), `residual` (novelty against accumulated field), `rift` (manual-only far structural shift).
+- **Internal Search policies**: `initial` (broad structural search), `residual` (novelty against accumulated field), `rift` (explicit in manual use; mandatory second Search policy inside AUTO; not used by BONK).
 - **Superseded / deprecated terms**: `360` is retained for one release solely as a deprecated compatibility alias to `Search(residual)`; `/pizm forge` is retained for one release solely as a deprecated compatibility alias to BONK; "Breadth" is superseded as a user mode (Search is the manual divergence primitive); "MAX" is superseded and eliminated as a product route; raw-P-only AUTO is superseded by Portfolio target nomination (P or B); compact-card Deep is superseded by mature analytical prose synthesis (~900–1600 words for P, ~1400–2400 words for B); full rubric-blindness is operationalized as same-host staged contract separation post-freeze.
 
 AUTO executes only via explicit `/pizm auto <task>` user delegation; manual modes never trigger it; discussing AUTO remains possible without executing it.

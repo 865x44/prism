@@ -259,11 +259,10 @@ class TestBundleIdDeterminism:
 
 class TestSeamDiscipline:
     def test_revealed_after_freeze(self, selector_text):
-        assert "revealed only after a candidate pool has been frozen" in selector_text
+        assert "revealed only after the final accumulated search field" in selector_text
 
     def test_selection_after_freeze(self, selector_text):
         assert "Selection always happens after freeze" in selector_text
-
 
 # ---------------------------------------------------------------------------
 # 7. Checkpoint wiring

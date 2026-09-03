@@ -1571,26 +1571,6 @@ def render_run_html(run_dir_str: str, task, output_path: str) -> int:
     out_file.parent.mkdir(parents=True, exist_ok=True)
     out_file.write_text(html_text, encoding="utf-8")
     print(f"RENDER_HTML_OK {out_file}")
-
-    reader_script = Path(__file__).resolve().parent / "pizm-reader-server"
-    if reader_script.is_file():
-        try:
-            root_dir = run_dir.parent.resolve()
-            res = subprocess.run(
-                [sys.executable, str(reader_script), "ensure", "--root", str(root_dir)],
-                capture_output=True,
-                text=True,
-                timeout=5.0,
-            )
-            if res.returncode == 0:
-                base_url = res.stdout.strip().splitlines()[-1].rstrip("/")
-                print(f"Reader: {base_url}/run/{run_dir.name}/")
-            else:
-                print(f"Reader: file://{out_file.resolve()} (local reader server inactive)")
-        except Exception:
-            print(f"Reader: file://{out_file.resolve()} (local reader server inactive)")
-    else:
-        print(f"Reader: file://{out_file.resolve()}")
     return 0
 
 

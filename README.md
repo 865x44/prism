@@ -22,8 +22,8 @@ Prism helps users move beyond surface-level brainstorming. Instead of generating
 *Note: "Breadth" is superseded terminology and is not a public user mode. "MAX" is superseded and eliminated as a product route.*
 
 ### Automated Pipelines
-- **AUTO (`/pizm auto <task>`)**: Dynamic single-target pipeline: Search $\to$ Portfolio $\to$ dynamic reasoning-budget branch (Deep on nominated target $\to$ Critic $\to$ optional LEVER; intentional Information Gathering stop; or field Preservation stop) $\to$ deterministic final synthesis.
-- **BONK (`/pizm bonk <task>`)**: Heavy dual-competition pipeline: Search(initial) $\to$ Search(residual) $\to$ Portfolio $\to$ Deep(LEFT) $\to$ Deep(RIGHT) $\to$ Compare $\to$ optional LEVER $\to$ deterministic final synthesis.
+- **AUTO (`/pizm auto <task>`)**: Dynamic single-target pipeline: Search(initial) $\to$ Search(rift) $\to$ Portfolio $\to$ dynamic reasoning-budget branch (Deep on nominated target $\to$ Critic $\to$ optional LEVER; intentional Information Gathering stop; or field Preservation stop) $\to$ deterministic final synthesis (`run.md` and `run.html`).
+- **BONK (`/pizm bonk <task>`)**: Heavy dual-competition pipeline: Search(initial) $\to$ Search(residual) $\to$ Portfolio $\to$ Deep(LEFT) $\to$ Deep(RIGHT) $\to$ Compare $\to$ optional LEVER $\to$ deterministic final synthesis (`run.md` and `run.html`).
 ---
 
 ## Mental Model & Topologies
@@ -44,7 +44,8 @@ Search (Information Gathering: 0–3 questions if route-forking)
 ```text
 /pizm auto <task>
   │
-  ├─► Search(initial) ────────► Freeze candidates + search-field manifest
+  ├─► Search(initial) ────────► Freeze pass01 + search-field-pass01
+  ├─► Search(rift) ───────────► Freeze pass02 + search-field-pass02 (FINAL)
   ├─► Portfolio Judge ────────► Freeze portfolio (route: AUTO)
   │     │
   │     ├─► [next_reasoning_move: DEEP]
@@ -58,24 +59,29 @@ Search (Information Gathering: 0–3 questions if route-forking)
   │     └─► [next_reasoning_move: PRESERVE_ONLY]
   │           └─► Intentional terminal stop (freeze preserved field; 0 Deep/Critic/LEVER files)
   │
-  └─► Deterministic FINAL ────► Session bundle archive & deterministic run.md (0 model calls)
+  └─► Deterministic FINAL ────► Session bundle archive, run.md + run.html, optional Reader URL (0 model calls)
 ```
 
 *AUTO Honest Stops*: When the Portfolio Judge produces `GATHER_INFORMATION` or `PRESERVE_ONLY`, AUTO stops immediately as a completed run without creating Deep/Critic/LEVER files. When the Critic produces `NEED_EVIDENCE` (with structured inquiry program) or `RETURN_TO_EXPLORE`, execution stops honestly at Critic.
----
 
 ## Installation & Skill Setup
 
-The canonical Pizm skill resides in `skills/pizm/`. It is designed to run directly within host coding agents and harnesses (such as OpenCode or OMP) without requiring external provider wrappers.
+### Native Pizm Skill (Claude Code & OpenCode)
 
-### Installing the Skill
+Native Pizm runs directly on the host model in Claude Code, OpenCode, and compatible Agent Skills harnesses with **zero API keys** and **zero external provider configuration**.
 
-To install or update the skill in your local OpenCode environment:
+To install the skill and helper binaries:
 
 ```bash
-mkdir -p ~/.config/opencode/skills/pizm
-cp -r skills/pizm/* ~/.config/opencode/skills/pizm/
+# Install to both Claude Code and OpenCode
+./bin/install-pizm --host both
+
+# Or target a single harness:
+./bin/install-pizm --host claude-code   # installs to ~/.claude/skills/pizm/
+./bin/install-pizm --host opencode      # installs to ~/.config/opencode/skills/pizm/
 ```
+
+This copies the canonical skill directory and symlinks the deterministic helpers (`pizm-checkpoint`, `pizm-session-bundle`, `pizm-reader-server`, `pizm_render_html.py`) to `~/.local/bin/`.
 
 Verify mirror integrity:
 
@@ -86,6 +92,10 @@ done
 echo "Skill mirror verified."
 ```
 
+### Native Skill vs Legacy Runtime
+
+- **Native Pizm Skill (`skills/pizm/`)**: The canonical interactive product. Executes directly on the current host model using staged reasoning contracts. Requires no API keys, provider setup, or runtime services.
+- **Legacy CLI (`prism`)**: Python runtime CLI (`prism = prism.runtime.cli:main`) for offline regression testing and development. Not required for ordinary interactive Pizm usage in Claude Code or OpenCode.
 ### Development Environment
 
 For testing and running the verification suite:

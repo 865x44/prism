@@ -81,6 +81,7 @@ class ReaderRequestHandler(BaseHTTPRequestHandler):
                 "status": "ok",
                 "served_root": str(root_path),
                 "version": SERVER_VERSION,
+                "pid": os.getpid(),
             }).encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
@@ -249,8 +250,16 @@ def cmd_start(port: int, root: Path, foreground: bool) -> int:
 
 
 def cmd_status(port: int, root: Path) -> int:
+    root_path = root.resolve()
     h = _check_health(port, timeout=1.0)
     if h:
+        served = h.get("served_root")
+        if served != str(root_path):
+            print(
+                f"READER_ROOT_MISMATCH: server on port {port} is serving {served!r}, not requested {str(root_path)!r}",
+                file=sys.stderr,
+            )
+            return 1
         print(json.dumps(h, indent=2))
         return 0
     print(f"READER_SERVER_STOPPED (port {port})", file=sys.stderr)
@@ -260,40 +269,68 @@ def cmd_status(port: int, root: Path) -> int:
 def cmd_stop(port: int, root: Path) -> int:
     root_path = root.resolve()
     state_file = _state_file_path(root_path, port)
-    pid = None
+    state_pid = None
     if state_file.is_file():
         try:
             data = json.loads(state_file.read_text(encoding="utf-8"))
-            pid = data.get("pid")
+            state_pid = data.get("pid")
         except Exception:
             pass
 
+    h = _check_health(port, timeout=1.0)
+    if h is None:
+        state_file.unlink(missing_ok=True)
+        print(f"READER_SERVER_STOPPED http://127.0.0.1:{port}/")
+        return 0
+
+    health_root = h.get("served_root")
+    health_pid = h.get("pid")
+
+    if health_root != str(root_path):
+        print(
+            f"READER_STOP_SKIPPED: server on port {port} is serving foreign root {health_root!r}, not requested {str(root_path)!r}",
+            file=sys.stderr,
+        )
+        return 1
+
+    if state_pid is not None and health_pid != state_pid:
+        print(
+            f"READER_STOP_SKIPPED: PID mismatch on port {port} (health pid={health_pid}, state pid={state_pid}), not signalling",
+            file=sys.stderr,
+        )
+        state_file.unlink(missing_ok=True)
+        return 1
+
+    target_pid = health_pid or state_pid
+    if not target_pid:
+        state_file.unlink(missing_ok=True)
+        print(f"READER_SERVER_STOPPED http://127.0.0.1:{port}/")
+        return 0
+
     stopped = False
-    if pid:
-        try:
-            os.kill(pid, signal.SIGTERM)
-            deadline = time.time() + 3.0
-            while time.time() < deadline:
-                try:
-                    os.kill(pid, 0)
-                    time.sleep(0.1)
-                except ProcessLookupError:
-                    stopped = True
-                    break
-            if not stopped:
-                os.kill(pid, signal.SIGKILL)
+    try:
+        os.kill(target_pid, signal.SIGTERM)
+        deadline = time.time() + 3.0
+        while time.time() < deadline:
+            try:
+                os.kill(target_pid, 0)
+                time.sleep(0.1)
+            except ProcessLookupError:
                 stopped = True
-        except ProcessLookupError:
+                break
+        if not stopped:
+            os.kill(target_pid, signal.SIGKILL)
             stopped = True
-        except Exception as e:
-            print(f"Warning: could not kill pid {pid}: {e}", file=sys.stderr)
+    except ProcessLookupError:
+        stopped = True
+    except Exception as e:
+        print(f"Warning: could not kill pid {target_pid}: {e}", file=sys.stderr)
 
     state_file.unlink(missing_ok=True)
-    if stopped or pid is None:
+    if stopped:
         print(f"READER_SERVER_STOPPED http://127.0.0.1:{port}/")
         return 0
     return 1
-
 
 def cmd_ensure(port: int, root: Path) -> int:
     root_path = root.resolve()

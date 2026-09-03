@@ -26,8 +26,7 @@ Every Search pass executes exactly one search policy:
 
 1. **`initial` (NORMAL)**: Broad structural divergence across the problem space. When supported by source material, target is roughly 12–16 compact candidate seeds. Hard safety bounds: 1..20 candidates, $\le 192\text{ KiB}$ total candidate payload, $\le 12\text{ KiB}$ per candidate.
 2. **`residual` (360)**: Novelty search directed explicitly away from accumulated prior perspectives and developed directions. Identifies uncharted territory against the registered search field. (*Note: `360` is a deprecated compatibility alias for the residual search policy*).
-3. **`rift` (RIFT)**: Distant, non-obvious structural reframings that strictly preserve the underlying operational mechanism of the source while rejecting decorative or metaphorical analogies. Manual-only trigger.
-
+3. **`rift` (RIFT)**: Distant, non-obvious structural reframings that strictly preserve the underlying operational mechanism of the source while rejecting decorative or metaphorical analogies. Explicit in manual use (`/pizm rift`); mandatory second Search policy inside AUTO (`Search(rift)`); not used by BONK.
 *Terminology note: "Breadth" is superseded terminology and is not a user mode. "MAX" is superseded and eliminated as a product route.*
 
 ### Search Field Manifest
@@ -191,7 +190,9 @@ AUTO (`/pizm auto <task>`) is an automated pipeline that orchestrates the underl
 ```text
 /pizm auto <task>
   │
-  ├─► Search(initial) ────────► Freeze explore pass + search-field manifest
+  ├─► Search(initial) ────────► Freeze pass01 + search-field-pass01
+  │
+  ├─► Search(rift) ───────────► Freeze pass02 + search-field-pass02 (FINAL)
   │
   ├─► Portfolio Judge ────────► Freeze portfolio (route: AUTO)
   │     │
@@ -206,22 +207,21 @@ AUTO (`/pizm auto <task>`) is an automated pipeline that orchestrates the underl
   │     └─► [next_reasoning_move: PRESERVE_ONLY]
   │           └─► Intentional terminal stop (freeze preserved field; 0 Deep/Critic/LEVER files)
   │
-  └─► Deterministic FINAL ────► Session bundle archive & deterministic run.md (0 model calls)
+  └─► Deterministic FINAL ────► Session bundle archive, deterministic run.md + run.html (0 model calls)
 ```
 
 ### Dynamic Reasoning-Budget Branches
-- **`DEEP`**: Deepens exactly the nominated target (`auto_target`: single $P$ or $B$). If a live rival shadow is present, Deep records comparative standing against it. Proceeds through Deep Developer, Critic Review, and conditional LEVER.
+- **`DEEP`**: Deepens exactly the nominated target (`auto_target`: single $P$ or $B$). If a live rival shadow is present, Deep records comparative standing against it. Proceeds through Deep Developer, Critic Review, and conditional LEVER (5 or 7 semantic stages total).
 - **`GATHER_INFORMATION`**: Intentional completed terminal outcome. Freezes an information request (1–3 questions or external observation) and stops immediately without invoking Deep, Critic, or LEVER.
 - **`PRESERVE_ONLY`**: Intentional completed terminal outcome. Preserves the candidate field without further reasoning spend and stops immediately without invoking Deep, Critic, or LEVER.
 
 ### Honest-Stop Discipline
 - **Portfolio Terminals**: `GATHER_INFORMATION` and `PRESERVE_ONLY` are completed run outcomes, not resumable partial states. They freeze current artifacts and never auto-resume. Continuation requires an explicit fresh user command or a fresh run; prior runs remain immutable.
 - **Critic Terminals**: If Critic returns `NEED_EVIDENCE` (with inquiry program) or `RETURN_TO_EXPLORE`, execution stops honestly at Critic. No secondary Deep, reroll, or branch recovery is attempted.
-- **Final Assembly**: Pipeline proceeds directly to deterministic FINAL assembly and `run.md` rendering.
+- **Final Assembly**: Pipeline proceeds directly to deterministic FINAL assembly and `run.md` / `run.html` rendering.
 
 ### Execution vs Semantic Invariants
-AUTO enforces strict single-target discipline: exactly one target is deepened, with zero branch rerolls or second search passes. Context slicing, payload pruning, and token reduction operate as execution optimization hypotheses, not as semantic invariants of the reasoning model.
-
+AUTO enforces strict two-pass search and single-target discipline: exactly two Search passes (initial + rift) produce the accumulated field, from which exactly one target is deepened, with zero branch rerolls or additional search passes. Semantic budgets operate across 5/7 stages (5 stages for DEEP without LEVER; 7 stages with conditional LEVER design and review). Context slicing, payload pruning, and token reduction operate as execution optimization hypotheses, not as semantic invariants of the reasoning model.
 ---
 
 ## 7. BONK Topology

@@ -1,0 +1,120 @@
+#!/usr/bin/env python3
+"""
+install-pizm: Native Pizm Skill & Helper Installer.
+
+Installs the native Pizm skill to target host harnesses (Claude Code, OpenCode, or both)
+and sets up helper executables in $HOME/.local/bin.
+
+Zero API keys. Zero provider configuration. Pure local installation.
+"""
+from __future__ import annotations
+
+import argparse
+import os
+import shutil
+import stat
+import sys
+from pathlib import Path
+
+HELPERS = [
+    "pizm-checkpoint",
+    "pizm-session-bundle",
+    "pizm-reader-server",
+    "pizm_render_html.py",
+]
+
+
+def install(
+    host: str = "both",
+    source_skill_dir: Path | None = None,
+    repo_bin_dir: Path | None = None,
+    home_dir: Path | None = None,
+) -> int:
+    if sys.version_info < (3, 10):
+        print("ERROR: install-pizm requires Python 3.10 or higher", file=sys.stderr)
+        return 1
+
+    home = (home_dir or Path.home()).resolve()
+    repo_root = Path(__file__).resolve().parent.parent
+    src_skill = (source_skill_dir or (repo_root / "skills" / "pizm")).resolve()
+    src_bin = (repo_bin_dir or (repo_root / "bin")).resolve()
+
+    if not src_skill.is_dir():
+        print(f"ERROR: source skill directory not found: {src_skill}", file=sys.stderr)
+        return 1
+
+    targets: list[Path] = []
+    if host in ("claude-code", "both"):
+        targets.append(home / ".claude" / "skills" / "pizm")
+    if host in ("opencode", "both"):
+        targets.append(home / ".config" / "opencode" / "skills" / "pizm")
+
+    # 1. Copy skill directory to target hosts
+    for dest in targets:
+        try:
+            dest.mkdir(parents=True, exist_ok=True)
+            for root_dir, dirs, files in os.walk(src_skill):
+                rel_path = Path(root_dir).relative_to(src_skill)
+                target_dir = dest / rel_path
+                target_dir.mkdir(parents=True, exist_ok=True)
+                for file_name in files:
+                    s_file = Path(root_dir) / file_name
+                    d_file = target_dir / file_name
+                    shutil.copy2(s_file, d_file)
+            print(f"INSTALL_SKILL_OK: {dest}")
+        except (OSError, PermissionError) as e:
+            print(f"ERROR: failed to install skill to {dest}: {e}", file=sys.stderr)
+            return 1
+
+    # 2. Symlink/copy helpers to $HOME/.local/bin/
+    local_bin = home / ".local" / "bin"
+    try:
+        local_bin.mkdir(parents=True, exist_ok=True)
+    except (OSError, PermissionError) as e:
+        print(f"ERROR: failed to create local bin directory {local_bin}: {e}", file=sys.stderr)
+        return 1
+
+    for helper in HELPERS:
+        src_helper = src_bin / helper
+        if not src_helper.is_file():
+            print(f"ERROR: source helper executable not found: {src_helper}", file=sys.stderr)
+            return 1
+
+        dest_helper = local_bin / helper
+        try:
+            # Make sure source has executable bit
+            current_mode = src_helper.stat().st_mode
+            src_helper.chmod(current_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+
+            # Try symlink first; if symlink fails (e.g. across filesystems or Windows/unsupported), copy
+            if dest_helper.is_symlink() or dest_helper.is_file():
+                dest_helper.unlink()
+            try:
+                dest_helper.symlink_to(src_helper)
+            except OSError:
+                shutil.copy2(src_helper, dest_helper)
+                dest_helper.chmod(dest_helper.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+
+            print(f"INSTALL_HELPER_OK: {dest_helper}")
+        except (OSError, PermissionError) as e:
+            print(f"ERROR: failed to install helper {helper} to {dest_helper}: {e}", file=sys.stderr)
+            return 1
+
+    print("INSTALL_COMPLETE: Native Pizm installed successfully.")
+    return 0
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Install Native Pizm skill and helpers")
+    parser.add_argument(
+        "--host",
+        choices=["claude-code", "opencode", "both"],
+        default="both",
+        help="Target host harness (default: both)",
+    )
+    args = parser.parse_args()
+    return install(host=args.host)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

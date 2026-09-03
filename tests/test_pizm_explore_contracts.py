@@ -442,15 +442,17 @@ class TestA5PIDGuard:
 
 
 class TestHiddenFileNotNamed:
-    def test_selector_filename_absent_from_generator(self, explore_text):
-        assert "explore-selector" not in explore_text
+    def test_selector_filename_in_explore_orchestration(self, explore_text):
+        """Explore orchestrates manual search to explore-selector.md post-freeze."""
+        assert "references/explore-selector.md" in explore_text
 
     def test_selector_filename_absent_from_skill(self, skill_text):
+        """Skill routing delegates to explore.md, not directly to explore-selector."""
         assert "explore-selector" not in skill_text
 
-    def test_selector_md_extension_absent_from_generator(self, explore_text):
-        # Ensure no reference to any selector .md file by common names
-        assert "-selector.md" not in explore_text
+    def test_reviewer_filename_absent_from_explore(self, explore_text):
+        """Explore must not reference reviewer contracts."""
+        assert "deep-reviewer" not in explore_text
 
 
 # ---------------------------------------------------------------------------
@@ -484,12 +486,11 @@ class TestPreFreezeProhibitionHygiene:
                     "Pre-freeze prohibition names hidden reviewer .md file"
                 )
 
-    def test_generator_no_reference_to_hidden_assets(self, explore_text):
-        """Generator must not reference any hidden asset by filename."""
+    def test_generator_no_reference_to_deep_reviewer_assets(self, explore_text):
+        """Generator must not reference deep reviewer or compare assets."""
         lower = explore_text.lower()
-        assert "explore-selector" not in lower
         assert "deep-reviewer" not in lower
-
+        assert "deep-compare" not in lower
 # ---------------------------------------------------------------------------
 # 15. R1 Explore Breadth Contract & Compact Seed Guidance
 # ---------------------------------------------------------------------------

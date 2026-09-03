@@ -1,6 +1,6 @@
 # Pizm Explore Selector
 
-Explore Selector is the hidden evaluation contract for the Explore primitive. It is revealed only after a candidate pool has been frozen and verified by hash via `bin/pizm-checkpoint freeze --stage explore`. Selection always happens after freeze: the generator never sees this contract before its artifact is frozen, and the judge evaluates nothing that was not frozen first.
+Explore Selector is the hidden evaluation contract for the Explore primitive. It is revealed only after the final accumulated search field for the current route has been frozen and verified by hash via `bin/pizm-checkpoint freeze --stage search-field`. Selection always happens after freeze: the generator never sees this contract before its artifacts are frozen, and the judge evaluates nothing that was not frozen first.
 
 The selector is a portfolio judge, not a ranker. It judges the exact frozen field and assembles the strongest portfolio: per-candidate categorical judgments plus bundles where — and only where — composition gains exist.
 
@@ -138,7 +138,7 @@ Routing rules and fail-closed couplings:
 - `AUTO`: `next_reasoning_move` must be `DEEP`, `GATHER_INFORMATION`, or `PRESERVE_ONLY`, and `next_reasoning_rationale` is a non-empty string.
   - `DEEP`: exactly one `auto_target` pointing at a promoted perspective (`target_type` `P`) or at a proposed bundle (`target_type` `B`). `information_request` must be null. `rival_shadow` is nullable; when present, it names the live nearest rival (`target_type`, `target_id`, `core_claim`, `why_remains_live`, `differentiator_or_source_anchor`), where target_id must differ from auto_target.target_id and reference a promoted Perspective or defined Bundle (never synthesize a weak rival).
   - `GATHER_INFORMATION`: `auto_target` and `rival_shadow` must be null; `information_request` is non-null with `mode` (`USER_QUESTION` with 1–3 non-empty questions and null suggested observation, or `EXTERNAL_OBSERVATION` with empty questions list and non-empty suggested observation), `missing_information`, and `why_it_changes_route`. In AUTO, this outcome is reserved strictly for a newly discovered material route fork surfaced by Search/RIFT/Portfolio that could not reasonably have been asked before search. If pre-search questions were already asked, prefer 1 additional question, not a routine questionnaire.
-  - `field_ref`: Non-empty string reference to the verified accumulated search field (e.g. `"search-field-pass02.json"` in multi-pass AUTO, or `"search-field.json"` in single-pass). In multi-pass runs, explicit `field_ref` is required and must match the final accumulated field.
+- `field_ref`: Non-empty string reference to the verified final accumulated search-field artifact (e.g. `"search-field-pass02.json"` in two-pass AUTO, or `"search-field.json"` in single-pass; `pass02` represents the final accumulated search field for the current AUTO pipeline, not a hardcoded ceiling for all future trajectories). In multi-pass runs, explicit `field_ref` is required and must reference the final accumulated search field.
   - `PRESERVE_ONLY`: `auto_target`, `information_request`, and `rival_shadow` must all be null.
 - Field survival vs reasoning spend: `KEEP`, `BORDERLINE`, `MERGE`, and `DROP` govern field structure; they do not force `DEEP`.
 ## User-Visible Presentation Rules
