@@ -10,6 +10,33 @@ Prism helps users move beyond surface-level brainstorming. Instead of generating
 
 ---
 
+## Quick Start
+
+```bash
+git clone https://github.com/865x44/prism.git
+cd prism
+./bin/install-pizm --host both
+```
+
+Canonical interaction form in Claude Code or OpenCode:
+
+```text
+/pizm <task>
+```
+
+Mode cheat sheet:
+
+```text
+/pizm <task>           normal exploration (initial search -> portfolio)
+/pizm rift <task>      adversarial reframing (rift search -> portfolio)
+/pizm deep P3          develop one perspective or bundle
+/pizm critic P3        adversarial critique of a developed model
+/pizm lever P3         derive bounded actionable leverage from a MODEL_READY model
+/pizm auto <task>      autonomous single-target pipeline (explore -> portfolio -> deep -> critic -> lever)
+/pizm bonk <task>      heavy dual-competition pipeline (left vs right bundle)
+```
+---
+
 ## Product Surface
 
 ### Manual Primitives (Cumulative Reference Experience)
@@ -120,9 +147,10 @@ PYTHONPATH=src python3 -m pytest tests -q
 
 Prism strictly separates provenance/machine authority from human presentation:
 
-- **JSON Artifacts**: Structured JSON files with `.sha256` sidecars (e.g. `candidates-*.json`, `portfolio.json`, `development-v2-*.json`, `deep-review-v2-*.json`, `comparison-review-v1.json`, `manifest.json`) are the sole authority for verification, provenance, and debugging.
-- **Deterministic `run.md`**: Human-readable markdown synthesized directly from frozen JSON artifacts via `bin/pizm-session-bundle render`. Generated with zero model calls.
-
+1. **Authoritative Machine Artifacts**: Structured JSON files with `.sha256` sidecars (e.g. `candidates-*.json`, `search-field-*.json`, `portfolio.json`, `development-v2-*.json`, `deep-review-v2-*.json`, `comparison-review-v1.json`, `manifest.json`) are the sole authority for verification, provenance, and debugging.
+2. **Deterministic `run.md`**: Human-readable markdown synthesized directly from frozen JSON artifacts via `bin/pizm-session-bundle render` (zero model calls).
+3. **Deterministic `run.html`**: Self-contained interactive full-trace report synthesized directly from frozen JSON artifacts via `bin/pizm-session-bundle render-html` (zero model calls).
+4. **Local Reader Server (`pizm-reader-server`)**: Optional local transport/convenience for browser navigation (`http://127.0.0.1:41144/`). Reader server availability never affects the semantic validity of a run; `file://` URL fallback is always provided.
 ---
 
 ## Repository Map
@@ -133,9 +161,8 @@ bin/                  Deterministic checkpoint (pizm-checkpoint) and bundle/rend
 src/prism/            Python reference substrate, legacy CLI, and cold-path tooling
 src/prism/perspective_core/  Frozen Python reference core (byte-for-byte immutable)
 tests/                Contract, checkpoint, bundle, and regression test suites
-contracts/            Failure-capture specification
+contracts/            System and pipeline contract specifications
 docs/architecture.md  Detailed technical architecture and stage contracts
-.ai/                  Operational project memory, session logs, and state cursors
 ```
 
 ---

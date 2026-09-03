@@ -245,10 +245,10 @@ BONK (`/pizm bonk <task>`) is the heavy automated dual-competition pipeline:
   │
   ├─► [Conditional LEVER] ───────────► Freeze design + review on preferred MODEL_READY bundle
   │
-  └─► Deterministic FINAL ───────────► Session bundle archive & deterministic run.md (0 model calls)
+  └─► Deterministic FINAL ───────────► Session bundle archive, deterministic run.md + run.html (0 model calls)
 ```
 
-*Degraded BONK*: When `competition_status` is `NO_SECOND_DEFENSIBLE_BUNDLE`, BONK deepens only `single_target`, skips the comparative review stage, and renders the skip reason in `run.md`.
+*Degraded BONK*: When `competition_status` is `NO_SECOND_DEFENSIBLE_BUNDLE`, BONK deepens only `single_target`, skips the comparative review stage, and renders the skip reason in `run.md` and `run.html`.
 
 ---
 
@@ -295,10 +295,12 @@ The archive manifest (`manifest.json` via `bin/pizm-session-bundle`) is the sole
 - **Non-derived (caller-reported)**: `host_inference_count`, `model_repair_count`, `checkpoint_retry_count`.
 - **Derived (computed from artifacts)**: `semantic_stage_count`, `candidate_bytes`, `development_bytes`.
 
-### Human Presentation (`run.md`)
+### Human Presentation (`run.md` and `run.html`)
 
-`run.md` is a deterministic, reader-oriented markdown synthesis rendered by `bin/pizm-session-bundle render`. It requires zero model calls and does not duplicate machine accounting fields.
-
+Human presentation strictly separates readable summaries from machine authority:
+- **Deterministic `run.md`**: Reader-oriented markdown synthesis rendered by `bin/pizm-session-bundle render`. Requires zero model calls and does not duplicate machine accounting fields.
+- **Deterministic `run.html`**: Self-contained interactive full-trace report rendered by `bin/pizm-session-bundle render-html`. Requires zero model calls.
+- **Local Reader Server**: Optional local transport via `pizm-reader-server` (default port 41144). When active, reports `READER_URL http://127.0.0.1:41144/run/<slug>/`. When inactive, reports `READER_OFFLINE file://<path>/run.html (local reader server inactive)`. The reader server is never part of semantic run validity; `file://` fallback is always available.
 ---
 
 ## 10. Native Skill vs Frozen Perspective Core

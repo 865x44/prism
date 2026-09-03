@@ -7,19 +7,20 @@
 - **Canonical Skill Path**: The canonical skill authority is `skills/pizm/`. The mirror at `~/.config/opencode/skills/pizm/` is a deployment target.
 - **Perspective Core is Frozen**: Do not modify `src/prism/perspective_core/**`. It is permanently frozen byte-for-byte.
 - **Test Before and After**: Always run scoped and project tests (`PYTHONPATH=src python3 -m pytest tests -q`) to verify invariants.
-- **Consult Operational State**: Always inspect `.ai/STATE.md` for live session cursor, blockers, and decisions.
+- **Consult Operational State**: When present locally, `.ai/STATE.md` is the live session cursor, active invariants, and operational source of truth. (In public clones where `.ai/` is absent, HEAD and git commit history are the baseline.)
 
 ---
 
 ## Source of Truth
 
-- `.ai/STATE.md` is the live session cursor and operational source of truth.
-- `.ai/plans/` contains plans and briefs; it is not a task database.
+- When present locally, `.ai/STATE.md` is the live session cursor and operational source of truth.
 - Existing project artifacts and git state are evidence; do not overwrite or normalize unrelated dirty files.
 
 ---
 
-## Failure Journal
+## Failure Journal (Local Workstation Mode)
+
+When working in local workstation mode where `.ai/` is present:
 
 - `.ai/failure-log.md` is Prism's canonical Markdown journal of investigated failures.
 - `~/.ai/logs/agent-failures.jsonl` is a separate, global harness log.

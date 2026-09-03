@@ -40,17 +40,15 @@ The repository's canonical skill authority is located at:
 skills/pizm/
 ```
 
-When authoring changes to prompts, references, or skill contracts:
 1. Always edit the canonical files under `skills/pizm/`.
-2. Sync changes to the deployment mirror at `~/.config/opencode/skills/pizm/`:
+2. Sync changes to the installed deployment mirrors (Claude Code and OpenCode) using the installer:
    ```bash
-   cp -r skills/pizm/* ~/.config/opencode/skills/pizm/
+   ./bin/install-pizm --host both
    ```
-3. Mechanically verify that all 12 mirrored files are byte-identical:
+   (Run `./bin/install-pizm --help` for options).
+3. Verify mirror integrity and contract compliance:
    ```bash
-   for f in SKILL.md agents/openai.yaml references/auto.md references/deep.md references/deep-compare.md references/deep-reviewer.md references/explore.md references/explore-selector.md references/bonk.md references/lever.md references/lever-reviewer.md references/reasoning-arsenal.md; do
-     cmp -s "skills/pizm/$f" "$HOME/.config/opencode/skills/pizm/$f" || { echo "DIVERGENCE: $f"; exit 1; }
-   done
+   PYTHONPATH=src python3 -m pytest tests/test_pizm_installer.py tests/test_pizm_forge.py -q
    ```
 
 ---

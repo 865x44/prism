@@ -40,10 +40,14 @@ skill.zip
 *.zip
 .reader-server-*.json
 
-# Local AI session logs and backup noise
-.ai/SESSION_LOG*
-.ai/*.bak*
-.ai/STATE.md.bak*
+# Local AI session logs, operational state, and agent workspaces
+.ai/
+
+# Local failure-log overlay
+tools/failure_log/
+bin/failure-log-record
+contracts/failure-capture.md
+tests/failure_log/
 
 # Local review, tool, and scratch artifacts
 review/

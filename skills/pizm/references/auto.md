@@ -1,6 +1,6 @@
 # Pizm AUTO v1 Pipeline Contract
 
-AUTO is an automated execution mode of Pizm that executes exactly one bounded path — Search(initial), Search(rift), Portfolio Judge, Deep on one nominated target, Critic review, optional LEVER — and then renders a deterministic final report plus a deterministic readable `run.md`.
+AUTO is an automated execution mode of Pizm that executes exactly one bounded path — Search(initial), Search(rift), Portfolio Judge, Deep on one nominated target, Critic review, optional LEVER — and then renders a deterministic final report plus deterministic `run.md` and `run.html`.
 
 ## Explicit Delegation Requirement
 
@@ -24,13 +24,13 @@ AUTO TASK
    │  → DEEP(target) DEVELOP (development-v2) → freeze
    │  → CRITIC REVIEW (deep-review-v2) → freeze
    │  → [conditional] same manual LEVER primitive (design + review)
-   │  → deterministic FINAL assembly + run.md
+   │  → deterministic FINAL assembly + run.md + run.html
    ├─ [next_reasoning_move: GATHER_INFORMATION]
    │  → intentional terminal outcome: freeze information request (no Deep/Critic)
-   │  → deterministic FINAL assembly + run.md (renders questions / observation)
+   │  → deterministic FINAL assembly + run.md + run.html (renders questions / observation)
    └─ [next_reasoning_move: PRESERVE_ONLY]
       → intentional terminal outcome: freeze preserved field (no Deep/Critic)
-      → deterministic FINAL assembly + run.md (renders preserved field)
+      → deterministic FINAL assembly + run.md + run.html (renders preserved field)
 ```
 
 ### Stage Execution Details:

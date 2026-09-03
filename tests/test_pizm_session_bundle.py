@@ -1637,7 +1637,7 @@ def test_render_gather_information_as_intentional_terminal(tmp_path):
 
 
 def test_render_html_with_ensure_reader_fallback(tmp_path):
-    """When reader server cannot start, render-html --ensure-reader outputs READER_FALLBACK and returns 0."""
+    """When reader server cannot start, render-html --ensure-reader outputs READER_OFFLINE and returns 0."""
     run_dir = tmp_path / "run-fallback-test"
     run_dir.mkdir()
     # Minimal candidates file for valid run

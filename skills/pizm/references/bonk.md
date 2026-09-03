@@ -1,6 +1,6 @@
 # Pizm BONK Pipeline Contract
 
-BONK is the heavy automated path of Pizm that performs two-pass Search, judges the accumulated field for competing composite models, develops both models independently (Deep left and Deep right), executes adversarial Critic and comparative reasoning, runs optional LEVER on a ready target, and renders a deterministic final report plus a readable `run.md`.
+BONK is the heavy automated path of Pizm that performs two-pass Search, judges the accumulated field for competing composite models, develops both models independently (Deep left and Deep right), executes adversarial Critic and comparative reasoning, runs optional LEVER on a ready target, and renders a deterministic final report plus deterministic `run.md` and `run.html`.
 
 **Date:** 2026-08-25
 **Prerequisite:** Plan 1 semantic primitives (Search Field v1, deterministic B-IDs, Deep v2, Critic v2, LEVER, atomic freeze checkpoints, deterministic session renderer).
@@ -140,7 +140,7 @@ deterministic run.md and run.html rendering (zero model calls)
   $HOME/.local/bin/pizm-session-bundle render-html --run-dir <run-dir> --task "<task>" --ensure-reader
   ```
   - If the local reader server is active, the tool outputs `READER_URL http://127.0.0.1:41144/run/<slug>/`. Present this URL in the final report.
-  - If inactive or on port collision, the tool outputs `READER_FALLBACK file://<path>/run.html (local reader server inactive)`. Present this deterministic `file://` fallback.
+  - If inactive or on port collision, the tool outputs `READER_OFFLINE file://<path>/run.html (local reader server inactive)`. Present this deterministic `file://` fallback.
 - In the final user-facing report, include the reading records:
   ```markdown
   ## Reading & Reader Record
@@ -160,7 +160,7 @@ If Portfolio records `competition_status: NO_SECOND_DEFENSIBLE_BUNDLE`:
 4. Deep develops `single_target.target_id`.
 5. Single-model Critic evaluates the developed target (`pizm-deep-review-v2`).
 6. Optional LEVER runs if task is `ACTION_OR_DECISION` and status is `MODEL_READY`.
-7. Final report and `run.md` state `NO_SECOND_DEFENSIBLE_BUNDLE` and render single-model review.
+7. Final report, `run.md`, and `run.html` state `NO_SECOND_DEFENSIBLE_BUNDLE` and render single-model review.
 
 ---
 
