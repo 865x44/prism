@@ -30,7 +30,9 @@ The comparator acts simultaneously as:
     "findings": {
       "unresolved_load_bearing_contradiction": false,
       "unsupported_specificity": ["..."],
-      "epistemic_laundering": ["..."]
+      "epistemic_laundering": ["..."],
+      "readiness_blockers": [],
+      "readiness_blocker_details": {}
     },
     "load_bearing_reassessment": [
       {
@@ -50,7 +52,9 @@ The comparator acts simultaneously as:
     "findings": {
       "unresolved_load_bearing_contradiction": false,
       "unsupported_specificity": ["..."],
-      "epistemic_laundering": ["..."]
+      "epistemic_laundering": ["..."],
+      "readiness_blockers": [],
+      "readiness_blocker_details": {}
     },
     "load_bearing_reassessment": [
       {
@@ -86,6 +90,19 @@ The comparator acts simultaneously as:
   ```bash
   $HOME/.local/bin/pizm-checkpoint freeze --stage comparison-review-v1 --run-id <slug> --input <pending-json-path>
   ```
+
+## Readiness Parity (Single-Critic Equivalence)
+
+Each side review carries the same readiness-blocker semantics as a single Critic review. Assess B1–B4-equivalent blockers independently for LEFT and for RIGHT and record every applicable blocker in that side's `readiness_blockers` with details:
+
+```text
+central speculative/unknown dependency -> B1_SPECULATIVE_DEPENDENCY
+materially stronger parsimonious countermodel with no compensating advantage -> B2_STRONGER_COUNTERMODEL
+thesis-level certainty outrunning the census -> B3_THESIS_LAUNDERING
+global thesis outrunning local support -> B4_COVERAGE_MISMATCH
+```
+
+A side with a non-empty `readiness_blockers` list must not be `MODEL_READY`. Relative preference answers a different question from absolute readiness: `current_preference` may select a `NEED_EVIDENCE` side over a weaker or failed rival, but preference never upgrades a non-ready model to `MODEL_READY`.
 
 ---
 

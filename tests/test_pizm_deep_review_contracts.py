@@ -159,6 +159,27 @@ class TestCriticContract:
         assert "Soft Warnings (Non-Blocking)" in reviewer_text
         assert "Peripheral uncertainty alone does not block readiness" in reviewer_text
 
+    def test_blocker_closure_order(self, reviewer_text):
+        """V4 Slice 1: explicit blocker-closure order; narrowing never erases a blocker."""
+        assert "Blocker-closure order" in reviewer_text
+        assert "choose terminal state consistent with blockers" in reviewer_text
+        assert "never a loophole for suppressing B1/B3/B4" in reviewer_text
+
+    def test_verdict_rationale_bottom_line(self, reviewer_text):
+        """V4 Slice 1: verdict_rationale is the reader-facing post-Critic bottom line."""
+        assert "reader-facing bottom line" in reviewer_text
+        assert "strongest conclusion that survives Critic" in reviewer_text
+        assert "cheapest useful discriminator" in reviewer_text
+
+    def test_tone_not_laudering_evidence(self, reviewer_text):
+        """V4 Slice 1: conversational prose is not laundering; certainty must match census."""
+        assert "judge epistemic force, not academic tone" in reviewer_text
+        assert "must not be presented as established fact merely because the prose sounds confident" in reviewer_text
+
+    def test_task_relevance_keeps_b1(self, reviewer_text):
+        """V4 Slice 1: task relevance never weakens central B1; peripheral stays soft."""
+        assert "Task relevance does not weaken B1" in reviewer_text
+
     def test_member_ablation_b_only(self, reviewer_text):
         assert "Bundle targets only" in reviewer_text
         assert "Composition collapse" in reviewer_text

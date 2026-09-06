@@ -1170,6 +1170,23 @@ def _render_search_section(candidates_data: dict) -> str:
 
 def _render_portfolio_section(portfolio: dict, cand_index: dict, p_map: dict) -> str:
     lines = ["## Portfolio", ""]
+    high_upside = portfolio.get("high_upside") or []
+    if isinstance(high_upside, list) and high_upside:
+        lines.append("### Start here — high-upside perspectives")
+        for entry in high_upside:
+            if not isinstance(entry, dict):
+                continue
+            ref = entry.get("ref", "")
+            pid = p_map.get(ref, "")
+            label = pid if pid else ref
+            lines.append(f"- **{label}** — {_c_title(_candidate_by_ref(ref, cand_index))} (`{ref}`)")
+            why = entry.get("why")
+            if isinstance(why, str) and why.strip():
+                lines.append(f"  Why: {why.strip()}")
+            risk = entry.get("risk")
+            if isinstance(risk, str) and risk.strip():
+                lines.append(f"  Risk: {risk.strip()}")
+        lines.append("")
     assessments = [
         a
         for a in portfolio.get("candidate_assessments") or []
@@ -1189,6 +1206,9 @@ def _render_portfolio_section(portfolio: dict, cand_index: dict, p_map: dict) ->
         if disp == "KEEP":
             p_id = p_map.get(ref, "?")
             lines.append(f"### {p_id} — {title} (`{ref}`)")
+            explanation = a.get("plain_explanation")
+            if isinstance(explanation, str) and explanation.strip():
+                lines.append(_bullet("Plain explanation", explanation.strip()))
             lines.append(_bullet("Disposition", f"KEEP (standalone quality: {quality})"))
             if residue.strip():
                 lines.append(_bullet("Unique residue", residue))
@@ -1731,6 +1751,21 @@ def _render_forge_deep_section(development: dict, target_id: str) -> str:
     return "\n".join(lines).rstrip("\n")
 
 
+def _side_blocker_lines(findings) -> list:
+    """Deterministic readiness-blocker lines for one comparison side (may be empty)."""
+    if not isinstance(findings, dict):
+        return []
+    out = []
+    blockers = findings.get("readiness_blockers") or []
+    details = findings.get("readiness_blocker_details") or {}
+    for b in blockers:
+        detail = details.get(b, "") if isinstance(details, dict) else ""
+        if detail:
+            out.append(f"- Readiness blocker ({b}): {detail}")
+        else:
+            out.append(f"- Readiness blocker: {b}")
+    return out
+
 def _render_forge_comparison_section(
     comp_artifact: dict,
     expected_left_id: str,
@@ -1780,6 +1815,7 @@ def _render_forge_comparison_section(
                 lines.append(f"- {label}: {x}")
         if findings1.get("unresolved_load_bearing_contradiction") is True:
             lines.append("- Unresolved load-bearing contradiction: yes")
+        lines.extend(_side_blocker_lines(findings1))
     debt1 = [d for d in r1.get("evidence_debt") or [] if isinstance(d, str)]
     if debt1:
         lines.append("Evidence debt:")
@@ -1817,6 +1853,7 @@ def _render_forge_comparison_section(
                 lines.append(f"- {label}: {x}")
         if findings2.get("unresolved_load_bearing_contradiction") is True:
             lines.append("- Unresolved load-bearing contradiction: yes")
+        lines.extend(_side_blocker_lines(findings2))
     debt2 = [d for d in r2.get("evidence_debt") or [] if isinstance(d, str)]
     if debt2:
         lines.append("Evidence debt:")

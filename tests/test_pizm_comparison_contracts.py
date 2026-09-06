@@ -566,3 +566,83 @@ class TestBidArbitraryAndRejection:
         p_left_valid["right_review"]["terminal_state"] = "NEED_EVIDENCE"
         res_left = freeze_file(tmp_path, "comparison-review-v1", run_id, p_left_valid)
         assert res_left.returncode == 0, res_left.stderr
+
+
+class TestSideReadinessParity:
+    """V4 Patch B: comparison sides carry single-Critic readiness-blocker semantics."""
+
+    def _setup(self, tmp_path, run_id):
+        freeze_forge_portfolio(tmp_path, run_id, "B1", "B2")
+        res1 = freeze_file(tmp_path, "development-v2", run_id, valid_development_payload("B1"), target="B1")
+        assert res1.returncode == 0, res1.stderr
+        res2 = freeze_file(tmp_path, "development-v2", run_id, valid_development_payload("B2"), target="B2")
+        assert res2.returncode == 0, res2.stderr
+        return extract_freeze_hash(res1), extract_freeze_hash(res2)
+
+    def _blocked_left(self, payload):
+        payload["left_review"]["findings"]["readiness_blockers"] = ["B1_SPECULATIVE_DEPENDENCY"]
+        payload["left_review"]["findings"]["readiness_blocker_details"] = {
+            "B1_SPECULATIVE_DEPENDENCY": "Central mechanism rests on an ungrounded inference."
+        }
+        return payload
+
+    def test_side_blockers_forbid_model_ready(self, tmp_path):
+        """Regression: LEFT MODEL_READY + B1 blocker + preferred LEFT fails closed."""
+        run_id = "parity-blocked-ready"
+        hash1, hash2 = self._setup(tmp_path, run_id)
+        p = self._blocked_left(valid_comparison_payload(
+            left_id="B1", right_id="B2", preference="LEFT", left_hash=hash1, right_hash=hash2
+        ))
+        res = freeze_file(tmp_path, "comparison-review-v1", run_id, p)
+        assert res.returncode != 0
+        assert "MODEL_READY is forbidden while findings.readiness_blockers is non-empty" in res.stderr
+
+    def test_need_evidence_side_with_blockers_still_preferrable(self, tmp_path):
+        """Preference answers a different question from readiness: a NEED_EVIDENCE side
+        carrying blockers may still be preferred over a weaker rival."""
+        run_id = "parity-prefer-need-evidence"
+        hash1, hash2 = self._setup(tmp_path, run_id)
+        p = self._blocked_left(valid_comparison_payload(
+            left_id="B1", right_id="B2", preference="LEFT", left_hash=hash1, right_hash=hash2
+        ))
+        p["left_review"]["terminal_state"] = "NEED_EVIDENCE"
+        p["right_review"]["terminal_state"] = "NEED_EVIDENCE"
+        res = freeze_file(tmp_path, "comparison-review-v1", run_id, p)
+        assert res.returncode == 0, res.stderr
+        assert "FREEZE_OK" in res.stdout
+
+    def test_legacy_side_without_blocker_fields_accepted(self, tmp_path):
+        """Old comparison artifacts without readiness_blockers remain valid (additive)."""
+        run_id = "parity-legacy-valid"
+        hash1, hash2 = self._setup(tmp_path, run_id)
+        p = valid_comparison_payload(
+            left_id="B1", right_id="B2", preference="LEFT", left_hash=hash1, right_hash=hash2
+        )
+        assert "readiness_blockers" not in p["left_review"]["findings"]
+        res = freeze_file(tmp_path, "comparison-review-v1", run_id, p)
+        assert res.returncode == 0, res.stderr
+        assert "FREEZE_OK" in res.stdout
+
+    def test_invalid_side_blocker_enum_rejected(self, tmp_path):
+        run_id = "parity-bad-enum"
+        hash1, hash2 = self._setup(tmp_path, run_id)
+        p = valid_comparison_payload(
+            left_id="B1", right_id="B2", preference="LEFT", left_hash=hash1, right_hash=hash2
+        )
+        p["left_review"]["findings"]["readiness_blockers"] = ["B9_NOPE"]
+        p["left_review"]["findings"]["readiness_blocker_details"] = {"B9_NOPE": "Bogus."}
+        res = freeze_file(tmp_path, "comparison-review-v1", run_id, p)
+        assert res.returncode != 0
+        assert "must be one of" in res.stderr
+
+    def test_side_blocker_details_must_match(self, tmp_path):
+        run_id = "parity-details-mismatch"
+        hash1, hash2 = self._setup(tmp_path, run_id)
+        p = valid_comparison_payload(
+            left_id="B1", right_id="B2", preference="LEFT", left_hash=hash1, right_hash=hash2
+        )
+        p["left_review"]["findings"]["readiness_blockers"] = ["B3_THESIS_LAUNDERING"]
+        p["left_review"]["findings"]["readiness_blocker_details"] = {}
+        res = freeze_file(tmp_path, "comparison-review-v1", run_id, p)
+        assert res.returncode != 0
+        assert "must match" in res.stderr

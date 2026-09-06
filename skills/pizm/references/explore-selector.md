@@ -97,6 +97,28 @@ A bundle groups members whose combination produces something beyond any listing 
 
 Bundle ids are host-assigned, never judge-invented. The judge proposes temporary bundle candidates only; the deterministic host step inside the checkpoint flow canonicalizes memberships, assigns the next free `B<n>`, validates, and freezes. Reusing a prior bundle preserves its existing id. User-visible bundle ids are never renumbered after assignment, and re-running the assignment over identical inputs yields byte-identical results.
 
+## Reader Aid Fields (Additive Presentation Metadata)
+
+After dispositions, bundles, and routing are finalized — inside this same Portfolio inference, with no extra call or stage — produce:
+
+### plain_explanation
+
+For each assessment that materializes as a visible Perspective card, add `plain_explanation`: 2–4 short sentences (~40–90 words) answering what this Perspective actually claims, what the non-obvious shift/mechanism is, and why it might matter if true. Contract: direct ordinary language; preserve the actual mechanism and non-obvious content; no new claims, evidence, certainty, implications, or reinterpretation. This is a reader aid, not the canonical semantic representation.
+
+Eligible refs only:
+- v1 MANUAL/AUTO: assessments with disposition `KEEP`.
+- v2 BONK: candidate refs present in the frozen `perspectives` mapping.
+- Never for `DROP`, `BORDERLINE`, absorbed `MERGE` candidates, or raw candidates.
+- For a `MERGE` cluster, the explanation lives on the surviving `KEEP` assessment whose card absorbs the merged facets; absorbed `MERGE` refs carry no separate explanation.
+
+### high_upside
+
+Only after candidate assessments, bundles, and routing (`auto_target` / `rival_shadow` / competition) are finalized, assign an optional attention spotlight: a top-level `high_upside` list with 0–3 entries and no quota. Each entry carries a frozen candidate ref (same eligibility as `plain_explanation`), a `why` (unusually large downstream/explanatory/action payoff if the Perspective survives scrutiny), and a `risk` (strongest reason it may be wrong, overstated, or less useful than it first appears). List order is recommended reading priority only — not 1st/2nd/3rd place on truth, quality, or likelihood. No scores, no new dispositions, no implication that unlisted Perspectives are weak.
+
+This ordering happens inside this single Portfolio inference; it reduces coupling and self-anchoring but is not stage separation and must not be described as such. `high_upside` may coincide with `auto_target` but must never be defined as the AUTO winner again. Perspective-only in this version; do not spotlight Bundles.
+
+Deep receives the full rich Perspective representation. `plain_explanation` may be present in context but must never substitute for the richer fields.
+
 ## Portfolio Output Schema (pizm-portfolio-selection-v1)
 
 The judge freezes its decision as one portfolio record conforming to `pizm-portfolio-selection-v1`:
@@ -133,6 +155,30 @@ The judge freezes its decision as one portfolio record conforming to `pizm-portf
 }
 ```
 
+Structurally valid MANUAL example (freezes through checkpoint as-is):
+
+```json
+{
+  "schema_version": "pizm-portfolio-selection-v1",
+  "stage": "portfolio",
+  "route": "MANUAL",
+  "field_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "candidate_assessments": [
+    {"candidate_ref": "pass01:c06", "disposition": "KEEP", "standalone_quality": "strong", "unique_residue": "Delay-to-batching mechanism", "nearest_overlap": null, "reason": "Distinct grounded mechanism", "plain_explanation": "Slow reviews make batches grow. The shift treats waiting time as a batching incentive. Cutting queue time shrinks batches."},
+    {"candidate_ref": "pass01:c07", "disposition": "DROP", "standalone_quality": "weak", "unique_residue": "", "nearest_overlap": "pass01:c06", "reason": "Paraphrase of pass01:c06 without new structure"}
+  ],
+  "bundles": [],
+  "next_reasoning_move": null,
+  "next_reasoning_rationale": null,
+  "auto_target": null,
+  "information_request": null,
+  "rival_shadow": null,
+  "high_upside": [
+    {"ref": "pass01:c06", "why": "Could change batching policy team-wide.", "risk": "Single-context observation."}
+  ]
+}
+```
+
 Routing rules and fail-closed couplings:
 - `MANUAL`: `auto_target` may be null (along with `next_reasoning_move`, `next_reasoning_rationale`, `information_request`, and `rival_shadow`). The user chooses what to deepen.
 - `AUTO`: `next_reasoning_move` must be `DEEP`, `GATHER_INFORMATION`, or `PRESERVE_ONLY`, and `next_reasoning_rationale` is a non-empty string.
@@ -145,9 +191,10 @@ Routing rules and fail-closed couplings:
 
 1. **Tool-only portfolio record write**: From the checkpoint `ARTIFACT` path of the last frozen pass, use its parent run directory and freeze the portfolio record via tool call with stage `portfolio` (written as `<ARTIFACT-parent>/portfolio.json`). Never write a cwd-global `portfolio.json` and never render the portfolio JSON in chat prose.
 2. **Hide raw pool and internal records**: Never show the raw candidate pool, unselected/dropped candidate data, internal evaluation notes, or JSON schema artifacts to the user.
-3. **Present only kept and merged perspective cards**: Render only survivors (promoted perspectives and merged perspectives) plus any nominated bundles, in clean, readable markdown cards.
+3. **Present only kept and merged perspective cards**: Render only survivors (promoted perspectives and merged perspectives) plus any nominated bundles, in clean, readable markdown cards. When a `high_upside` spotlight exists, show it as a compact attention cue above the full cards; never reorder or renumber P-IDs for it.
 4. **Card Structure**:
    - `### P<n>: <Title>`
+   - **Plain explanation**: the 2–4 sentence reader entry point, rendered directly under the title before dense details
    - **Core claim / structural shift**: what changes in the model
    - **Grounding anchor**: concrete basis in source/task
    - **What becomes visible**: new insight or leverage revealed

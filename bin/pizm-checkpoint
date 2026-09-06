@@ -71,6 +71,9 @@ _VALID_READINESS_BLOCKERS = (
     "B3_THESIS_LAUNDERING",
     "B4_COVERAGE_MISMATCH",
 )
+_PLAIN_EXPLANATION_MAX_CHARS = 2000
+_HIGH_UPSIDE_MAX_ENTRIES = 3
+_HIGH_UPSIDE_FORBIDDEN_KEYS = ("score", "rank", "ranking", "weight", "probability", "rating")
 _COMPETITION_STATUSES = ("TWO_DEFENSIBLE_BUNDLES", "NO_SECOND_DEFENSIBLE_BUNDLE")
 _DEEP_IDENTITY_FIELDS = (
     "title",
@@ -728,6 +731,37 @@ def _validate_comparison_review(
             raise ValueError(
                 f"{role_key}: MODEL_READY is forbidden while unresolved_load_bearing_contradiction is true"
             )
+        side_blockers = findings.get("readiness_blockers", [])
+        if side_blockers is None:
+            side_blockers = []
+        if not isinstance(side_blockers, list):
+            raise ValueError(f"{role_key}.findings.readiness_blockers must be a list")
+        seen_side_blockers = set()
+        for i, b in enumerate(side_blockers):
+            if b not in _VALID_READINESS_BLOCKERS:
+                raise ValueError(
+                    f"{role_key}.findings.readiness_blockers[{i}] must be one of "
+                    f"{list(_VALID_READINESS_BLOCKERS)}, got {b!r}"
+                )
+            if b in seen_side_blockers:
+                raise ValueError(f"{role_key}.findings.readiness_blockers duplicate: {b!r}")
+            seen_side_blockers.add(b)
+        side_details = findings.get("readiness_blocker_details", {})
+        if side_details is None:
+            side_details = {}
+        if not isinstance(side_details, dict) or set(side_details.keys()) != seen_side_blockers:
+            raise ValueError(
+                f"{role_key}.findings.readiness_blocker_details keys must match "
+                "findings.readiness_blockers exactly"
+            )
+        for k, v in side_details.items():
+            if not isinstance(v, str) or not v.strip():
+                raise ValueError(f"{role_key}.findings.readiness_blocker_details[{k!r}] must be non-empty string")
+        if seen_side_blockers and terminal_state == "MODEL_READY":
+            raise ValueError(
+                f"{role_key}: MODEL_READY is forbidden while findings.readiness_blockers is non-empty "
+                "(readiness blockers forbid MODEL_READY)"
+            )
         reassessment = review.get("load_bearing_reassessment")
         if not isinstance(reassessment, list) or len(reassessment) == 0:
             raise ValueError(f"{role_key}.load_bearing_reassessment must be a non-empty list")
@@ -1083,6 +1117,35 @@ def _validate_search_field(
             if len(entries) < len(prior_entries) or entries[:len(prior_entries)] != prior_entries:
                 raise ValueError("new snapshot mutated, reordered, or removed prior entries")
 
+def _portfolio_ref_sort_key(ref):
+    """Numeric-aware composite ref key, mirroring the deterministic renderer rule."""
+    m = re.fullmatch(r"(pass[0-9]{2,}):c([0-9]+)", ref or "")
+    if m:
+        return (m.group(1), int(m.group(2)), "")
+    return ("~", 0, ref or "")
+
+
+def _promoted_p_ids(portfolio):
+    """Promoted P-ID set using the same rule as the deterministic renderer.
+
+    v2 portfolios carry the explicit perspectives map; v1 portfolios derive
+    P1..Pn positionally from KEEP assessments sorted by composite ref.
+    """
+    perspectives = portfolio.get("perspectives")
+    if isinstance(perspectives, dict):
+        return set(perspectives.keys())
+    kept = sorted(
+        (
+            a["candidate_ref"]
+            for a in portfolio.get("candidate_assessments") or []
+            if isinstance(a, dict)
+            and a.get("disposition") == "KEEP"
+            and isinstance(a.get("candidate_ref"), str)
+        ),
+        key=_portfolio_ref_sort_key,
+    )
+    return {f"P{i}" for i in range(1, len(kept) + 1)}
+
 
 def _validate_portfolio(
     data: dict,
@@ -1175,6 +1238,7 @@ def _validate_portfolio(
         raise ValueError("candidate_assessments must be a non-empty list")
 
     seen_refs = set()
+    kept_refs = set()
     for i, a in enumerate(assessments):
         if not isinstance(a, dict):
             raise ValueError(f"candidate_assessments[{i}] must be an object")
@@ -1208,6 +1272,17 @@ def _validate_portfolio(
         reason = a.get("reason")
         if not isinstance(reason, str) or not reason.strip():
             raise ValueError(f"candidate_assessments[{i}].reason must be non-empty string")
+        if a.get("disposition") == "KEEP":
+            kept_refs.add(ref)
+        explanation = a.get("plain_explanation")
+        if explanation is not None:
+            if not isinstance(explanation, str) or not explanation.strip():
+                raise ValueError(f"candidate_assessments[{i}].plain_explanation must be non-empty string when present")
+            if len(explanation) > _PLAIN_EXPLANATION_MAX_CHARS:
+                raise ValueError(
+                    f"candidate_assessments[{i}].plain_explanation exceeds {_PLAIN_EXPLANATION_MAX_CHARS} chars "
+                    f"(got {len(explanation)})"
+                )
 
     bundles = data.get("bundles")
     if not isinstance(bundles, list):
@@ -1269,6 +1344,41 @@ def _validate_portfolio(
             if not isinstance(v, str) or not v.strip():
                 raise ValueError(f"bundles[{i}].member_ablation[{k!r}] must be non-empty string")
 
+    perspectives_raw = data.get("perspectives")
+    if isinstance(perspectives_raw, dict):
+        eligible_refs = {v for v in perspectives_raw.values() if isinstance(v, str)}
+    else:
+        eligible_refs = set(kept_refs)
+    high_upside = data.get("high_upside")
+    if high_upside is not None:
+        if not isinstance(high_upside, list) or len(high_upside) > _HIGH_UPSIDE_MAX_ENTRIES:
+            raise ValueError(
+                f"high_upside must be a list of at most {_HIGH_UPSIDE_MAX_ENTRIES} entries when present"
+            )
+        seen_hu_refs = set()
+        for j, entry in enumerate(high_upside):
+            if not isinstance(entry, dict):
+                raise ValueError(f"high_upside[{j}] must be an object")
+            hu_ref = entry.get("ref")
+            if not isinstance(hu_ref, str) or not _COMPOSITE_REF_RE.fullmatch(hu_ref):
+                raise ValueError(f"high_upside[{j}].ref must be a composite ref passNN:cNN, got {hu_ref!r}")
+            if hu_ref not in eligible_refs:
+                raise ValueError(
+                    f"high_upside[{j}].ref {hu_ref!r} does not resolve to an eligible visible Perspective ref"
+                )
+            if hu_ref in seen_hu_refs:
+                raise ValueError(f"high_upside[{j}] duplicate ref: {hu_ref!r}")
+            seen_hu_refs.add(hu_ref)
+            for field_name in ("why", "risk"):
+                field_value = entry.get(field_name)
+                if not isinstance(field_value, str) or not field_value.strip():
+                    raise ValueError(f"high_upside[{j}].{field_name} must be non-empty string")
+            for forbidden in _HIGH_UPSIDE_FORBIDDEN_KEYS:
+                if forbidden in entry:
+                    raise ValueError(
+                        f"high_upside[{j}] must not carry {forbidden!r}: attention cue, not a score"
+                    )
+
     auto_target = data.get("auto_target")
     if schema_version == "pizm-portfolio-selection-v1":
         for required_key in ("next_reasoning_move", "next_reasoning_rationale", "information_request", "rival_shadow"):
@@ -1314,6 +1424,10 @@ def _validate_portfolio(
                         raise ValueError(
                             f"auto_target.target_id {tid!r} must match P[1-9][0-9]* for target_type P"
                         )
+                    if tid != "DIRECT_SEED" and tid not in _promoted_p_ids(data):
+                        raise ValueError(
+                            f"auto_target.target_id {tid!r} does not resolve to a promoted Perspective in this portfolio"
+                        )
                 elif tid not in seen_bundle_ids:
                     raise ValueError(
                         f"auto_target.target_id {tid!r} must reference a bundle_id proposed in this portfolio"
@@ -1338,8 +1452,8 @@ def _validate_portfolio(
                             raise ValueError(
                                 f"rival_shadow.target_id {r_tid!r} must match P[1-9][0-9]* for target_type P"
                             )
-                        if "perspectives" in data and isinstance(data["perspectives"], dict) and r_tid not in data["perspectives"]:
-                            raise ValueError(f"rival_shadow.target_id {r_tid!r} not found in perspectives")
+                        if r_tid not in _promoted_p_ids(data):
+                            raise ValueError(f"rival_shadow.target_id {r_tid!r} does not resolve to a promoted Perspective in this portfolio")
                     else:
                         if not _B_ID_RE.fullmatch(r_tid):
                             raise ValueError(

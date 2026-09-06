@@ -322,6 +322,17 @@ class TestDevelopmentSchema:
         assert "No padding" in deep_text
         assert "long paraphrase is not depth" in deep_text
 
+
+    def test_synthesis_conversational_style(self, deep_text):
+        """V4 Slice 4: conversational/direct prose without semantic flattening."""
+        assert "direct, conversational, readable prose" in deep_text
+        assert "explained clearly rather than flattened" in deep_text
+        assert "do not remove a useful term merely because it is harder to read" in deep_text
+
+    def test_style_preserves_epistemic_certainty(self, deep_text):
+        """V4 Slice 4: conversational clarity must not strengthen epistemic certainty."""
+        assert "Conversational clarity must not strengthen epistemic certainty" in deep_text
+
     def test_mechanism_chain_bounds(self, deep_text):
         assert re.search(r"3[–-]6\s+steps", deep_text)
 

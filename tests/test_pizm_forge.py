@@ -890,3 +890,52 @@ class TestForgeContractText:
         assert "deprecated compatibility alias" in skill
         assert "continue as BONK" in skill
 
+
+
+class TestV4SideBlockerRendering:
+    def test_fg_blocked_side_renders_blockers_and_keeps_preference_separate(self, tmp_path):
+        """V4 Slices 1+5: a NEED_EVIDENCE side carrying blockers renders its blockers;
+        preference stays a separate line and never upgrades readiness."""
+        run_id = "forge-blocked-render"
+        run_dir = tmp_path / ".ai" / "pizm" / f"run-{run_id}"
+
+        res_p1 = freeze_stage(tmp_path, "explore", run_id, pass1_candidates_payload())
+        sha1 = res_p1.stdout.split()[1]
+        res_p2 = freeze_stage(tmp_path, "explore", run_id, pass2_candidates_payload(), artifact_suffix="pass02")
+        assert res_p2.returncode == 0, res_p2.stderr
+        sha2 = res_p2.stdout.split()[1]
+        res_sf = freeze_stage(tmp_path, "search-field", run_id, search_field_payload(sha1, sha2))
+        sha_sf = res_sf.stdout.split()[1]
+
+        res_port = freeze_stage(
+            tmp_path, "portfolio", run_id,
+            portfolio_v2_payload("TWO_DEFENSIBLE_BUNDLES", field_hash=sha_sf, field_ref="search-field.json"),
+        )
+        assert res_port.returncode == 0, res_port.stderr
+
+        res_b1 = freeze_stage(tmp_path, "development-v2", run_id, development_v2_payload("B1", ["pass01:c01", "pass01:c02"]), target="B1")
+        assert res_b1.returncode == 0, res_b1.stderr
+        sha_b1 = res_b1.stdout.split()[1]
+        res_b2 = freeze_stage(tmp_path, "development-v2", run_id, development_v2_payload("B2", ["pass01:c02", "pass02:c01"]), target="B2")
+        assert res_b2.returncode == 0, res_b2.stderr
+        sha_b2 = res_b2.stdout.split()[1]
+
+        comp = comparison_review_payload("LEFT", b1_ref="development-v2-B1.json", b1_hash=sha_b1, b2_ref="development-v2-B2.json", b2_hash=sha_b2)
+        comp["left_review"]["terminal_state"] = "NEED_EVIDENCE"
+        comp["left_review"]["findings"]["readiness_blockers"] = ["B1_SPECULATIVE_DEPENDENCY"]
+        comp["left_review"]["findings"]["readiness_blocker_details"] = {
+            "B1_SPECULATIVE_DEPENDENCY": "Core loop rests on an unmeasured delay."
+        }
+        res_comp = freeze_stage(tmp_path, "comparison-review-v1", run_id, comp)
+        assert res_comp.returncode == 0, res_comp.stderr
+
+        freeze_stage(tmp_path, "lever-design", run_id, lever_design_payload())
+        freeze_stage(tmp_path, "lever-review", run_id, lever_review_payload())
+
+        out = tmp_path / "blocked.md"
+        res_r = run_render(run_dir, TASK_TEXT, out)
+        assert res_r.returncode == 0, res_r.stderr
+        text = out.read_text(encoding="utf-8")
+        assert "Terminal state: **NEED_EVIDENCE**" in text
+        assert "Readiness blocker (B1_SPECULATIVE_DEPENDENCY): Core loop rests on an unmeasured delay." in text
+        assert "- Current preference: **LEFT**" in text

@@ -959,3 +959,55 @@ def test_canonical_perspectives_controls_rendered_labels_and_continued_p_id(tmp_
     assert "### P3 — Ownership Diffusion Boundary (`pass02:c01`)" in content
     # Bundle members labeled with canonical P-IDs P2 + P3
     assert "### B1 — P2 + P3" in content
+
+
+# ---------------------------------------------------------------------------
+# V4 Slice 5 reader aids (plain_explanation, high_upside)
+# ---------------------------------------------------------------------------
+
+
+def _freeze_aided_run(project_root: Path):
+    run_id = "renderaided"
+    freeze_stage(project_root, "explore", run_id, candidates_payload())
+    run_dir = project_root / ".ai" / "pizm" / f"run-{run_id}"
+    sha = (run_dir / "candidates.sha256").read_text().strip()
+    freeze_stage(project_root, "search-field", run_id, search_field_payload(sha))
+    fhash = (run_dir / "search-field.sha256").read_text().strip()
+    port = portfolio_payload(fhash, "P", "P1")
+    port["candidate_assessments"][0]["plain_explanation"] = (
+        "Latency makes batches grow. The shift treats review wait as a batching incentive. "
+        "Cut queue time to shrink batches without new process."
+    )
+    port["high_upside"] = [
+        {"ref": "pass01:c01", "why": "Could rewrite scheduling policy.", "risk": "Single-team observation."}
+    ]
+    freeze_stage(project_root, "portfolio", run_id, port)
+    freeze_stage(project_root, "development-v2", run_id, development_payload("P", "P1"))
+    dsha = (run_dir / "development-v2.sha256").read_text().strip()
+    rev = review_payload("P", "P1")
+    rev["frozen_hash"] = dsha
+    freeze_stage(project_root, "deep-review-v2", run_id, rev)
+    return run_dir
+
+
+def test_aided_run_renders_plain_explanation_and_spotlight(tmp_path):
+    run_dir = _freeze_aided_run(tmp_path)
+    out = tmp_path / "aided.md"
+    res = run_render(run_dir, TASK_TEXT, out)
+    assert res.returncode == 0, res.stderr
+    text = out.read_text(encoding="utf-8")
+    assert "Plain explanation: Latency makes batches grow." in text
+    assert "### Start here — high-upside perspectives" in text
+    assert "- **P1** — Feedback Latency Constraint (`pass01:c01`)" in text
+    assert "Why: Could rewrite scheduling policy." in text
+    assert "Risk: Single-team observation." in text
+
+
+def test_unaided_run_omits_reader_aid_sections(frozen_run_p, tmp_path):
+    """Old artifacts without the additive fields render without new sections."""
+    out = tmp_path / "plain.md"
+    res = run_render(frozen_run_p, TASK_TEXT, out)
+    assert res.returncode == 0, res.stderr
+    text = out.read_text(encoding="utf-8")
+    assert "Plain explanation" not in text
+    assert "Start here — high-upside perspectives" not in text

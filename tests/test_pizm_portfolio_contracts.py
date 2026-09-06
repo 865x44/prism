@@ -13,7 +13,8 @@ Verifies:
 import json
 import re
 from pathlib import Path
-
+import subprocess
+import sys
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -356,3 +357,69 @@ class TestDynamicSpendAndRivalShadow:
         assert "target_id must differ from auto_target.target_id" in selector_text
         assert "reference a promoted Perspective or defined Bundle" in selector_text
         assert "never synthesize a weak rival" in selector_text
+
+
+# ---------------------------------------------------------------------------
+# 10. V4 Slice 3 reader aid fields (plain_explanation, high_upside)
+# ---------------------------------------------------------------------------
+
+
+class TestReaderAidFields:
+    def test_plain_explanation_contract(self, selector_text):
+        assert "plain_explanation" in selector_text
+        assert "2–4 short sentences" in selector_text
+        assert "This is a reader aid, not the canonical semantic representation" in selector_text
+
+    def test_plain_explanation_eligibility(self, selector_text):
+        assert "assessments with disposition `KEEP`" in selector_text
+        assert "candidate refs present in the frozen `perspectives` mapping" in selector_text
+        assert "absorbed `MERGE` refs carry no separate explanation" in selector_text
+
+    def test_merge_carrier_is_surviving_keep(self, selector_text):
+        assert "the explanation lives on the surviving `KEEP` assessment" in selector_text
+
+    def test_high_upside_rules(self, selector_text):
+        assert "high_upside" in selector_text
+        assert "0–3 entries" in selector_text
+        assert "recommended reading priority only" in selector_text
+        assert "not stage separation" in selector_text
+        assert "must never be defined as the AUTO winner again" in selector_text
+
+    def test_no_new_call_or_stage(self, selector_text):
+        assert "with no extra call or stage" in selector_text
+        assert "must never substitute for the richer fields" in selector_text
+
+    def test_card_presents_plain_explanation(self, selector_text):
+        assert "Plain explanation" in selector_text
+        assert "compact attention cue above the full cards" in selector_text
+
+
+# ---------------------------------------------------------------------------
+# 11. V4 Slice 6: MANUAL example is structurally valid (freezes as-is)
+# ---------------------------------------------------------------------------
+
+
+def _staged_manual_example(selector_text):
+    blocks = [json.loads(b) for b in json_blocks(selector_text)]
+    return next(b for b in blocks if b.get("stage") == "portfolio")
+
+
+def test_manual_example_block_exists(selector_text):
+    example = _staged_manual_example(selector_text)
+    assert example["route"] == "MANUAL"
+    assert example["candidate_assessments"][0]["candidate_ref"] == "pass01:c06"
+
+
+def test_manual_example_freezes_through_checkpoint(tmp_path, selector_text):
+    """The embedded MANUAL example must freeze through the real checkpoint unchanged."""
+    payload = _staged_manual_example(selector_text)
+    fd = tmp_path / "_example_portfolio.json"
+    fd.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    res = subprocess.run(
+        [sys.executable, str(CHECKPOINT), "freeze", "--stage", "portfolio",
+         "--run-id", "doc-example", "--input", str(fd),
+         "--project-root", str(tmp_path), "--skill-root", str(STAGED_ROOT)],
+        capture_output=True, text=True,
+    )
+    assert res.returncode == 0, res.stderr
+    assert "FREEZE_OK" in res.stdout

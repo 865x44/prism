@@ -1125,3 +1125,40 @@ def test_alias_and_target_artifacts_render_once(tmp_path):
     assert text.count('<section id="deep"') == 1
     assert text.count('<section id="critic"') == 1
     assert text.count("Unique P1 Thesis") == 1
+
+
+# ---------------------------------------------------------------------------
+# V4 Slice 5 reader aids (plain_explanation, high_upside)
+# ---------------------------------------------------------------------------
+
+
+def test_h17_plain_explanation_and_spotlight_render(tmp_path):
+    import shutil
+    run = tmp_path / "run-h4-aided"
+    shutil.copytree(RUN_H4, run)
+    port_path = run / "portfolio.json"
+    port = json.loads(port_path.read_text(encoding="utf-8"))
+    keeper = next(a for a in port["candidate_assessments"] if a.get("disposition") == "KEEP")
+    keeper["plain_explanation"] = "Plain words for the first kept perspective."
+    port["high_upside"] = [
+        {"ref": keeper["candidate_ref"], "why": "Big payoff.", "risk": "Thin evidence."}
+    ]
+    raw = json.dumps(port, indent=2, ensure_ascii=False).encode("utf-8")
+    port_path.write_bytes(raw)
+    (run / "portfolio.sha256").write_text(hashlib.sha256(raw).hexdigest(), encoding="utf-8")
+    out = tmp_path / "run.html"
+    assert run_html(run, out).returncode == 0
+    text = out.read_text(encoding="utf-8")
+    assert "<strong>Plain explanation.</strong>" in text
+    assert "Plain words for the first kept perspective." in text
+    assert "Start here — high-upside perspectives" in text
+    assert "Big payoff." in text
+    assert "Thin evidence." in text
+
+
+def test_h17_legacy_run_omits_reader_aids(tmp_path):
+    out = tmp_path / "run.html"
+    assert run_html(RUN_H4, out).returncode == 0
+    text = out.read_text(encoding="utf-8")
+    assert 'class="spotlight"' not in text
+    assert "<strong>Plain explanation.</strong>" not in text

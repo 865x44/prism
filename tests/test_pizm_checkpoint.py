@@ -1508,7 +1508,8 @@ def test_portfolio_manual_freeze_success(workspace):
 @pytest.mark.parametrize(
     "target,valid",
     [
-        ({"target_type": "P", "target_id": "P3"}, True),
+        ({"target_type": "P", "target_id": "P1"}, True),
+        ({"target_type": "P", "target_id": "P3"}, False),  # V4 Slice 2: not promoted (only P1)
         ({"target_type": "B", "target_id": "B1"}, True),
         ({"target_type": "B", "target_id": "B9"}, False),  # not a proposed bundle
         ({"target_type": "X", "target_id": "P1"}, False),
@@ -1528,6 +1529,202 @@ def test_portfolio_auto_targets(workspace, target, valid):
         "--input", inp, "--project-root", str(project), "--skill-root", str(skill),
     )
     assert (result.returncode == 0) == valid
+
+
+def _auto_deep_portfolio(rival=None):
+    """V4 Slice 2 helper: v1 AUTO/DEEP portfolio with a single promoted P (P1)."""
+    data = valid_portfolio()
+    data["route"] = "AUTO"
+    data["next_reasoning_move"] = "DEEP"
+    data["next_reasoning_rationale"] = "Developing nominated target."
+    data["bundles"] = [bundle()]
+    data["auto_target"] = {"target_type": "B", "target_id": "B1"}
+    data["rival_shadow"] = rival
+    return data
+
+
+def _rival(pid):
+    return {
+        "target_type": "P",
+        "target_id": pid,
+        "core_claim": "Rival mechanism",
+        "why_remains_live": "Unexplained residual",
+        "differentiator_or_source_anchor": "Different anchor",
+    }
+
+
+def test_portfolio_auto_target_p999_rejected(workspace):
+    """V4 Slice 2: auto_target P999 is rejected when only P1 is promoted."""
+    project, skill = workspace
+    data = _auto_deep_portfolio()
+    data["auto_target"] = {"target_type": "P", "target_id": "P999"}
+    inp = write_json(project / "portfolio_p999.json", data)
+    result = run_ck(
+        "freeze", "--stage", "portfolio", "--run-id", "auto-p999",
+        "--input", inp, "--project-root", str(project), "--skill-root", str(skill),
+    )
+    assert result.returncode != 0
+    assert "does not resolve to a promoted Perspective" in result.stderr
+
+
+def test_portfolio_rival_shadow_unpromoted_p_rejected(workspace):
+    """V4 Slice 2: rival_shadow P2 is rejected when only P1 is promoted."""
+    project, skill = workspace
+    data = _auto_deep_portfolio(rival=_rival("P2"))
+    inp = write_json(project / "portfolio_rival_p2.json", data)
+    result = run_ck(
+        "freeze", "--stage", "portfolio", "--run-id", "auto-rival-p2",
+        "--input", inp, "--project-root", str(project), "--skill-root", str(skill),
+    )
+    assert result.returncode != 0
+    assert "does not resolve to a promoted Perspective" in result.stderr
+
+
+def test_portfolio_rival_shadow_promoted_p_accepted(workspace):
+    """V4 Slice 2: rival_shadow P1 is accepted when P1 is promoted."""
+    project, skill = workspace
+    data = _auto_deep_portfolio(rival=_rival("P1"))
+    inp = write_json(project / "portfolio_rival_p1.json", data)
+    result = run_ck(
+        "freeze", "--stage", "portfolio", "--run-id", "auto-rival-p1",
+        "--input", inp, "--project-root", str(project), "--skill-root", str(skill),
+    )
+    assert result.returncode == 0, result.stderr
+
+
+def _manual_portfolio_with_aids():
+    """V4 Slice 3 helper: v1 MANUAL portfolio, single KEEP pass01:c01."""
+    return valid_portfolio()
+
+
+def _hu_entry(ref="pass01:c01", why="Huge payoff if true.", risk="May be overstated."):
+    return {"ref": ref, "why": why, "risk": risk}
+
+
+def test_portfolio_plain_explanation_accepted(workspace):
+    """V4 Slice 3: valid plain_explanation on a KEEP assessment freezes."""
+    project, skill = workspace
+    data = _manual_portfolio_with_aids()
+    data["candidate_assessments"][0]["plain_explanation"] = (
+        "This perspective claims latency drives batching. "
+        "The non-obvious shift is treating review wait as a batching incentive. "
+        "If true, cutting queue time shrinks batches without new process."
+    )
+    inp = write_json(project / "portfolio_plain_ok.json", data)
+    result = run_ck(
+        "freeze", "--stage", "portfolio", "--run-id", "plain-ok",
+        "--input", inp, "--project-root", str(project), "--skill-root", str(skill),
+    )
+    assert result.returncode == 0, result.stderr
+
+
+def test_portfolio_plain_explanation_empty_rejected(workspace):
+    project, skill = workspace
+    data = _manual_portfolio_with_aids()
+    data["candidate_assessments"][0]["plain_explanation"] = "   "
+    inp = write_json(project / "portfolio_plain_empty.json", data)
+    result = run_ck(
+        "freeze", "--stage", "portfolio", "--run-id", "plain-empty",
+        "--input", inp, "--project-root", str(project), "--skill-root", str(skill),
+    )
+    assert result.returncode != 0
+    assert "plain_explanation must be non-empty string" in result.stderr
+
+
+def test_portfolio_plain_explanation_oversized_rejected(workspace):
+    project, skill = workspace
+    data = _manual_portfolio_with_aids()
+    data["candidate_assessments"][0]["plain_explanation"] = "x" * 2001
+    inp = write_json(project / "portfolio_plain_big.json", data)
+    result = run_ck(
+        "freeze", "--stage", "portfolio", "--run-id", "plain-big",
+        "--input", inp, "--project-root", str(project), "--skill-root", str(skill),
+    )
+    assert result.returncode != 0
+    assert "exceeds 2000 chars" in result.stderr
+
+
+def test_portfolio_high_upside_accepted(workspace):
+    """V4 Slice 3: valid high_upside spotlight on a KEEP ref freezes."""
+    project, skill = workspace
+    data = _manual_portfolio_with_aids()
+    data["high_upside"] = [_hu_entry()]
+    inp = write_json(project / "portfolio_hu_ok.json", data)
+    result = run_ck(
+        "freeze", "--stage", "portfolio", "--run-id", "hu-ok",
+        "--input", inp, "--project-root", str(project), "--skill-root", str(skill),
+    )
+    assert result.returncode == 0, result.stderr
+
+
+def test_portfolio_high_upside_empty_list_accepted(workspace):
+    project, skill = workspace
+    data = _manual_portfolio_with_aids()
+    data["high_upside"] = []
+    inp = write_json(project / "portfolio_hu_empty.json", data)
+    result = run_ck(
+        "freeze", "--stage", "portfolio", "--run-id", "hu-empty",
+        "--input", inp, "--project-root", str(project), "--skill-root", str(skill),
+    )
+    assert result.returncode == 0, result.stderr
+
+
+def test_portfolio_high_upside_drop_ref_rejected(workspace):
+    """V4 Slice 3: high_upside on a DROP ref is rejected (KEEP-only eligibility)."""
+    project, skill = workspace
+    data = _manual_portfolio_with_aids()
+    data["high_upside"] = [_hu_entry(ref="pass01:c02")]
+    inp = write_json(project / "portfolio_hu_drop.json", data)
+    result = run_ck(
+        "freeze", "--stage", "portfolio", "--run-id", "hu-drop",
+        "--input", inp, "--project-root", str(project), "--skill-root", str(skill),
+    )
+    assert result.returncode != 0
+    assert "does not resolve to an eligible visible Perspective ref" in result.stderr
+
+
+def test_portfolio_high_upside_quota_rejected(workspace):
+    project, skill = workspace
+    data = _manual_portfolio_with_aids()
+    data["high_upside"] = [_hu_entry() for _ in range(4)]
+    inp = write_json(project / "portfolio_hu_quota.json", data)
+    result = run_ck(
+        "freeze", "--stage", "portfolio", "--run-id", "hu-quota",
+        "--input", inp, "--project-root", str(project), "--skill-root", str(skill),
+    )
+    assert result.returncode != 0
+    assert "at most 3 entries" in result.stderr
+
+
+def test_portfolio_high_upside_score_rejected(workspace):
+    """V4 Slice 3: numeric score keys are forbidden in the attention cue."""
+    project, skill = workspace
+    data = _manual_portfolio_with_aids()
+    entry = _hu_entry()
+    entry["score"] = 0.97
+    data["high_upside"] = [entry]
+    inp = write_json(project / "portfolio_hu_score.json", data)
+    result = run_ck(
+        "freeze", "--stage", "portfolio", "--run-id", "hu-score",
+        "--input", inp, "--project-root", str(project), "--skill-root", str(skill),
+    )
+    assert result.returncode != 0
+    assert "attention cue, not a score" in result.stderr
+
+
+def test_portfolio_high_upside_missing_risk_rejected(workspace):
+    project, skill = workspace
+    data = _manual_portfolio_with_aids()
+    entry = _hu_entry()
+    del entry["risk"]
+    data["high_upside"] = [entry]
+    inp = write_json(project / "portfolio_hu_norisk.json", data)
+    result = run_ck(
+        "freeze", "--stage", "portfolio", "--run-id", "hu-norisk",
+        "--input", inp, "--project-root", str(project), "--skill-root", str(skill),
+    )
+    assert result.returncode != 0
+    assert "high_upside[0].risk must be non-empty string" in result.stderr
 
 
 def test_portfolio_auto_without_target_rejected(workspace):

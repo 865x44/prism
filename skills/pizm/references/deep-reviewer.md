@@ -56,7 +56,7 @@ Hunt for causal mechanisms, numbers, timelines, or named actors more specific th
 
 ### 5. EPISTEMIC LAUNDERING
 
-Detect speculation dressed as support: `SPECULATIVE` content presented with confident causal language, census statuses inflated relative to the actual citations, evidence debt hidden inside prose rather than declared.
+Detect speculation dressed as support: `SPECULATIVE` content presented with confident causal language, census statuses inflated relative to the actual citations, evidence debt hidden inside prose rather than declared. Conversationality, directness, and simple syntax are not evidence of laundering — judge epistemic force, not academic tone. But expressed certainty must match the epistemic census: a speculative mechanism may be explained plainly and directly, yet must not be presented as established fact merely because the prose sounds confident.
 
 ### 6. INDEPENDENT COUNTERMODEL
 
@@ -69,7 +69,6 @@ Are the stated break conditions genuine failure boundaries — observable, decis
 ### 8. MEMBER ABLATION (Bundle targets only)
 
 For a B target, assess `member_contributions` and `member_ablation`: is each member's contribution real and specific? Does anything vanish when each member is removed, or is one a passenger? Is the claimed emergence genuinely more than the strongest member alone? Record the assessment in `findings.member_ablation`. Composition collapse — no genuine emergence over members — is treated like identity failure and forces `RETURN_TO_EXPLORE`.
-
 ### 9. COST RELOCATION
 
 Check whether the model eliminates a cost or merely moves it elsewhere — onto another actor, another time horizon, another constraint — while presenting it as solved. Record findings in `findings.cost_relocation` (or null).
@@ -88,6 +87,21 @@ Name the cheapest observation, check, or probe that would discriminate between t
 - Central unsupported specificity requires recorded `evidence_debt` and usually forces `NEED_EVIDENCE` or a revision demand; never launder it into accepted support.
 - Identity or composition collapse — the target itself not defensible — forces `RETURN_TO_EXPLORE`.
 
+### Blocker-closure order
+
+Evaluate in this order, with no step skipped or reordered:
+
+```text
+1. independently reassess load-bearing claims
+2. construct countermodel / inspect skeleton / specificity / laundering / scope
+3. explicitly evaluate B1–B4 applicability
+4. record every applicable blocker
+5. choose terminal state consistent with blockers
+6. write verdict_rationale as the strongest conclusion that survives
+```
+
+A weaker reader-facing conclusion may survive criticism, but it must not erase a blocker that genuinely applies to the developed model/thesis. Blocker assessment is about the developed model as submitted; narrowing the bottom line is never a loophole for suppressing B1/B3/B4.
+
 ### Terminal Readiness Blockers (B1–B4)
 
 A true blocker sets `findings.readiness_blockers` and strictly forbids `MODEL_READY` (forcing `NEED_EVIDENCE` or `RETURN_TO_EXPLORE`). Readiness blockers independently forbid `MODEL_READY` without setting `findings.unresolved_load_bearing_contradiction: true` (the contradiction carrier is reserved solely for actual logical contradictions):
@@ -103,6 +117,8 @@ Peripheral uncertainty alone does not block readiness. The following findings do
 - Peripheral edge uncertainty or secondary boundary questions not load-bearing for the central thesis.
 - Minor missing secondary predictions or non-critical details that do not undermine the core mechanism.
 - Localized evidence debt on non-central claims where the central causal chain remains well-supported.
+
+Task relevance does not weaken B1: a dependency that genuinely carries the central developed thesis remains a blocker under B1–B4 even on interpretive tasks. Task relevance may only keep peripheral uncertainty non-blocking, as the soft warnings below already allow.
 
 ## Terminal States
 
@@ -148,6 +164,17 @@ State the precise break point. This is a verdict, not permission to silently swi
 ## No Rebuild
 
 There is NO native rebuild stage, rebuild status, rebuild request, or rebuild loop. The reviewer returns exactly one of the three terminal states above. If the development is unsalvageable, return `RETURN_TO_EXPLORE`. Do not invent a fourth status. Do not request regeneration. Do not loop.
+
+## Verdict rationale (reader-facing bottom line)
+
+Write `verdict_rationale` as the single bottom-line conclusion the user reads after criticism, in concise direct prose (roughly 2–5 sentences):
+
+1. the strongest conclusion that survives Critic;
+2. the material unresolved caveat or rival when relevant;
+3. why this supports the chosen terminal state;
+4. for `NEED_EVIDENCE`, the cheapest useful discriminator in user-readable form.
+
+Do not restate the Deep thesis unchanged. Do not add new claims, evidence, or certainty beyond what the checks above established.
 
 ## Review Output Schema (pizm-deep-review-v2)
 
@@ -224,6 +251,7 @@ Run-id never derived from session identity; use a random slug instead. On failur
    - The epistemic accounting after your reassessment (supported / inferred / speculative / unknown), including any point where your judgment overrode a developer label.
    - Evidence debt and the cheapest discriminating test.
    - The terminal state clearly labeled.
+   - The `verdict_rationale` bottom line, shown prominently as the single conclusion that survives criticism.
 4. **No raw artifact rendering**: Never include the frozen JSON artifacts in the user-visible response.
 
 ## External State Prohibition

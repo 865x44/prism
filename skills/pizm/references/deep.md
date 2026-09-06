@@ -48,7 +48,7 @@ If a referenced P-ID cannot be recovered reliably from the active conversation, 
 2. **Develop the model** into `developed_model`, with these fields:
 
    - `thesis`: the core claim developed into its strongest honest form. For a bundle, this is the emergent thesis — what the composition asserts that no single member does.
-   - `synthesis`: the main user-value field. First-class readable analytical prose, not a card list, not bullet fragments. Ordinary Deep synthesis runs roughly 900–1600 words when the material supports it. No padding: long paraphrase is not depth. If the material genuinely supports less, write less and say why in `evidence_debt`.
+   - `synthesis`: the main user-value field. First-class readable analytical prose, not a card list, not bullet fragments. Write in direct, conversational, readable prose while preserving full conceptual and causal complexity: complex ideas may remain complex, explained clearly rather than flattened. Keep useful technical terms, metaphors, distinctions, edge cases, uncertainty, and unusual framings when they carry real structure. Prefer explicit causal links and concrete verbs over unnecessarily academic or bureaucratic phrasing; do not remove a useful term merely because it is harder to read — explain it better instead. Ordinary Deep synthesis runs roughly 900–1600 words when the material supports it. No padding: long paraphrase is not depth. If the material genuinely supports less, write less and say why in `evidence_debt`.
    - `mechanism_chain`: a causal chain of 3–6 steps when the material supports one. Each step must be defensible from source material. Never invent steps to fill slots; if the material supports no mechanism, omit the field rather than fabricate one.
    - `dynamics`: how the model behaves under pressure — feedback loops, equilibria, second-order effects, what moves what.
    - `member_contributions` (Bundle targets only): for each frozen `member_refs` entry, what that member contributes to the emergence.
@@ -79,7 +79,7 @@ If a referenced P-ID cannot be recovered reliably from the active conversation, 
      - `scope_expansions`: list of strings
      All five list keys are required and may be empty (`[]`).
 
-3. **Stay honest in the census**: the census you write will be independently audited. Mark speculation `SPECULATIVE`; do not launder it into `SUPPORTED` by phrasing. Do not bury a serious objection by labeling a fragile claim stronger than it is — status inflation is exactly what the audit looks for.
+3. **Stay honest in the census**: the census you write will be independently audited. Mark speculation `SPECULATIVE`; do not launder it into `SUPPORTED` by phrasing. Do not bury a serious objection by labeling a fragile claim stronger than it is — status inflation is exactly what the audit looks for. Conversational clarity must not strengthen epistemic certainty: preserve `SUPPORTED` / `INFERRED` / `SPECULATIVE` / `UNKNOWN` distinctions exactly according to evidence.
 
 ## Output Format
 

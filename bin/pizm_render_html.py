@@ -601,6 +601,34 @@ def _render_perspectives(view) -> str:
         '<section id="perspectives" class="stage perspectives">',
         "<h2>Perspectives</h2>",
     ]
+    assessments_by_ref = {}
+    _portfolio = view.get("portfolio") or {}
+    if isinstance(_portfolio, dict):
+        for _a in _portfolio.get("candidate_assessments") or []:
+            if isinstance(_a, dict) and isinstance(_a.get("candidate_ref"), str):
+                assessments_by_ref[_a["candidate_ref"]] = _a
+    _spotlight = _portfolio.get("high_upside") or [] if isinstance(_portfolio, dict) else []
+    if isinstance(_spotlight, list) and _spotlight:
+        chunks.append('<div class="spotlight"><h3>Start here — high-upside perspectives</h3><ul>')
+        for _entry in _spotlight:
+            if not isinstance(_entry, dict):
+                continue
+            _ref = _entry.get("ref", "")
+            _pid = p_map.get(_ref, "")
+            if _pid:
+                _link = (f'<a href="#{_e(_aid("perspective", _pid))}">{_e(_pid)}</a>'
+                         f' <span class="cid">({_e(_ref)})</span>')
+            else:
+                _link = _e(_ref)
+            _why = _entry.get("why") if isinstance(_entry.get("why"), str) else ""
+            _risk = _entry.get("risk") if isinstance(_entry.get("risk"), str) else ""
+            _item = f"<li>{_link}"
+            if _why.strip():
+                _item += f" — <strong>Why.</strong> {_prose(_why.strip())}"
+            if _risk.strip():
+                _item += f" <strong>Risk.</strong> {_prose(_risk.strip())}"
+            chunks.append(_item + "</li>")
+        chunks.append("</ul></div>")
     for pid in sorted(inv, key=cli._p_sort_key):
         refs = sorted(inv[pid], key=cli._ref_sort_key)
         ref = refs[0]
@@ -621,6 +649,10 @@ def _render_perspectives(view) -> str:
             f"<p><strong>Source.</strong> {_e(', '.join(refs))}</p>"
             "<p><strong>Status.</strong> KEEP</p>"
         )
+        _ass = assessments_by_ref.get(ref)
+        _expl = _ass.get("plain_explanation") if isinstance(_ass, dict) else None
+        if isinstance(_expl, str) and _expl.strip():
+            chunks.append(f"<p><strong>Plain explanation.</strong> {_prose(_expl.strip())}</p>")
         if thesis.strip():
             chunks.append(f"<p><strong>Thesis.</strong> {_prose(thesis)}</p>")
         if isinstance(core, dict):
