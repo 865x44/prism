@@ -40,6 +40,7 @@ EXPECTED_OUTLINE = {
             "unique_residue": "...",
             "nearest_overlap": "pass02:c03|null",
             "reason": "...",
+            "plain_explanation": "... (optional reader aid, expected for visible Perspectives)",
         }
     ],
     "bundles": [
@@ -72,6 +73,8 @@ EXPECTED_OUTLINE = {
         "why_remains_live": "...",
         "differentiator_or_source_anchor": "...",
     },
+    "perspectives": {"P<n>": "passNN:cMM"},
+    "high_upside": [{"ref": "passNN:cMM", "why": "...", "risk": "..."}],
 }
 
 ASSESSMENT_FIELDS = [
@@ -373,10 +376,11 @@ class TestReaderAidFields:
     def test_plain_explanation_eligibility(self, selector_text):
         assert "assessments with disposition `KEEP`" in selector_text
         assert "candidate refs present in the frozen `perspectives` mapping" in selector_text
-        assert "absorbed `MERGE` refs carry no separate explanation" in selector_text
+        assert "Absorbed `MERGE` refs get no separate `plain_explanation`" in selector_text
 
-    def test_merge_carrier_is_surviving_keep(self, selector_text):
-        assert "the explanation lives on the surviving `KEEP` assessment" in selector_text
+    def test_merge_carrier_is_primary_keep(self, selector_text):
+        assert "the explanation belongs to the primary `KEEP` Perspective" in selector_text
+        assert "their extra facets stay in the existing MERGE presentation" in selector_text
 
     def test_high_upside_rules(self, selector_text):
         assert "high_upside" in selector_text
@@ -392,6 +396,15 @@ class TestReaderAidFields:
     def test_card_presents_plain_explanation(self, selector_text):
         assert "Plain explanation" in selector_text
         assert "compact attention cue above the full cards" in selector_text
+    def test_v1_perspectives_mapping_contract(self, selector_text):
+        assert "perspectives mapping (v1 P identity)" in selector_text
+        assert "Cover exactly the `KEEP` assessments" in selector_text
+        assert "new outputs must include the map" in selector_text
+        assert "old positional P1..Pn derivation as a compatibility fallback" in selector_text
+
+    def test_outline_marks_aid_fields_additive(self, selector_text):
+        assert "additive and optional for checkpoint compatibility" in selector_text
+        assert "new writer outputs are expected to include them" in selector_text
 
 
 # ---------------------------------------------------------------------------

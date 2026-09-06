@@ -99,6 +99,10 @@ Bundle ids are host-assigned, never judge-invented. The judge proposes temporary
 
 ## Reader Aid Fields (Additive Presentation Metadata)
 
+### perspectives mapping (v1 P identity)
+
+v1 portfolios persist the conversation-monotonic P-ID assignment explicitly: a top-level `perspectives` object mapping each visible `P<n>` to its frozen candidate ref (e.g. `{"P7": "pass02:c01"}` when P1..P6 already exist in the conversation). Cover exactly the `KEEP` assessments — every `KEEP` ref appears once, no `DROP`/`BORDERLINE`/absorbed `MERGE` refs, P numbers strictly increasing. `auto_target`, `rival_shadow`, and `high_upside` resolve through this mapping. Artifacts without the map keep the old positional P1..Pn derivation as a compatibility fallback; new outputs must include the map.
+
 After dispositions, bundles, and routing are finalized — inside this same Portfolio inference, with no extra call or stage — produce:
 
 ### plain_explanation
@@ -108,8 +112,8 @@ For each assessment that materializes as a visible Perspective card, add `plain_
 Eligible refs only:
 - v1 MANUAL/AUTO: assessments with disposition `KEEP`.
 - v2 BONK: candidate refs present in the frozen `perspectives` mapping.
+- For a `MERGE` cluster, the explanation belongs to the primary `KEEP` Perspective and explains the canonical KEEP Perspective. Absorbed `MERGE` refs get no separate `plain_explanation`; their extra facets stay in the existing MERGE presentation.
 - Never for `DROP`, `BORDERLINE`, absorbed `MERGE` candidates, or raw candidates.
-- For a `MERGE` cluster, the explanation lives on the surviving `KEEP` assessment whose card absorbs the merged facets; absorbed `MERGE` refs carry no separate explanation.
 
 ### high_upside
 
@@ -130,7 +134,7 @@ The judge freezes its decision as one portfolio record conforming to `pizm-portf
   "field_ref": "search-field-pass02.json",
   "field_hash": "...",
   "candidate_assessments": [
-    {"candidate_ref": "pass01:c06", "disposition": "KEEP|BORDERLINE|MERGE|DROP", "standalone_quality": "strong|borderline|weak", "unique_residue": "...", "nearest_overlap": "pass02:c03|null", "reason": "..."}
+    {"candidate_ref": "pass01:c06", "disposition": "KEEP|BORDERLINE|MERGE|DROP", "standalone_quality": "strong|borderline|weak", "unique_residue": "...", "nearest_overlap": "pass02:c03|null", "reason": "...", "plain_explanation": "... (optional reader aid, expected for visible Perspectives)"}
   ],
   "bundles": [
     {"bundle_id": "B1", "member_refs": ["pass01:c02","pass01:c08"], "bundle_thesis": "...", "composition_gain": "...", "member_roles": {}, "member_ablation": {}, "internal_tension": "...", "weakest_link": "...", "new_consequence_or_prediction": "..."}
@@ -151,9 +155,13 @@ The judge freezes its decision as one portfolio record conforming to `pizm-portf
     "core_claim": "...",
     "why_remains_live": "...",
     "differentiator_or_source_anchor": "..."
-  }
+  },
+  "perspectives": {"P<n>": "passNN:cMM"},
+  "high_upside": [{"ref": "passNN:cMM", "why": "...", "risk": "..."}]
 }
 ```
+
+`plain_explanation`, `perspectives`, and `high_upside` are additive and optional for checkpoint compatibility (old artifacts omit them), but new writer outputs are expected to include them: the `perspectives` map for v1 P identity, `plain_explanation` for eligible visible Perspectives, and `high_upside` as the attention spotlight.
 
 Structurally valid MANUAL example (freezes through checkpoint as-is):
 
@@ -173,6 +181,7 @@ Structurally valid MANUAL example (freezes through checkpoint as-is):
   "auto_target": null,
   "information_request": null,
   "rival_shadow": null,
+  "perspectives": {"P1": "pass01:c06"},
   "high_upside": [
     {"ref": "pass01:c06", "why": "Could change batching policy team-wide.", "risk": "Single-context observation."}
   ]

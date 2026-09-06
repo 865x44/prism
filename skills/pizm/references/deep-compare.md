@@ -104,6 +104,8 @@ global thesis outrunning local support -> B4_COVERAGE_MISMATCH
 
 A side with a non-empty `readiness_blockers` list must not be `MODEL_READY`. Relative preference answers a different question from absolute readiness: `current_preference` may select a `NEED_EVIDENCE` side over a weaker or failed rival, but preference never upgrades a non-ready model to `MODEL_READY`.
 
+Backward-compatibility note: these side fields are optional so old comparison artifacts keep freezing; omission is governed by prompt contract, not mechanics. A comparator that forgets real blockers can still freeze `MODEL_READY` — this is the accepted price of the additive extension, not mechanically fail-closed parity with single Critic. A single-Critic-level guarantee would need a schema discriminator or version; record that as follow-up if dogfood shows omitted blockers.
+
 ---
 
 ## External State Prohibition

@@ -1592,6 +1592,126 @@ def test_portfolio_rival_shadow_promoted_p_accepted(workspace):
     assert result.returncode == 0, result.stderr
 
 
+def _continued_conversation_portfolio():
+    """Review fix: previous visible max P6, one new KEEP materializes as P7."""
+    data = valid_portfolio()
+    data["route"] = "AUTO"
+    data["next_reasoning_move"] = "DEEP"
+    data["next_reasoning_rationale"] = "Developing nominated target."
+    data["perspectives"] = {"P7": "pass01:c01"}
+    data["auto_target"] = {"target_type": "P", "target_id": "P7"}
+    data["high_upside"] = [{"ref": "pass01:c01", "why": "Frontier payoff.", "risk": "Thin support."}]
+    return data
+
+
+def _freeze_portfolio(project, skill, data, name, run_id):
+    inp = write_json(project / name, data)
+    return run_ck(
+        "freeze", "--stage", "portfolio", "--run-id", run_id,
+        "--input", inp, "--project-root", str(project), "--skill-root", str(skill),
+    )
+
+
+def test_portfolio_v1_mapping_p7_accepted(workspace):
+    """Reviewer scenario: one new KEEP after P1..P6 freezes as P7 with target P7."""
+    project, skill = workspace
+    result = _freeze_portfolio(project, skill, _continued_conversation_portfolio(),
+                               "portfolio_p7.json", "map-p7-ok")
+    assert result.returncode == 0, result.stderr
+    assert "FREEZE_OK" in result.stdout
+
+
+def test_portfolio_v1_mapping_smuggled_p999_rejected(workspace):
+    """A v1 perspectives map pointing at a DROP ref is rejected (no P999 bypass)."""
+    project, skill = workspace
+    data = _continued_conversation_portfolio()
+    data["perspectives"] = {"P999": "pass01:c02"}
+    data["auto_target"] = {"target_type": "P", "target_id": "P999"}
+    data["high_upside"] = [{"ref": "pass01:c02", "why": "Bogus.", "risk": "Bogus."}]
+    result = _freeze_portfolio(project, skill, data, "portfolio_p999.json", "map-p999")
+    assert result.returncode != 0
+    assert "must cover exactly the KEEP candidate refs" in result.stderr
+
+
+def test_portfolio_v1_mapping_extra_ref_rejected(workspace):
+    project, skill = workspace
+    data = _continued_conversation_portfolio()
+    data["perspectives"] = {"P7": "pass01:c01", "P8": "pass01:c09"}
+    result = _freeze_portfolio(project, skill, data, "portfolio_extra.json", "map-extra")
+    assert result.returncode != 0
+    assert "must cover exactly the KEEP candidate refs" in result.stderr
+
+
+def test_portfolio_v1_mapping_nondict_rejected(workspace):
+    project, skill = workspace
+    data = _continued_conversation_portfolio()
+    data["perspectives"] = ["P7"]
+    result = _freeze_portfolio(project, skill, data, "portfolio_nondict.json", "map-nondict")
+    assert result.returncode != 0
+    assert "must be an object when present" in result.stderr
+
+
+def test_portfolio_v1_mapping_auto_outside_mapping_rejected(workspace):
+    """auto_target P1 is rejected when the frozen mapping assigns P7."""
+    project, skill = workspace
+    data = _continued_conversation_portfolio()
+    data["auto_target"] = {"target_type": "P", "target_id": "P1"}
+    result = _freeze_portfolio(project, skill, data, "portfolio_outside.json", "map-outside")
+    assert result.returncode != 0
+    assert "does not resolve to a promoted Perspective" in result.stderr
+
+
+def test_portfolio_v1_mapping_duplicate_ref_rejected(workspace):
+    project, skill = workspace
+    data = _continued_conversation_portfolio()
+    data["candidate_assessments"].append({
+        "candidate_ref": "pass01:c03",
+        "disposition": "KEEP",
+        "standalone_quality": "strong",
+        "unique_residue": "Third mechanism",
+        "nearest_overlap": None,
+        "reason": "Distinct",
+    })
+    data["perspectives"] = {"P7": "pass01:c01", "P8": "pass01:c01"}
+    result = _freeze_portfolio(project, skill, data, "portfolio_dup.json", "map-dup")
+    assert result.returncode != 0
+    assert "duplicate candidate ref mapped" in result.stderr
+
+
+def test_portfolio_v1_mapping_nonincreasing_rejected(workspace):
+    project, skill = workspace
+    data = _continued_conversation_portfolio()
+    data["candidate_assessments"].append({
+        "candidate_ref": "pass01:c03",
+        "disposition": "KEEP",
+        "standalone_quality": "strong",
+        "unique_residue": "Third mechanism",
+        "nearest_overlap": None,
+        "reason": "Distinct",
+    })
+    data["perspectives"] = {"P8": "pass01:c01", "P7": "pass01:c03"}
+    result = _freeze_portfolio(project, skill, data, "portfolio_nonincr.json", "map-nonincr")
+    assert result.returncode != 0
+    assert "strictly increasing" in result.stderr
+
+
+def test_portfolio_v1_mapping_rival_p7_accepted(workspace):
+    """rival_shadow resolves through the v1 mapping as well."""
+    project, skill = workspace
+    data = _continued_conversation_portfolio()
+    data["bundles"] = [bundle()]
+    data["auto_target"] = {"target_type": "B", "target_id": "B1"}
+    data["rival_shadow"] = {
+        "target_type": "P",
+        "target_id": "P7",
+        "core_claim": "Rival mechanism",
+        "why_remains_live": "Unexplained residual",
+        "differentiator_or_source_anchor": "Different anchor",
+    }
+    result = _freeze_portfolio(project, skill, data, "portfolio_rival_p7.json", "map-rival-p7")
+    assert result.returncode == 0, result.stderr
+
+
 def _manual_portfolio_with_aids():
     """V4 Slice 3 helper: v1 MANUAL portfolio, single KEEP pass01:c01."""
     return valid_portfolio()

@@ -1011,3 +1011,30 @@ def test_unaided_run_omits_reader_aid_sections(frozen_run_p, tmp_path):
     text = out.read_text(encoding="utf-8")
     assert "Plain explanation" not in text
     assert "Start here — high-upside perspectives" not in text
+
+
+def test_v1_mapping_p7_renders_canonical_p7(tmp_path):
+    """Review fix: v1 portfolio with explicit {P7: ref} mapping renders P7 cards."""
+    run_id = "renderp7"
+    freeze_stage(tmp_path, "explore", run_id, candidates_payload())
+    run_dir = tmp_path / ".ai" / "pizm" / f"run-{run_id}"
+    sha = (run_dir / "candidates.sha256").read_text().strip()
+    freeze_stage(tmp_path, "search-field", run_id, search_field_payload(sha))
+    fhash = (run_dir / "search-field.sha256").read_text().strip()
+    port = portfolio_payload(fhash, "P", "P7")
+    port["perspectives"] = {"P7": "pass01:c01"}
+    port["candidate_assessments"][0]["plain_explanation"] = "Plain P7 words."
+    port["high_upside"] = [{"ref": "pass01:c01", "why": "Why P7.", "risk": "Risk P7."}]
+    freeze_stage(tmp_path, "portfolio", run_id, port)
+    freeze_stage(tmp_path, "development-v2", run_id, development_payload("P", "P7"))
+    dsha = (run_dir / "development-v2.sha256").read_text().strip()
+    rev = review_payload("P", "P7")
+    rev["frozen_hash"] = dsha
+    freeze_stage(tmp_path, "deep-review-v2", run_id, rev)
+    out = tmp_path / "p7.md"
+    res = run_render(run_dir, TASK_TEXT, out)
+    assert res.returncode == 0, res.stderr
+    text = out.read_text(encoding="utf-8")
+    assert "### P7 — Feedback Latency Constraint (`pass01:c01`)" in text
+    assert "- **P7** — Feedback Latency Constraint (`pass01:c01`)" in text
+    assert "Plain P7 words." in text

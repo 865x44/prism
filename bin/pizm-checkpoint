@@ -1128,8 +1128,10 @@ def _portfolio_ref_sort_key(ref):
 def _promoted_p_ids(portfolio):
     """Promoted P-ID set using the same rule as the deterministic renderer.
 
-    v2 portfolios carry the explicit perspectives map; v1 portfolios derive
-    P1..Pn positionally from KEEP assessments sorted by composite ref.
+    Explicit perspectives maps (v2, and new v1 portfolios persisting the
+    conversation-monotonic assignment) are authoritative once structurally
+    validated; old v1 artifacts without the map derive P1..Pn positionally
+    from KEEP assessments sorted by composite ref.
     """
     perspectives = portfolio.get("perspectives")
     if isinstance(perspectives, dict):
@@ -1145,6 +1147,40 @@ def _promoted_p_ids(portfolio):
         key=_portfolio_ref_sort_key,
     )
     return {f"P{i}" for i in range(1, len(kept) + 1)}
+
+def _validate_v1_perspectives_mapping(data, kept_refs):
+    """Strict structural validation for an explicit v1 perspectives map.
+
+    New v1 portfolios persist the conversation-monotonic P-ID assignment
+    (e.g. P7 after P1..P6) so auto_target/rival_shadow/high_upside resolve
+    through frozen identity instead of positional P1..Pn. Old v1 artifacts
+    without the map keep the positional compat path. A smuggled map that
+    does not cover exactly the KEEP refs is rejected: the map is authority
+    only when it is internally consistent.
+    """
+    perspectives = data.get("perspectives")
+    if perspectives is None:
+        return
+    if not isinstance(perspectives, dict):
+        raise ValueError("portfolio perspectives must be an object when present")
+    last_p_num = 0
+    seen_c_refs = set()
+    for p_id, c_ref in perspectives.items():
+        if not _P_ID_RE.fullmatch(p_id):
+            raise ValueError(f"invalid perspective id format: {p_id!r}")
+        p_n = int(p_id[1:])
+        if p_n <= last_p_num:
+            raise ValueError(f"P IDs must be strictly increasing: {p_id} <= previous")
+        last_p_num = p_n
+        if not isinstance(c_ref, str) or not _COMPOSITE_REF_RE.fullmatch(c_ref):
+            raise ValueError(f"invalid candidate ref in perspectives: {c_ref!r}")
+        if c_ref in seen_c_refs:
+            raise ValueError(f"duplicate candidate ref mapped: {c_ref!r}")
+        seen_c_refs.add(c_ref)
+    if seen_c_refs != kept_refs:
+        raise ValueError(
+            "perspectives mapping must cover exactly the KEEP candidate refs"
+        )
 
 
 def _validate_portfolio(
@@ -1344,6 +1380,8 @@ def _validate_portfolio(
             if not isinstance(v, str) or not v.strip():
                 raise ValueError(f"bundles[{i}].member_ablation[{k!r}] must be non-empty string")
 
+    if schema_version == "pizm-portfolio-selection-v1" and "perspectives" in data:
+        _validate_v1_perspectives_mapping(data, kept_refs)
     perspectives_raw = data.get("perspectives")
     if isinstance(perspectives_raw, dict):
         eligible_refs = {v for v in perspectives_raw.values() if isinstance(v, str)}
