@@ -1114,6 +1114,7 @@ def valid_portfolio():
         "stage": "portfolio",
         "route": "MANUAL",
         "field_hash": "b" * 64,
+        "perspectives": {"P1": "pass01:c01"},
         "candidate_assessments": [
             {
                 "candidate_ref": "pass01:c01",
@@ -1710,6 +1711,17 @@ def test_portfolio_v1_mapping_rival_p7_accepted(workspace):
     }
     result = _freeze_portfolio(project, skill, data, "portfolio_rival_p7.json", "map-rival-p7")
     assert result.returncode == 0, result.stderr
+
+
+def test_portfolio_v1_freeze_without_perspectives_rejected(workspace):
+    """New-writer contract: a v1 freeze without the perspectives map fails closed,
+    even when every other field is valid."""
+    project, skill = workspace
+    data = valid_portfolio()
+    del data["perspectives"]
+    result = _freeze_portfolio(project, skill, data, "portfolio_nomap.json", "map-absent")
+    assert result.returncode != 0
+    assert "requires perspectives mapping" in result.stderr
 
 
 def _manual_portfolio_with_aids():

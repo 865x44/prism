@@ -509,8 +509,7 @@ class TestForgePortfolioContracts:
         p_v1["route"] = "MANUAL"
         if "competition_status" in p_v1:
             del p_v1["competition_status"]
-        if "perspectives" in p_v1:
-            del p_v1["perspectives"]
+        p_v1["perspectives"] = {"P1": "pass01:c01", "P2": "pass01:c02", "P3": "pass02:c01"}
         if "single_target" in p_v1:
             del p_v1["single_target"]
         del p_v1["recommended_competition"]

@@ -14,6 +14,7 @@ Covers:
 - P-target and B-target happy paths; honest-stop rendering;
 - zero provider/network vocabulary in the renderer source.
 """
+import hashlib
 import json
 import subprocess
 import sys
@@ -148,6 +149,7 @@ def portfolio_payload(field_hash: str, target_type="P", target_id="P1"):
         "stage": "portfolio",
         "route": "AUTO",
         "field_hash": field_hash,
+        "perspectives": {"P1": "pass01:c01"},
         "candidate_assessments": [
             {
                 "candidate_ref": "pass01:c01",
@@ -190,6 +192,8 @@ def portfolio_payload(field_hash: str, target_type="P", target_id="P1"):
                                     "pass01:c02": "loses tension"},
             }
         ]
+    if target_type == "B":
+        data["perspectives"] = {"P1": "pass01:c01", "P2": "pass01:c02"}
     return data
 
 
@@ -654,6 +658,7 @@ def test_auto_render_accepts_v1_auto_layout(tmp_path):
         "route": "AUTO",
         "field_ref": "search-field.json",
         "field_hash": sf_sha,
+        "perspectives": {"P1": "pass01:c01"},
         "candidate_assessments": [
             {
                 "candidate_ref": "pass01:c01",
@@ -1038,3 +1043,31 @@ def test_v1_mapping_p7_renders_canonical_p7(tmp_path):
     assert "### P7 — Feedback Latency Constraint (`pass01:c01`)" in text
     assert "- **P7** — Feedback Latency Constraint (`pass01:c01`)" in text
     assert "Plain P7 words." in text
+
+
+def test_legacy_mapless_v1_renders_positional_p1(tmp_path):
+    """Legacy-reader compatibility: an already-frozen map-less v1 portfolio
+    (written raw, as checkpoint would now refuse to freeze it) still renders
+    through the positional P1..Pn fallback."""
+    run_id = "renderlegacy"
+    freeze_stage(tmp_path, "explore", run_id, candidates_payload())
+    run_dir = tmp_path / ".ai" / "pizm" / f"run-{run_id}"
+    sha = (run_dir / "candidates.sha256").read_text().strip()
+    freeze_stage(tmp_path, "search-field", run_id, search_field_payload(sha))
+    fhash = (run_dir / "search-field.sha256").read_text().strip()
+    port = portfolio_payload(fhash, "P", "P1")
+    del port["perspectives"]
+    raw = json.dumps(port, indent=2).encode("utf-8")
+    (run_dir / "portfolio.json").write_bytes(raw)
+    (run_dir / "portfolio.sha256").write_text(hashlib.sha256(raw).hexdigest(), encoding="utf-8")
+    (run_dir / "portfolio.meta.json").write_text('{"stage":"portfolio"}', encoding="utf-8")
+    freeze_stage(tmp_path, "development-v2", run_id, development_payload("P", "P1"))
+    dsha = (run_dir / "development-v2.sha256").read_text().strip()
+    rev = review_payload("P", "P1")
+    rev["frozen_hash"] = dsha
+    freeze_stage(tmp_path, "deep-review-v2", run_id, rev)
+    out = tmp_path / "legacy.md"
+    res = run_render(run_dir, TASK_TEXT, out)
+    assert res.returncode == 0, res.stderr
+    text = out.read_text(encoding="utf-8")
+    assert "### P1 — Feedback Latency Constraint (`pass01:c01`)" in text

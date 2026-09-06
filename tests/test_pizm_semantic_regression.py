@@ -16,6 +16,7 @@ All fixtures execute through real `bin/pizm-checkpoint freeze` and
 import json
 import subprocess
 from pathlib import Path
+import re
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -141,6 +142,13 @@ def make_search_field_payload(passes: list, entries: list):
         "entries": entries,
     }
 
+def _ref_sort_key(ref):
+    """Numeric-aware composite ref key, mirroring the checkpoint/renderer rule."""
+    m = re.fullmatch(r"(pass[0-9]{2,}):c([0-9]+)", ref or "")
+    if m:
+        return (m.group(1), int(m.group(2)), "")
+    return ("~", 0, ref or "")
+
 
 def make_portfolio_payload(
     route: str = "MANUAL",
@@ -182,6 +190,11 @@ def make_portfolio_payload(
         payload["auto_target"] = auto_target
         payload["information_request"] = None
         payload["rival_shadow"] = None
+        kept = sorted(
+            (a["candidate_ref"] for a in assessments if a.get("disposition") == "KEEP"),
+            key=_ref_sort_key,
+        )
+        payload["perspectives"] = {f"P{i}": ref for i, ref in enumerate(kept, start=1)}
     if field_ref is not None:
         payload["field_ref"] = field_ref
     if prior_bundles is not None:

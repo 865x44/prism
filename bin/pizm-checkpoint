@@ -1380,7 +1380,12 @@ def _validate_portfolio(
             if not isinstance(v, str) or not v.strip():
                 raise ValueError(f"bundles[{i}].member_ablation[{k!r}] must be non-empty string")
 
-    if schema_version == "pizm-portfolio-selection-v1" and "perspectives" in data:
+    if schema_version == "pizm-portfolio-selection-v1" and "perspectives" not in data:
+        raise ValueError(
+            "pizm-portfolio-selection-v1 requires perspectives mapping (v1 P identity; "
+            "already-frozen map-less artifacts remain readable, but new freezes must include the map)"
+        )
+    if schema_version == "pizm-portfolio-selection-v1":
         _validate_v1_perspectives_mapping(data, kept_refs)
     perspectives_raw = data.get("perspectives")
     if isinstance(perspectives_raw, dict):

@@ -399,8 +399,8 @@ class TestReaderAidFields:
     def test_v1_perspectives_mapping_contract(self, selector_text):
         assert "perspectives mapping (v1 P identity)" in selector_text
         assert "Cover exactly the `KEEP` assessments" in selector_text
-        assert "new outputs must include the map" in selector_text
-        assert "old positional P1..Pn derivation as a compatibility fallback" in selector_text
+        assert "keep rendering through the old positional P1..Pn fallback" in selector_text
+        assert "A v1 freeze without the map fails closed" in selector_text
 
     def test_outline_marks_aid_fields_additive(self, selector_text):
         assert "additive and optional for checkpoint compatibility" in selector_text
