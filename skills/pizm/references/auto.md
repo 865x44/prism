@@ -62,6 +62,7 @@ AUTO TASK
      - Reader availability must NEVER block or fail the run: the semantic results and frozen artifacts are already authoritative.
    - **Artifact & Suffix Chain**: Checkpoint artifacts follow the standard freeze chain: `candidates-pass01.json`, `search-field-pass01.json`, `candidates-pass02.json`, `search-field-pass02.json`, `portfolio.json`, `development-v2.json`, `deep-review-v2.json` (and optional `design.json` / `review.json`).
    - **Ephemeral Accounting Contract**: `--accounting <path>` supplies caller-provided bounded non-derived counts (`host_inference_count`, `model_repair_count`, `checkpoint_retry_count`). The bundle computes and validates derived counts (`semantic_stage_count`, `candidate_bytes`, `development_bytes`). The archive manifest records the normalized six-counter object; the ephemeral accounting file is never archived into inputs.
+   - **Run Fingerprint Contract**: Capturing model, provider, model source (`HOST_RUNTIME | EXPLICIT_OVERRIDE | UNKNOWN`), Pizm version (`skills/pizm/VERSION`), and subject slug into the manifest is pure execution bookkeeping. Zero additional inference calls are performed. Metadata never enters reasoning prompts or influences candidate generation.
 ---
 
 ## 2. Honest-Stop Rules

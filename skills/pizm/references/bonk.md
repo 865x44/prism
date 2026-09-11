@@ -149,6 +149,7 @@ deterministic run.md and run.html rendering (zero model calls)
   - **Reader URL**: `http://127.0.0.1:41144/run/<slug>/` (or `file://<absolute-path>/run.html` if local reader server inactive)
   ```
 - Output is a pure, byte-identical function of frozen inputs.
+- **Run Fingerprint Contract**: Capturing model, provider, model source (`HOST_RUNTIME | EXPLICIT_OVERRIDE | UNKNOWN`), Pizm version (`skills/pizm/VERSION`), and subject slug into the manifest is pure execution bookkeeping. Zero additional inference calls are performed. Metadata never enters reasoning prompts or influences candidate generation.
 ---
 
 ## 4. Degraded Path (Single Defensible Bundle)

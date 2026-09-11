@@ -26,6 +26,10 @@ import urllib.parse
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
+_BIN_DIR = str(Path(__file__).resolve().parent)
+if _BIN_DIR not in sys.path:
+    sys.path.insert(0, _BIN_DIR)
+import pizm_run_state
 DEFAULT_PORT = 41144
 DEFAULT_ROOT = ".ai/pizm"
 SERVER_VERSION = "pizm-reader-v1"
@@ -120,8 +124,8 @@ class ReaderRequestHandler(BaseHTTPRequestHandler):
                 if not cand_dir_resolved.is_relative_to(root_path):
                     self.send_error(403, "Forbidden: Path escape detected")
                     return
-                cand_html = cand_dir_resolved / "run.html"
-                if cand_html.is_file() and cand_html.resolve().is_relative_to(root_path):
+                cand_html = pizm_run_state.resolve_html_record(cand_dir_resolved)
+                if cand_html and cand_html.is_file() and cand_html.resolve().is_relative_to(root_path):
                     target_file = cand_html
                     break
             except (ValueError, OSError):

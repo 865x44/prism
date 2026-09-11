@@ -2,11 +2,13 @@
 name: pizm
 description: >
   Use Pizm as an interactive cognitive tool for exploring a problem through materially
-  distinct perspectives and deepening one or several selected perspectives. Trigger when
-  the user invokes /pizm or /prism, asks for Pizm Search / Explore, NORMAL, RIFT, 360,
-  asks to deepen a P-ID, selects several P-IDs to deepen together, or asks for another
-  Pizm exploration pass. Native Pizm uses the current host model directly; it does not
-  call an external model provider or require API keys.
+  distinct perspectives, deepening selected perspectives, and crafting memorable language.
+  Trigger when the user invokes /pizm or /prism, asks for Pizm Search / Explore, NORMAL, RIFT,
+  360, asks to deepen a P-ID, selects several P-IDs to deepen together, asks for another
+  Pizm exploration pass, or explicitly invokes Pizm Wordcraft (/pizm wordcraft, "повордкрафти").
+  Do not hijack generic rewrite requests (e.g. "rewrite this paragraph", "improve my article")
+  unless the user explicitly invokes Pizm / Wordcraft. Native Pizm uses the current host model
+  directly; it does not call an external model provider or require API keys.
 ---
 
 # Pizm
@@ -19,6 +21,7 @@ Read only the reference needed for the requested primitive:
 - LEVER on a MODEL_READY Deep perspective (single P-ID or Bundle B-ID): read `references/lever.md`.
 - AUTO pipeline: read `references/auto.md`.
 - BONK heavy automated path: read `references/bonk.md`.
+- WORDCRAFT (optional creative operation): read `references/wordcraft.md`.
 Follow the staged tool sequence defined in the loaded reference file exactly. Each reference defines its own generator/developer workflow, artifact schema, freeze command, and bounded retry behavior.
 
 ## Route the request
@@ -35,12 +38,17 @@ Follow the staged tool sequence defined in the loaded reference file exactly. Ea
 - `/pizm auto <task>` → read `references/auto.md`. Two Search passes (initial + rift) → Portfolio over accumulated field → one nominated target (P or B) → Deep → Critic → optional LEVER; the final report, the readable `run.md`, and the interactive `run.html` with local Reader link (or file fallback) are assembled deterministically from frozen artifacts with zero model calls (`bin/pizm-session-bundle render` and `render-html --ensure-reader`).
 - `/pizm bonk <task>` → read `references/bonk.md`. Two-pass Search (initial + residual) → Portfolio over accumulated field → two competing Bundles developed separately (Deep(LEFT) then Deep(RIGHT)) → Critic/Compare → optional LEVER → deterministic final + `run.md` + `run.html` with Reader link or file fallback (`bin/pizm-session-bundle render` and `render-html --ensure-reader`).
 - `/pizm forge <task>` → deprecated compatibility alias that executes BONK; tell the user the heavy route is now BONK and continue as BONK. Explicit only; never implicit.
+- `/pizm wordcraft <material>` (or explicit phrasing such as `повордкрафти этот абзац`, `use Pizm Wordcraft on this passage`) → WORDCRAFT on directly supplied text or clearly referenced material in active conversation context → read `references/wordcraft.md` → STOP.
+- `/pizm wordcraft P<n>|B<n>` → WORDCRAFT using that exact accessible Pizm perspective/bundle → read `references/wordcraft.md` → STOP.
+- `/pizm wordcraft deep P<n>|B<n>` → WORDCRAFT using the exact accessible developed artifact for that target → read `references/wordcraft.md` → STOP.
+- Note on WORDCRAFT: WORDCRAFT operates strictly on supplied or accessible context and never implicitly calls Search or Deep to obtain richer material. If a requested ID is unavailable or ambiguous, state the refusal instead of guessing or rebinding. Direct text such as `/pizm wordcraft этот абзац: ...` uses the supplied text directly.
 - `another 360`, `ещё 360`, or equivalent → another Search pass with the residual search policy, using accessible prior Pizm territory.
 - A direct Deep seed without a Search P-ID is allowed when the user explicitly asks to deepen that seed.
 
 ### Canonical Concepts & Legacy Aliases
 
-- **Canonical manual primitives**: Search (`references/explore.md`), Deep (`references/deep.md`), LEVER (`references/lever.md`), RIFT (`references/explore.md`).
+- **Canonical manual reasoning primitives**: Search (`references/explore.md`), Deep (`references/deep.md`), LEVER (`references/lever.md`), RIFT (`references/explore.md`).
+- **Canonical optional creative operation**: WORDCRAFT (`references/wordcraft.md`).
 - **Canonical automatic pipelines**: AUTO (`references/auto.md`), BONK (`references/bonk.md`).
 - **Internal Search policies**: `initial` (broad structural search), `residual` (novelty against accumulated field), `rift` (explicit in manual use; mandatory second Search policy inside AUTO; not used by BONK).
 - **Superseded / deprecated terms**: `360` is retained for one release solely as a deprecated compatibility alias to `Search(residual)`; `/pizm forge` is retained for one release solely as a deprecated compatibility alias to BONK; "Breadth" is superseded as a user mode (Search is the manual divergence primitive); "MAX" is superseded and eliminated as a product route; raw-P-only AUTO is superseded by Portfolio target nomination (P or B); compact-card Deep is superseded by mature analytical prose synthesis (~900–1600 words for P, ~1400–2400 words for B); full rubric-blindness is operationalized as same-host staged contract separation post-freeze.
@@ -54,6 +62,13 @@ BONK executes only via explicit `/pizm bonk <task>` user delegation (or the `/pi
 Use the active conversation and attached/analyzed material already available to the host. Do not ask the user to repeat context that is clearly accessible.
 
 Preserve visible P-ID continuity across Pizm Explore passes in the active referenceable conversation. Never silently rebind an existing P-ID to a materially different perspective. If an old P-ID cannot be recovered reliably, say so instead of guessing.
+
+## Run fingerprint and metadata
+
+Run fingerprint capture (`model`, `provider`, `model_source`, `pizm_version`, `skill_hash`, `repo_commit`, `subject_slug`) is execution bookkeeping, not a semantic reasoning stage.
+- Zero extra model/provider calls: metadata is reported from runtime context or host arguments (with `UNKNOWN` fallback).
+- Metadata must never enter reasoning prompts, influence candidate generation, or bias perspective selection.
+- Final chat response is not required to display runtime version/fingerprint, but `run.md` and `run.html` record and render them.
 
 ## Information gathering and question budget
 

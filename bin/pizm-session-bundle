@@ -23,6 +23,10 @@ import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
+_BIN_DIR = str(Path(__file__).resolve().parent)
+if _BIN_DIR not in sys.path:
+    sys.path.insert(0, _BIN_DIR)
+import pizm_run_state
 _SCHEMA_VERSION = "pizm-session-bundle-v1"
 
 _STAGE_LABEL_RE = re.compile(
@@ -142,11 +146,15 @@ def _compute_skill_hash(skill_root: Path) -> str:
     h = hashlib.sha256()
     rel_paths = []
 
+    # VERSION
+    version_file = skill_root / "VERSION"
+    if version_file.exists():
+        rel_paths.append("VERSION")
+
     # SKILL.md
     skill_md = skill_root / "SKILL.md"
     if skill_md.exists():
         rel_paths.append("SKILL.md")
-
     # references/*.md
     refs_dir = skill_root / "references"
     if refs_dir.is_dir():
@@ -269,14 +277,18 @@ def create_bundle(
     output_root: str,
     slug: str,
     skill_root: str,
-    inputs: list,
-    transcript: str,
-    stages: list,
-    harness: str,
-    model: str,
-    repo_commit: str,
-    evidence_kind: str,
+    inputs: list = None,
+    transcript: str = None,
+    stages: list = None,
+    harness: str = "",
+    model: str = "",
+    provider: str = "",
+    model_source: str = "",
+    repo_commit: str = "",
+    evidence_kind: str = "offline_fixture",
     accounting: str = None,
+    subject_slug: str = None,
+    pizm_version: str = None,
 ) -> int:
     # Validate slug
     try:
@@ -309,7 +321,10 @@ def create_bundle(
         return _die(f"cannot create output root: {e}")
     if not out_root.is_dir():
         return _die(f"output root is not a directory: {out_root}")
-    bundle_dir = out_root / f"session-{slug}"
+    if slug.startswith("session-") or slug.startswith("run-"):
+        bundle_dir = out_root / slug
+    else:
+        bundle_dir = out_root / f"session-{slug}"
     if bundle_dir.exists():
         return _die(f"output directory already exists: {bundle_dir}")
 
@@ -351,7 +366,7 @@ def create_bundle(
         len(stage_specs) == 1
         and not any(st in ("portfolio", "search-field", "comparison") for _, _, st in stage_specs)
     )
-
+    has_comparison_stage = any(st == "comparison" for _, _, st in stage_specs)
     for label, run_dir, stage_type in stage_specs:
         allowlisted_files = [
             f for f in sorted(run_dir.iterdir())
@@ -371,9 +386,10 @@ def create_bundle(
             has_dev = any(f.name.startswith("development") and f.name.endswith(".json") and "meta" not in f.name for f in allowlisted_files)
             if not has_dev:
                 return _die(f"stage {label}: missing required development.json in {run_dir}")
-            has_rev = any((f.name.startswith("deep-review") or f.name == "review.json") and f.name.endswith(".json") and "meta" not in f.name for f in allowlisted_files)
-            if not has_rev:
-                return _die(f"stage {label}: missing required review.json in {run_dir}")
+            if not has_comparison_stage:
+                has_rev = any((f.name.startswith("deep-review") or f.name == "review.json") and f.name.endswith(".json") and "meta" not in f.name for f in allowlisted_files)
+                if not has_rev:
+                    return _die(f"stage {label}: missing required review.json in {run_dir}")
         elif stage_type == "search-field":
             has_sf = any(f.name.startswith("search-field") and f.name.endswith(".json") and "meta" not in f.name for f in allowlisted_files)
             if not has_sf:
@@ -436,6 +452,22 @@ def create_bundle(
                         )
             except (json.JSONDecodeError, OSError):
                 pass
+        if stage_type == "comparison":
+            for c_name in ("comparison-review-v1.json", "comparison-review.json", "review.json"):
+                c_path = run_dir / c_name
+                if c_path.exists():
+                    try:
+                        c_data = json.loads(c_path.read_text(encoding="utf-8"))
+                        if isinstance(c_data, dict):
+                            c_comp = c_data.get("comparison") if isinstance(c_data.get("comparison"), dict) else c_data
+                            pref = c_comp.get("current_preference")
+                            if pref and pref not in ("LEFT", "RIGHT", "CONDITIONAL", "UNRESOLVED"):
+                                return _die(
+                                    f"stage {label}: invalid current_preference {pref!r}. "
+                                    f"Must be one of LEFT, RIGHT, CONDITIONAL, UNRESOLVED"
+                                )
+                    except (json.JSONDecodeError, OSError):
+                        pass
 
         # AUTO selection validation: when bundling selection.json with schema_version == "pizm-auto-selection-v1"
         if stage_type == "explore":
@@ -487,13 +519,20 @@ def create_bundle(
 
     # --- All validation passed, create bundle atomically ---
     temp_dir = None
-    final_path = out_root / f"session-{slug}"
+    if slug.startswith("session-") or slug.startswith("run-"):
+        final_path = out_root / slug
+    else:
+        final_path = out_root / f"session-{slug}"
     reserved_final = False
     try:
         temp_dir = tempfile.mkdtemp(prefix=".pizm-bundle-", dir=str(out_root))
         bundle_dir = Path(temp_dir)
 
         (bundle_dir / "inputs").mkdir()
+
+        # Determine Pizm version
+        version_file = skill_path / "VERSION"
+        rec_pizm_version = pizm_version or (version_file.read_text(encoding="utf-8").strip() if version_file.is_file() else "2026.09.09.1")
 
         manifest = {
             "schema_version": _SCHEMA_VERSION,
@@ -504,13 +543,32 @@ def create_bundle(
             "skill_hash": _compute_skill_hash(skill_path),
         }
 
+        if evidence_kind == "live":
+            manifest["pizm_version"] = rec_pizm_version
+            manifest["provider"] = provider if provider else "UNKNOWN"
+            manifest["model"] = model if model else "UNKNOWN"
+            if model_source:
+                manifest["model_source"] = model_source
+            elif model:
+                manifest["model_source"] = "EXPLICIT_OVERRIDE"
+            else:
+                manifest["model_source"] = "UNKNOWN"
+        else:
+            if pizm_version or version_file.is_file():
+                manifest["pizm_version"] = rec_pizm_version
+            if provider:
+                manifest["provider"] = provider
+            if model:
+                manifest["model"] = model
+            if model_source:
+                manifest["model_source"] = model_source
+
         if harness:
             manifest["harness"] = harness
-        if model:
-            manifest["model"] = model
         if repo_commit:
             manifest["repo_commit"] = repo_commit
-
+        if subject_slug:
+            manifest["subject_slug"] = subject_slug
         # Copy allowlisted stage files
         stage_labels = []
         artifacts = {}  # relative path -> sha256
@@ -1084,13 +1142,16 @@ def _validate_target_consistency(auto_target: dict, development: dict, review: d
             f"{dev_target!r} does not match portfolio auto_target "
             f"{auto_target!r}"
         )
+    rev_target = review.get("target") if isinstance(review.get("target"), dict) else {}
+    rev_type = review.get("target_type") or rev_target.get("target_type")
+    rev_id = review.get("target_id") or rev_target.get("target_id")
     if (
-        review.get("target_type") != auto_target["target_type"]
-        or review.get("target_id") != auto_target["target_id"]
+        rev_type != auto_target["target_type"]
+        or rev_id != auto_target["target_id"]
     ):
         raise ValueError(
             "TARGET_MISMATCH: deep-review-v2.json target "
-            f"({review.get('target_type')!r}, {review.get('target_id')!r}) does not "
+            f"({rev_type!r}, {rev_id!r}) does not "
             f"match portfolio auto_target {auto_target!r}"
         )
 
@@ -1576,6 +1637,9 @@ def _render_final_section(auto_target: dict, development: dict, review: dict,
     lines.append(f"- Selected: {heading[len('### '):]}")
     terminal = review.get("terminal_state")
     lines.append(f"- Terminal state: {terminal}")
+    rat = review.get("verdict_rationale")
+    if rat:
+        lines.append(f"- Verdict rationale: {rat}")
     if lever_review is not None:
         outcome = lever_review.get("outcome")
         accepted = sum(
@@ -1898,12 +1962,15 @@ def _render_forge_final_section(
         lines.append(f"- Current preference: {pref}")
         lines.append(f"- Competition axis: {comp.get('competition_axis', '')}")
         lines.append(f"- Discriminating observation: {comp.get('discriminating_observation', '')}")
+        if comp.get("what_would_change_the_decision"):
+            lines.append(f"- What would change the decision: {comp.get('what_would_change_the_decision')}")
     else:
         lines.append("- Outcome: NO_SECOND_DEFENSIBLE_BUNDLE")
         lines.append("- Compare stage skipped")
         if single_review:
             lines.append(f"- Terminal state: {single_review.get('terminal_state', '')}")
-
+            if single_review.get("verdict_rationale"):
+                lines.append(f"- Verdict rationale: {single_review.get('verdict_rationale')}")
     if lever_review is not None:
         outcome = lever_review.get("outcome")
         accepted = sum(
@@ -2396,6 +2463,11 @@ def main() -> int:
     )
     cp.add_argument("--harness", default=None, help="Harness identifier")
     cp.add_argument("--model", default=None, help="Model identifier")
+    cp.add_argument("--provider", default=None, help="Model provider identifier")
+    cp.add_argument("--model-source", default=None, help="Model source: HOST_RUNTIME | EXPLICIT_OVERRIDE | UNKNOWN")
+    cp.add_argument("--subject", default=None, help="Subject description or label")
+    cp.add_argument("--subject-slug", default=None, help="Deterministic ASCII subject slug")
+    cp.add_argument("--pizm-version", default=None, help="Pizm version override")
     cp.add_argument("--repo-commit", default=None, help="Repository commit hash")
     cp.add_argument(
         "--accounting",
@@ -2467,7 +2539,8 @@ def main() -> int:
     args = parser.parse_args()
 
     if args.command == "create":
-        slug = args.slug if args.slug else _generate_slug()
+        sub_slug = args.subject_slug or (pizm_run_state.slugify_subject(args.subject) if args.subject else None)
+        slug = args.slug if args.slug else (pizm_run_state.generate_run_id(sub_slug) if sub_slug else _generate_slug())
         return create_bundle(
             output_root=args.output_root,
             slug=slug,
@@ -2477,9 +2550,13 @@ def main() -> int:
             stages=args.stages,
             harness=args.harness or "",
             model=args.model or "",
+            provider=args.provider or "",
+            model_source=args.model_source or "",
             repo_commit=args.repo_commit or "",
             evidence_kind=args.evidence_kind,
             accounting=args.accounting,
+            subject_slug=sub_slug,
+            pizm_version=args.pizm_version,
         )
 
     if args.command == "render":

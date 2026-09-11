@@ -14,6 +14,11 @@ import re
 import sys
 from pathlib import Path
 
+_BIN_DIR = str(Path(__file__).resolve().parent)
+if _BIN_DIR not in sys.path:
+    sys.path.insert(0, _BIN_DIR)
+import pizm_run_state
+
 _BUNDLE = None
 
 _TOKEN_KEYS = (
@@ -92,7 +97,9 @@ def _bundle():
         _BUNDLE = sys.modules[name]
         return _BUNDLE
     path = Path(__file__).resolve().parent / "pizm-session-bundle"
-    spec = importlib.util.spec_from_file_location(name, path)
+    from importlib.machinery import SourceFileLoader
+    loader = SourceFileLoader(name, str(path))
+    spec = importlib.util.spec_from_file_location(name, str(path), loader=loader)
     if spec is None or spec.loader is None:
         raise RuntimeError(f"cannot import loaders from {path}")
     mod = importlib.util.module_from_spec(spec)
@@ -335,63 +342,22 @@ def _load_run(run_dir: Path) -> dict:
     if not passes and portfolio is None and not developments and not reviews:
         raise ValueError("no stage artifacts to render")
 
-    has_search = bool(passes)
-    has_port = portfolio is not None
-    has_dev = bool(developments)
-    has_review = bool(reviews)
-
-    next_move = portfolio.get("next_reasoning_move") if isinstance(portfolio, dict) else None
-    is_intentional_terminal = (
-        isinstance(portfolio, dict)
-        and portfolio.get("route") == "AUTO"
-        and next_move in ("GATHER_INFORMATION", "PRESERVE_ONLY")
+    run_state = pizm_run_state.resolve_run_state(
+        portfolio=portfolio,
+        developments=developments,
+        reviews=reviews,
+        comparison=comparison,
+        lever_design=lever_design,
+        lever_review=lever_review,
+        passes=passes,
+        manifest=manifest,
     )
-
-    if has_review:
-        missing_next = None
-        complete = True
-    elif is_intentional_terminal:
-        missing_next = None
-        complete = True
-    elif has_dev:
-        missing_next = "Critic"
-        complete = False
-    elif has_port:
-        missing_next = "Deep"
-        complete = False
-    elif has_search:
-        missing_next = "Portfolio"
-        complete = False
-    else:
-        missing_next = "Search"
-        complete = False
-
-    route = None
-    if isinstance(portfolio, dict):
-        route = portfolio.get("route")
-    if isinstance(route, str) and route.strip():
-        route_s = route.strip()
-        if route_s == "FORGE":
-            route_s = "BONK"
-    else:
-        route_s = "unknown"
-    header_shape = route_s if complete else f"{route_s} · incomplete"
-
-    auto_target = None
-    if isinstance(portfolio, dict):
-        raw_t = portfolio.get("auto_target")
-        if isinstance(raw_t, dict) and raw_t.get("target_id"):
-            auto_target = raw_t
-
-    terminal_state = None
-    if is_intentional_terminal:
-        terminal_state = next_move
-    else:
-        for _n, rev in reviews:
-            ts = rev.get("terminal_state")
-            if isinstance(ts, str) and ts.strip():
-                terminal_state = ts.strip()
-                break
+    complete = run_state.is_complete
+    missing_next = run_state.missing_next
+    route_s = run_state.route
+    header_shape = run_state.header_shape
+    auto_target = run_state.auto_target
+    terminal_state = run_state.semantic_outcome
     metas = []
     timestamps = []
     run_ids = []
@@ -408,16 +374,27 @@ def _load_run(run_dir: Path) -> dict:
             if isinstance(rid, str) and rid.strip():
                 run_ids.append(rid.strip())
 
+    if not run_ids and isinstance(manifest, dict):
+        m_rid = manifest.get("run_id") or manifest.get("slug")
+        if isinstance(m_rid, str) and m_rid.strip():
+            run_ids.append(m_rid.strip())
+
     dirname = run_dir.name
     fallback_id = dirname[4:] if dirname.startswith("run-") else dirname
     run_id = run_ids[0] if run_ids else fallback_id
     timestamp = sorted(timestamps)[0] if timestamps else None
 
-    model = harness = commit = skill_hash = None
+    model = harness = commit = skill_hash = provider = model_source = pizm_version = None
     accounting = None
     if isinstance(manifest, dict):
         if isinstance(manifest.get("model"), str) and manifest["model"].strip():
             model = manifest["model"].strip()
+        if isinstance(manifest.get("provider"), str) and manifest["provider"].strip():
+            provider = manifest["provider"].strip()
+        if isinstance(manifest.get("model_source"), str) and manifest["model_source"].strip():
+            model_source = manifest["model_source"].strip()
+        if isinstance(manifest.get("pizm_version"), str) and manifest["pizm_version"].strip():
+            pizm_version = manifest["pizm_version"].strip()
         if isinstance(manifest.get("harness"), str) and manifest["harness"].strip():
             harness = manifest["harness"].strip()
         for key in ("repo_commit", "commit"):
@@ -431,7 +408,6 @@ def _load_run(run_dir: Path) -> dict:
         acc = manifest.get("accounting")
         if isinstance(acc, dict):
             accounting = acc
-
     hashes = []
     for name in loaded_names:
         if name.endswith(".json") and name != "manifest.json":
@@ -466,10 +442,13 @@ def _load_run(run_dir: Path) -> dict:
         "run_id": run_id,
         "timestamp": timestamp,
         "model": model,
+        "provider": provider,
+        "model_source": model_source,
+        "pizm_version": pizm_version,
+        "run_state": run_state,
         "harness": harness,
         "commit": commit,
         "skill_hash": skill_hash,
-        "metas": metas,
         "hashes": hashes,
         "loaded_names": loaded_names,
     }
@@ -512,6 +491,25 @@ def _missing_stage(stage_id: str, title: str, reason: str) -> str:
 
 def _render_header(view) -> str:
     term = view["terminal_state"] or "not reached"
+    model_str = view.get("model")
+    prov_str = view.get("provider")
+    if model_str and prov_str:
+        model_display = f"{model_str} / {prov_str}"
+    elif model_str:
+        model_display = model_str
+    elif prov_str:
+        model_display = prov_str
+    elif view.get("manifest") and ("model" in view["manifest"] or "provider" in view["manifest"]):
+        model_display = "unknown"
+    else:
+        model_display = "not recorded (legacy)"
+
+    pizm_ver = view.get("pizm_version")
+    if not pizm_ver and view.get("manifest"):
+        pizm_ver = view["manifest"].get("pizm_version")
+    if not pizm_ver:
+        pizm_ver = "not recorded (legacy)"
+
     rows = [
         ("Route / shape", _e(view["header_shape"])),
         ("Run ID", f'<span class="tech">{_e(view["run_id"])}</span>'),
@@ -519,7 +517,8 @@ def _render_header(view) -> str:
             "Timestamp",
             _e(view["timestamp"]) if view["timestamp"] else _e("not recorded"),
         ),
-        ("Model / provider", _e(view["model"] or "not recorded")),
+        ("Model / provider", _e(model_display)),
+        ("Pizm version", _e(pizm_ver)),
         ("Terminal state", f'<span class="state">{_e(term)}</span>'),
     ]
     return (
@@ -536,6 +535,11 @@ def _render_summary(view) -> str:
     term = view["terminal_state"] or "not reached"
     if at:
         selected = f"{at.get('target_type', '')} {at.get('target_id', '')}".strip()
+    elif view.get("comparison") is not None:
+        comp_name, comp_data = view["comparison"]
+        left_id = comp_data.get("left_target_id") or "Left"
+        right_id = comp_data.get("right_target_id") or "Right"
+        selected = f"Comparison ({left_id} vs {right_id})"
     elif term in ("GATHER_INFORMATION", "PRESERVE_ONLY"):
         selected = f"none ({term})"
     else:
@@ -1044,6 +1048,42 @@ def _render_critic(view) -> str:
         return _missing_stage("critic", "Critic", reason)
     chunks = ['<section id="critic" class="stage critic"><h2>Critic</h2>']
     before = _developed_target_label(view)
+    if view["comparison"] is not None:
+        comp_name, comp_data = view["comparison"]
+        comp = comp_data.get("comparison") or {}
+        pref = comp.get("current_preference") or "UNRESOLVED"
+        axis = comp.get("competition_axis") or ""
+        disc = comp.get("discriminating_observation") or ""
+        change = comp.get("what_would_change_the_decision") or ""
+        chunks.append("<h3>Comparison review</h3>")
+        chunks.append(f"<p><strong>Current preference:</strong> <span class=\"state\">{_e(pref)}</span></p>")
+        if axis:
+            chunks.append(f"<p><strong>Competition axis:</strong> {_prose(axis)}</p>")
+        if disc:
+            chunks.append(f"<p><strong>Discriminating observation:</strong> {_prose(disc)}</p>")
+        if change:
+            chunks.append(f"<p><strong>What would change the decision:</strong> {_prose(change)}</p>")
+
+        left_rev = comp_data.get("left_review")
+        left_id = comp_data.get("left_target_id") or "Left"
+        if isinstance(left_rev, dict):
+            chunks.append(f"<h4>Review: {left_id}</h4>")
+            chunks.append(_render_one_review(left_rev))
+
+        right_rev = comp_data.get("right_review")
+        right_id = comp_data.get("right_target_id") or "Right"
+        if isinstance(right_rev, dict):
+            chunks.append(f"<h4>Review: {right_id}</h4>")
+            chunks.append(_render_one_review(right_rev))
+
+        chunks.append(
+            '<aside class="gate">'
+            "<h4>Gate transition</h4>"
+            f"<p>Comparison outcome: <span class=\"state\">{_e(pref)}</span></p>"
+            f'<p>Terminal state: <span class="state">{_e(pref)}</span></p>'
+            "</aside>"
+        )
+
     for name, rev in view["reviews"]:
         if len(view["reviews"]) > 1:
             chunks.append(f"<h3>{_e(name)}</h3>")
@@ -1112,16 +1152,6 @@ def _render_final(view) -> str:
             "</div>"
             "</section>\n"
         )
-    at = view["auto_target"] or {}
-    tid = at.get("target_id") or _developed_target_label(view)
-    title = ""
-    for _n, dev in view["developments"]:
-        lock = dev.get("identity_lock") or {}
-        if isinstance(lock, dict) and isinstance(lock.get("title"), str):
-            title = lock["title"].strip()
-            if title:
-                break
-    selected = f"{tid}" + (f" — {title}" if title else "")
     term = view["terminal_state"] or "not recorded"
     if term in ("GATHER_INFORMATION", "PRESERVE_ONLY"):
         chunks = [
@@ -1159,6 +1189,43 @@ def _render_final(view) -> str:
         chunks.append("</section>\n")
         return "\n".join(chunks)
 
+    # Check if this is a comparison review BONK run
+    if view.get("comparison") is not None:
+        comp_name, comp_data = view["comparison"]
+        comp = comp_data.get("comparison") or {}
+        pref = comp.get("current_preference") or "UNRESOLVED"
+        axis = comp.get("competition_axis") or ""
+        disc = comp.get("discriminating_observation") or ""
+        change = comp.get("what_would_change_the_decision") or ""
+        chunks = [
+            '<section id="final" class="stage final"><h2>Final result</h2>',
+            f'<p><strong>Current preference:</strong> <span class="state">{_e(pref)}</span></p>',
+            f'<p><strong>Terminal state:</strong> <span class="state">{_e(pref)}</span></p>',
+        ]
+        if axis:
+            chunks.append(f"<p><strong>Competition axis:</strong> {_prose(axis)}</p>")
+        if disc:
+            chunks.append(f"<p><strong>Discriminating observation:</strong> {_prose(disc)}</p>")
+        if change:
+            chunks.append(f"<p><strong>What would change the decision:</strong> {_prose(change)}</p>")
+        if view["lever_review"] is not None:
+            outcome = view["lever_review"].get("outcome")
+            chunks.append(f"<p><strong>Lever:</strong> {_e(outcome)}</p>")
+        else:
+            chunks.append("<p><strong>Lever:</strong> not present</p>")
+        chunks.append("</section>\n")
+        return "\n".join(chunks)
+
+    at = view["auto_target"] or {}
+    tid = at.get("target_id") or _developed_target_label(view)
+    title = ""
+    for _n, dev in view["developments"]:
+        lock = dev.get("identity_lock") or {}
+        if isinstance(lock, dict) and isinstance(lock.get("title"), str):
+            title = lock["title"].strip()
+            if title:
+                break
+    selected = f"{tid}" + (f" — {title}" if title else "")
     chunks = [
         '<section id="final" class="stage final"><h2>Final result</h2>',
         f"<p><strong>Selected:</strong> {_e(selected)}</p>",
@@ -1169,6 +1236,12 @@ def _render_final(view) -> str:
         chunks.append(f"<p><strong>Lever:</strong> {_e(outcome)}</p>")
     else:
         chunks.append("<p><strong>Lever:</strong> not present</p>")
+
+    for _n, rev in view["reviews"]:
+        rat = rev.get("verdict_rationale")
+        if isinstance(rat, str) and rat.strip():
+            chunks.append(f"<p><strong>Verdict rationale:</strong> {_prose(rat)}</p>")
+            break
 
     if term in ("NEED_EVIDENCE", "RETURN_TO_EXPLORE"):
         chunks.append(
@@ -1198,8 +1271,6 @@ def _render_final(view) -> str:
         )
     chunks.append("</section>\n")
     return "\n".join(chunks)
-
-
 def _render_economics(view) -> str:
     acc = view["accounting"]
     if acc is None:
