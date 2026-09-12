@@ -22,6 +22,7 @@ HELPERS = [
     "pizm-session-bundle",
     "pizm-reader-server",
     "pizm_render_html.py",
+    "pizm_run_state.py",
 ]
 
 
