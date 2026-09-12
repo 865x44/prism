@@ -312,7 +312,13 @@ def valid_review_v2(**overrides):
         "independent_countermodel": "Senior adoption reflects network effects, not compensation.",
         "load_bearing_reassessment": [
             {"claim": "Portal adoption is driven by tacit-knowledge gaps",
-             "critic_epistemic_status": "INFERRED"},
+             "critic_epistemic_status": "INFERRED",
+             "use_site_warrant": {
+                 "source_says": "Census claim states tacit-knowledge gaps drive adoption.",
+                 "model_added": "Gap-to-adoption causal link beyond the observed correlation.",
+                 "warrant": "Turnover-adoption co-movement across roles in the frozen record.",
+                 "residue": "Adoption correlates with tacit-knowledge gaps; causation pending hire interviews.",
+             }},
             {"claim": "Compensatory onboarding will persist while turnover stays high",
              "critic_epistemic_status": "SPECULATIVE"},
         ],
@@ -543,7 +549,13 @@ class TestCriticIndependence:
         review = valid_review_v2(
             load_bearing_reassessment=[
                 {"claim": "Portal adoption is driven by tacit-knowledge gaps",
-                 "critic_epistemic_status": "SPECULATIVE"},
+                 "critic_epistemic_status": "SPECULATIVE",
+                 "use_site_warrant": {
+                     "source_says": "Census claim states tacit-knowledge gaps drive adoption.",
+                     "model_added": "Gap-to-adoption causal link beyond the observed correlation.",
+                     "warrant": "NONE in plain words: the record shows co-movement only.",
+                     "residue": "Adoption correlates with tacit-knowledge gaps; causation pending hire interviews.",
+                 }},
             ],
             terminal_state="NEED_EVIDENCE",
             evidence_debt=["Interview recent hires to test the tacit-knowledge gap claim."],
@@ -636,6 +648,188 @@ class TestPayloadCeiling:
         assert not (run_dir / "development-v2.meta.json").exists()
 
 
+def warrant_entry(claim="Bridge claim", status="SPECULATIVE", **fields):
+    base = {
+        "source_says": "Anchored source statement from the frozen record.",
+        "model_added": "Causal step beyond the source.",
+        "warrant": "NONE in plain words: no grounding in the record.",
+        "residue": "Narrowed observation stands without the step.",
+    }
+    base.update(fields)
+    return {
+        "claim": claim,
+        "critic_epistemic_status": status,
+        "use_site_warrant": base,
+    }
+
+
+# ---------------------------------------------------------------------------
+# 7b. Use-site warrant (§3b) — contract text and freeze enforcement
+# ---------------------------------------------------------------------------
+
+
+class TestUseSiteWarrantContract:
+    def test_warrant_section_present(self, reviewer_text):
+        assert "### 3b. USE-SITE WARRANT" in reviewer_text
+        assert "max 3 per review" in reviewer_text
+
+    def test_selection_precedes_reassessment(self, reviewer_text):
+        assert "Selection precedes reassessment" in reviewer_text
+
+    def test_consequential_definition(self, reviewer_text):
+        assert "Consequential means" in reviewer_text
+        assert "surviving identity/thesis" in reviewer_text
+
+    def test_cap_is_budget_not_criterion(self, reviewer_text):
+        assert "reviewer budget, NOT a readiness criterion" in reviewer_text
+        assert "never suppresses a blocker" in reviewer_text
+
+    def test_bridge_cues_recognition_only(self, reviewer_text):
+        assert "similarity→same mechanism" in reviewer_text
+        assert "predicted gain→observed evidence" in reviewer_text
+        assert "procedure specified→procedure effective" in reviewer_text
+
+    def test_anti_laundering_rule(self, reviewer_text):
+        assert "Anti-laundering rule" in reviewer_text
+        assert "until independently grounded" in reviewer_text
+
+    def test_no_direct_support_discharge(self, reviewer_text):
+        assert "NO direct-support discharge rule" in reviewer_text
+        assert "one table must audit that bridge" in reviewer_text
+
+    def test_warrant_none_decision_rule(self, reviewer_text):
+        assert "WARRANT: NONE" in reviewer_text
+        assert "incompatible with a final status" in reviewer_text
+        assert "no automatic one-step demotion" in reviewer_text
+        assert "existing B1 rule" in reviewer_text
+
+    def test_rationale_built_from_residue(self, reviewer_text):
+        assert "built from surviving claims and residue alone" in reviewer_text
+        assert "does not save `MODEL_READY` when the removed bridge was identity-defining" in reviewer_text
+
+    def test_schema_field_name(self, reviewer_text):
+        assert '"use_site_warrant": {"source_says"' in reviewer_text
+
+
+class TestUseSiteWarrantFreeze:
+    def test_present_valid_passes(self, workspace):
+        dev_ref, sha = freeze_dev(workspace, run_id="warrant-ok")
+        review = valid_review_v2(
+            terminal_state="NEED_EVIDENCE",
+            evidence_debt=["Run the diary test to ground the forecast claim."],
+            frozen_hash=sha,
+            target_ref=dev_ref,
+        )
+        result = freeze_review(workspace, review, run_id="warrant-ok")
+        assert result.returncode == 0, result.stderr
+
+    def test_missing_key_fails(self, workspace):
+        dev_ref, sha = freeze_dev(workspace, run_id="warrant-missing-key")
+        review = valid_review_v2(frozen_hash=sha, target_ref=dev_ref)
+        del review["load_bearing_reassessment"][0]["use_site_warrant"]["residue"]
+        result = freeze_review(workspace, review, run_id="warrant-missing-key")
+        assert result.returncode != 0
+        assert "use_site_warrant.residue" in result.stderr
+
+    def test_empty_string_fails(self, workspace):
+        dev_ref, sha = freeze_dev(workspace, run_id="warrant-empty")
+        review = valid_review_v2(frozen_hash=sha, target_ref=dev_ref)
+        review["load_bearing_reassessment"][0]["use_site_warrant"]["warrant"] = "  "
+        result = freeze_review(workspace, review, run_id="warrant-empty")
+        assert result.returncode != 0
+        assert "use_site_warrant.warrant" in result.stderr
+
+    def test_non_object_warrant_fails(self, workspace):
+        dev_ref, sha = freeze_dev(workspace, run_id="warrant-nonobject")
+        review = valid_review_v2(frozen_hash=sha, target_ref=dev_ref)
+        review["load_bearing_reassessment"][0]["use_site_warrant"] = "none"
+        result = freeze_review(workspace, review, run_id="warrant-nonobject")
+        assert result.returncode != 0
+        assert "use_site_warrant" in result.stderr
+
+    def test_zero_warrants_fail_on_freeze(self, workspace):
+        """ANTI-SKIP: a review with no warrant object is rejected on the freeze path."""
+        dev_ref, sha = freeze_dev(workspace, run_id="warrant-zero")
+        review = valid_review_v2(frozen_hash=sha, target_ref=dev_ref)
+        for entry in review["load_bearing_reassessment"]:
+            entry.pop("use_site_warrant", None)
+        result = freeze_review(workspace, review, run_id="warrant-zero")
+        assert result.returncode != 0
+        assert "ANTI-SKIP" in result.stderr
+
+    def test_more_than_three_warrants_fail(self, workspace):
+        dev_ref, sha = freeze_dev(workspace, run_id="warrant-four")
+        review = valid_review_v2(
+            load_bearing_reassessment=[warrant_entry(f"Bridge {i}") for i in range(4)],
+            terminal_state="NEED_EVIDENCE",
+            evidence_debt=["Ground each bridge before release."],
+            frozen_hash=sha,
+            target_ref=dev_ref,
+        )
+        result = freeze_review(workspace, review, run_id="warrant-four")
+        assert result.returncode != 0
+        assert "ANTI-SKIP" in result.stderr
+
+    def test_three_warrants_pass(self, workspace):
+        dev_ref, sha = freeze_dev(workspace, run_id="warrant-three")
+        review = valid_review_v2(
+            load_bearing_reassessment=[warrant_entry(f"Bridge {i}") for i in range(3)],
+            terminal_state="NEED_EVIDENCE",
+            evidence_debt=["Ground each bridge before release."],
+            frozen_hash=sha,
+            target_ref=dev_ref,
+        )
+        result = freeze_review(workspace, review, run_id="warrant-three")
+        assert result.returncode == 0, result.stderr
+
+    def test_demoted_with_table_passes(self, workspace):
+        """A demoted claim with an honest table passes: no auto validator coupling."""
+        dev_ref, sha = freeze_dev(workspace, run_id="warrant-demoted")
+        review = valid_review_v2(
+            load_bearing_reassessment=[warrant_entry(status="SPECULATIVE")],
+            terminal_state="NEED_EVIDENCE",
+            evidence_debt=["Interview recent hires to test the tacit-knowledge gap claim."],
+            frozen_hash=sha,
+            target_ref=dev_ref,
+        )
+        result = freeze_review(workspace, review, run_id="warrant-demoted")
+        assert result.returncode == 0, result.stderr
+
+    def test_anti_skip_favorable_verdict(self, workspace):
+        """The audit cannot be skipped even when every claim stays SUPPORTED."""
+        dev_ref, sha = freeze_dev(workspace, run_id="warrant-skip-ready")
+        review = valid_review_v2(
+            load_bearing_reassessment=[
+                {"claim": "Direct restatement one", "critic_epistemic_status": "SUPPORTED"},
+                {"claim": "Direct restatement two", "critic_epistemic_status": "SUPPORTED"},
+            ],
+            terminal_state="MODEL_READY",
+            frozen_hash=sha,
+            target_ref=dev_ref,
+        )
+        result = freeze_review(workspace, review, run_id="warrant-skip-ready")
+        assert result.returncode != 0
+        assert "ANTI-SKIP" in result.stderr
+
+    def test_direct_support_convention(self, workspace):
+        """MODEL ADDED NONE with a named direct anchor keeps SUPPORTED and passes shape."""
+        dev_ref, sha = freeze_dev(workspace, run_id="warrant-direct")
+        review = valid_review_v2(
+            load_bearing_reassessment=[
+                warrant_entry(
+                    claim="Portal adoption is driven by tacit-knowledge gaps",
+                    status="SUPPORTED",
+                    model_added="NONE — direct restatement",
+                    warrant="Directly supported by candidates-pass01.json c04 anchor",
+                )
+            ],
+            terminal_state="MODEL_READY",
+            frozen_hash=sha,
+            target_ref=dev_ref,
+        )
+        result = freeze_review(workspace, review, run_id="warrant-direct")
+        assert result.returncode == 0, result.stderr
+
 # ---------------------------------------------------------------------------
 # 8. Old stages still validate (regression through old path)
 # ---------------------------------------------------------------------------
@@ -708,7 +902,13 @@ class TestCriticB1ToB4ReadinessCouplings:
                 },
             },
             load_bearing_reassessment=[
-                {"claim": "Tacit knowledge gap is primary driver", "critic_epistemic_status": "SPECULATIVE"}
+                {"claim": "Tacit knowledge gap is primary driver", "critic_epistemic_status": "SPECULATIVE",
+                 "use_site_warrant": {
+                     "source_says": "Census claim states the tacit-knowledge gap drives adoption.",
+                     "model_added": "Gap-to-adoption causal link beyond the observed correlation.",
+                     "warrant": "NONE in plain words: the record shows co-movement only.",
+                     "residue": "Adoption correlates with tacit-knowledge gaps; causation pending hire interviews.",
+                 }}
             ],
             evidence_debt=["Empirical proof of knowledge gap required"],
         )
@@ -728,7 +928,13 @@ class TestCriticB1ToB4ReadinessCouplings:
                 },
             },
             load_bearing_reassessment=[
-                {"claim": "Tacit knowledge gap is primary driver", "critic_epistemic_status": "SPECULATIVE"}
+                {"claim": "Tacit knowledge gap is primary driver", "critic_epistemic_status": "SPECULATIVE",
+                 "use_site_warrant": {
+                     "source_says": "Census claim states the tacit-knowledge gap drives adoption.",
+                     "model_added": "Gap-to-adoption causal link beyond the observed correlation.",
+                     "warrant": "NONE in plain words: the record shows co-movement only.",
+                     "residue": "Adoption correlates with tacit-knowledge gaps; causation pending hire interviews.",
+                 }}
             ],
             evidence_debt=["Empirical proof of knowledge gap required"],
         )
@@ -877,8 +1083,20 @@ class TestCriticB1ToB4ReadinessCouplings:
             },
             load_bearing_reassessment=[
                 {"claim": "Author experienced night without choice forks", "critic_epistemic_status": "SUPPORTED"},
-                {"claim": "Self-report codes night as repetition", "critic_epistemic_status": "SPECULATIVE"},
-                {"claim": "7 AM debrief functions to close loop", "critic_epistemic_status": "SPECULATIVE"},
+                {"claim": "Self-report codes night as repetition", "critic_epistemic_status": "SPECULATIVE",
+                 "use_site_warrant": {
+                     "source_says": "Self-report describes the night as repetition.",
+                     "model_added": "Repetition-as-coding-function beyond the bare report.",
+                     "warrant": "NONE in plain words: no independent coding evidence in the record.",
+                     "residue": "The night is reported as repetitive; the coding function is ungrounded.",
+                 }},
+                {"claim": "7 AM debrief functions to close loop", "critic_epistemic_status": "SPECULATIVE",
+                 "use_site_warrant": {
+                     "source_says": "A 7 AM debrief entry exists in the record.",
+                     "model_added": "Loop-closing function of the debrief.",
+                     "warrant": "NONE in plain words: function inferred from timing alone.",
+                     "residue": "The debrief occurred; its loop-closing role is ungrounded.",
+                 }},
                 {"claim": "Explanatory frame relocates guilt", "critic_epistemic_status": "SPECULATIVE"},
             ],
             independent_countermodel="Chronological fatigue inertia without recursive orbit.",
@@ -904,8 +1122,20 @@ class TestCriticB1ToB4ReadinessCouplings:
             },
             load_bearing_reassessment=[
                 {"claim": "Author experienced night without choice forks", "critic_epistemic_status": "SUPPORTED"},
-                {"claim": "Self-report codes night as repetition", "critic_epistemic_status": "SPECULATIVE"},
-                {"claim": "7 AM debrief functions to close loop", "critic_epistemic_status": "SPECULATIVE"},
+                {"claim": "Self-report codes night as repetition", "critic_epistemic_status": "SPECULATIVE",
+                 "use_site_warrant": {
+                     "source_says": "Self-report describes the night as repetition.",
+                     "model_added": "Repetition-as-coding-function beyond the bare report.",
+                     "warrant": "NONE in plain words: no independent coding evidence in the record.",
+                     "residue": "The night is reported as repetitive; the coding function is ungrounded.",
+                 }},
+                {"claim": "7 AM debrief functions to close loop", "critic_epistemic_status": "SPECULATIVE",
+                 "use_site_warrant": {
+                     "source_says": "A 7 AM debrief entry exists in the record.",
+                     "model_added": "Loop-closing function of the debrief.",
+                     "warrant": "NONE in plain words: function inferred from timing alone.",
+                     "residue": "The debrief occurred; its loop-closing role is ungrounded.",
+                 }},
                 {"claim": "Explanatory frame relocates guilt", "critic_epistemic_status": "SPECULATIVE"},
             ],
             independent_countermodel="Chronological fatigue inertia without recursive orbit.",

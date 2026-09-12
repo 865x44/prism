@@ -1744,3 +1744,126 @@ def test_render_html_with_ensure_reader_canonical_e2e(tmp_path):
             assert resp.headers.get("Cache-Control") == "no-store"
     finally:
         subprocess.run([sys.executable, reader_cli, "stop", "--port", str(free_port), "--root", str(pizm_root)], capture_output=True)
+
+
+# ---------------------------------------------------------------------------
+# GATE1-REPAIR: live-path subject-slug named records
+# ---------------------------------------------------------------------------
+
+
+def _g1_subject_run(root: Path) -> Path:
+    root.mkdir(parents=True, exist_ok=True)
+    cand = {
+        "schema_version": "pizm-candidates-v1",
+        "stage": "explore",
+        "mode": "NORMAL",
+        "candidates": [
+            {
+                "candidate_id": "c01",
+                "title": "C1",
+                "semantic_core": {"claim": "c", "structural_shift": "s", "mechanism": "m", "grounding_anchor": "a", "what_becomes_visible": "v", "boundary": "b"},
+                "epistemics": {"supported": ["s"], "inferred": [], "speculative": [], "unknown": []},
+            }
+        ],
+    }
+    c_bytes = json.dumps(cand).encode("utf-8")
+    (root / "candidates-pass01.json").write_bytes(c_bytes)
+    (root / "candidates-pass01.sha256").write_text(_sha256_hex(c_bytes))
+    port = {
+        "schema_version": "pizm-portfolio-selection-v1",
+        "stage": "portfolio",
+        "route": "AUTO",
+        "field_hash": _sha256_hex(c_bytes),
+        "candidate_assessments": [
+            {
+                "candidate_ref": "pass01:c01",
+                "disposition": "KEEP",
+                "standalone_quality": "strong",
+                "unique_residue": "Residue 1",
+                "nearest_overlap": None,
+                "reason": "Grounded",
+            }
+        ],
+        "bundles": [],
+        "next_reasoning_move": "GATHER_INFORMATION",
+        "next_reasoning_rationale": "Missing specific customer latency targets.",
+        "auto_target": None,
+        "information_request": {
+            "mode": "USER_QUESTION",
+            "missing_information": "Target latency SLA",
+            "why_it_changes_route": "Determines whether caching or sharding is required",
+            "questions": ["What is the target latency SLA?"],
+            "suggested_observation": None,
+        },
+        "rival_shadow": None,
+    }
+    p_bytes = json.dumps(port).encode("utf-8")
+    (root / "portfolio.json").write_bytes(p_bytes)
+    (root / "portfolio.sha256").write_text(_sha256_hex(p_bytes))
+    return root
+
+
+def test_g1_render_subject_slug_named_markdown_default(tmp_path):
+    run_dir = _g1_subject_run(tmp_path / "run-naming-md")
+    res = run_bundle("render", "--run-dir", str(run_dir), "--task", "Naming task", "--subject-slug", "Evo WTF Pikabu")
+    assert res.returncode == 0, res.stderr
+    assert (run_dir / "run-evo-wtf-pikabu.md").is_file()
+    assert not (run_dir / "run.md").exists()
+    custom = run_dir / "custom.md"
+    res = run_bundle("render", "--run-dir", str(run_dir), "--task", "Naming task", "--subject-slug", "Evo WTF Pikabu", "--output", str(custom))
+    assert res.returncode == 0, res.stderr
+    assert custom.is_file()
+
+
+def test_g1_render_html_subject_slug_named_html_default(tmp_path):
+    run_dir = _g1_subject_run(tmp_path / "run-naming-html")
+    res = run_bundle("render-html", "--run-dir", str(run_dir), "--task", "Naming task", "--subject-slug", "Nerat DTF")
+    assert res.returncode == 0, res.stderr
+    assert (run_dir / "run-nerat-dtf.html").is_file()
+    assert not (run_dir / "run.html").exists()
+
+
+# ---------------------------------------------------------------------------
+# GATE1F-ITER2 D1: host-supplied provider/model composite normalized at capture
+# ---------------------------------------------------------------------------
+
+
+def test_g1f_composite_host_identity_split_in_live_manifest(workspace):
+    """Regression: BONK live path delivered `provider/model` in the model field
+    with provider lost (header `composite / unknown`). Capture must hold them
+    separately. FAILS pre-fix (fields-present-but-conflated must not pass)."""
+    r = run_bundle(
+        "create",
+        "--output-root", str(workspace["output"]),
+        "--slug", "composite-identity",
+        "--skill-root", str(workspace["skill"]),
+        "--stage", f"pass-01-normal={workspace['explore']}",
+        "--stage", f"deep-P1={workspace['deep']}",
+        "--model", "opencode-zen/muse-spark-1.3-test",
+        "--model-source", "HOST_RUNTIME",
+        "--evidence-kind", "live",
+    )
+    assert r.returncode == 0, r.stderr
+    manifest = json.loads((workspace["output"] / "session-composite-identity" / "manifest.json").read_text())
+    assert manifest["model"] == "muse-spark-1.3-test"
+    assert manifest["provider"] == "opencode-zen"
+    assert manifest["model_source"] == "HOST_RUNTIME"
+    assert "/" not in manifest["model"]
+
+
+def test_g1f_separate_identity_fields_untouched(workspace):
+    """Explicitly separate provider/model pass through unchanged."""
+    r = run_bundle(
+        "create",
+        "--output-root", str(workspace["output"]),
+        "--slug", "separate-identity",
+        "--skill-root", str(workspace["skill"]),
+        "--stage", f"pass-01-normal={workspace['explore']}",
+        "--model", "muse-spark-1.3-test",
+        "--provider", "opencode-zen",
+        "--evidence-kind", "live",
+    )
+    assert r.returncode == 0, r.stderr
+    manifest = json.loads((workspace["output"] / "session-separate-identity" / "manifest.json").read_text())
+    assert manifest["model"] == "muse-spark-1.3-test"
+    assert manifest["provider"] == "opencode-zen"

@@ -118,6 +118,23 @@ def _prose(value) -> str:
     return "<br>\n".join(_e(line) for line in text.split("\n"))
 
 
+def _prose_paras(value, lead: str = "") -> str:
+    """Render multi-paragraph prose as separate <p> elements (escape-preserving).
+
+    Splits on blank lines; single newlines inside a paragraph still become
+    <br>. A single-paragraph value renders byte-identically to the legacy
+    single-<p> form. No content is invented or reworded.
+    """
+    text = "" if value is None else str(value)
+    paras = [p for p in re.split(r"\n[ \t]*\n", text) if p.strip()]
+    if len(paras) <= 1:
+        return f"<p>{lead}{_prose(text)}</p>"
+    return "\n".join(
+        f"<p>{lead if i == 0 else ''}{_prose(p.strip())}</p>"
+        for i, p in enumerate(paras)
+    )
+
+
 def _aid(prefix: str, raw: str) -> str:
     slug = re.sub(r"[^A-Za-z0-9_-]+", "-", raw).strip("-")
     if not slug:
@@ -222,7 +239,19 @@ def _is_known_stage_name(name: str) -> bool:
     return any(name.startswith(p) for p in _KNOWN_STAGE_PREFIXES)
 
 
-def _load_run(run_dir: Path) -> dict:
+def _clean_fp(value) -> str | None:
+    """Normalize a bookkeeping metadata value: blank/None -> None, UNKNOWN -> 'unknown'."""
+    if not isinstance(value, str):
+        return None
+    text = value.strip()
+    if not text:
+        return None
+    if text.casefold() == "unknown":
+        return "unknown"
+    return text
+
+
+def _load_run(run_dir: Path, meta_overlay: dict | None = None) -> dict:
     cli = _bundle()
     passes = _load_candidate_passes(cli, run_dir)
     cand_index = {}
@@ -408,6 +437,25 @@ def _load_run(run_dir: Path) -> dict:
         acc = manifest.get("accounting")
         if isinstance(acc, dict):
             accounting = acc
+    overlay = meta_overlay if isinstance(meta_overlay, dict) else {}
+    fp_overlay_keys = {"model", "provider", "model_source", "pizm_version"}
+    fp_explicit = any(k in overlay and overlay[k] is not None for k in fp_overlay_keys)
+    if model is None:
+        model = _clean_fp(overlay.get("model"))
+    if provider is None:
+        provider = _clean_fp(overlay.get("provider"))
+    if model_source is None:
+        model_source = _clean_fp(overlay.get("model_source"))
+    if pizm_version is None:
+        pizm_version = _clean_fp(overlay.get("pizm_version"))
+    # D1: normalize a host-supplied `provider/model` composite (first-`/` split
+    # only; never inferred from prose) so the header holds them separately.
+    # Display-only: frozen artifacts are never rewritten.
+    model, provider = pizm_run_state.split_composite_identity(model, provider)
+    fp_source = fp_explicit or (
+        isinstance(manifest, dict)
+        and ("model" in manifest or "provider" in manifest or "pizm_version" in manifest)
+    )
     hashes = []
     for name in loaded_names:
         if name.endswith(".json") and name != "manifest.json":
@@ -445,6 +493,7 @@ def _load_run(run_dir: Path) -> dict:
         "provider": provider,
         "model_source": model_source,
         "pizm_version": pizm_version,
+        "fp_source": fp_source,
         "run_state": run_state,
         "harness": harness,
         "commit": commit,
@@ -493,13 +542,13 @@ def _render_header(view) -> str:
     term = view["terminal_state"] or "not reached"
     model_str = view.get("model")
     prov_str = view.get("provider")
-    if model_str and prov_str:
+    if model_str and prov_str and model_str != prov_str:
         model_display = f"{model_str} / {prov_str}"
     elif model_str:
         model_display = model_str
     elif prov_str:
         model_display = prov_str
-    elif view.get("manifest") and ("model" in view["manifest"] or "provider" in view["manifest"]):
+    elif view.get("fp_source"):
         model_display = "unknown"
     else:
         model_display = "not recorded (legacy)"
@@ -508,7 +557,7 @@ def _render_header(view) -> str:
     if not pizm_ver and view.get("manifest"):
         pizm_ver = view["manifest"].get("pizm_version")
     if not pizm_ver:
-        pizm_ver = "not recorded (legacy)"
+        pizm_ver = "unknown" if view.get("fp_source") else "not recorded (legacy)"
 
     rows = [
         ("Route / shape", _e(view["header_shape"])),
@@ -777,7 +826,7 @@ def _render_developed_model(model: dict) -> str:
         bits.append(f"<p><strong>Thesis.</strong> {_prose(thesis)}</p>")
     synthesis = model.get("synthesis")
     if isinstance(synthesis, str) and synthesis.strip():
-        bits.append(f"<p><strong>Synthesis.</strong> {_prose(synthesis)}</p>")
+        bits.append(_prose_paras(synthesis, "<strong>Synthesis.</strong> "))
     chain = [s for s in (model.get("mechanism_chain") or []) if isinstance(s, str)]
     if chain:
         bits.append("<h4>Mechanism / structural chain</h4><ol>")
@@ -902,7 +951,7 @@ def _render_deep(view) -> str:
     return "\n".join(chunks)
 
 
-def _render_one_review(rev: dict) -> str:
+def _render_one_review(rev: dict, scope_id=None) -> str:
     bits = []
     terminal = rev.get("terminal_state")
     verified = rev.get("identity_verified")
@@ -967,13 +1016,14 @@ def _render_one_review(rev: dict) -> str:
             )
         blockers = findings.get("readiness_blockers") or []
         blocker_details = findings.get("readiness_blocker_details") or {}
+        scope = f" (applies to {_e(scope_id)})" if scope_id else ""
         if blockers:
             for b in blockers:
                 detail = blocker_details.get(b, "")
                 if detail:
-                    finding_bits.append(f"<li>Readiness blocker <strong>{_e(b)}</strong>: {_prose(detail)}</li>")
+                    finding_bits.append(f"<li>Readiness blocker <strong>{_e(b)}</strong>: {_prose(detail)}{scope}</li>")
                 else:
-                    finding_bits.append(f"<li>Readiness blocker <strong>{_e(b)}</strong></li>")
+                    finding_bits.append(f"<li>Readiness blocker <strong>{_e(b)}</strong>{scope}</li>")
         for label, field in (
             ("Identity drift", "identity_drift"),
             ("Cost relocation", "cost_relocation"),
@@ -1068,13 +1118,13 @@ def _render_critic(view) -> str:
         left_id = comp_data.get("left_target_id") or "Left"
         if isinstance(left_rev, dict):
             chunks.append(f"<h4>Review: {left_id}</h4>")
-            chunks.append(_render_one_review(left_rev))
+            chunks.append(_render_one_review(left_rev, left_id))
 
         right_rev = comp_data.get("right_review")
         right_id = comp_data.get("right_target_id") or "Right"
         if isinstance(right_rev, dict):
             chunks.append(f"<h4>Review: {right_id}</h4>")
-            chunks.append(_render_one_review(right_rev))
+            chunks.append(_render_one_review(right_rev, right_id))
 
         chunks.append(
             '<aside class="gate">'
@@ -1087,7 +1137,8 @@ def _render_critic(view) -> str:
     for name, rev in view["reviews"]:
         if len(view["reviews"]) > 1:
             chunks.append(f"<h3>{_e(name)}</h3>")
-        chunks.append(_render_one_review(rev))
+        _scope = rev.get("target_id") if isinstance(rev, dict) else None
+        chunks.append(_render_one_review(rev, _scope if isinstance(_scope, str) and _scope.strip() else None))
         verdict = rev.get("terminal_state") or "not recorded"
         chunks.append(
             '<aside class="gate">'
@@ -1237,10 +1288,12 @@ def _render_final(view) -> str:
     else:
         chunks.append("<p><strong>Lever:</strong> not present</p>")
 
+    rationale_shown = False
     for _n, rev in view["reviews"]:
         rat = rev.get("verdict_rationale")
         if isinstance(rat, str) and rat.strip():
             chunks.append(f"<p><strong>Verdict rationale:</strong> {_prose(rat)}</p>")
+            rationale_shown = True
             break
 
     if term in ("NEED_EVIDENCE", "RETURN_TO_EXPLORE"):
@@ -1261,8 +1314,9 @@ def _render_final(view) -> str:
     if final_doc and isinstance(final_doc, dict):
         syn = final_doc.get("synthesis") or final_doc.get("final_answer") or final_doc.get("text")
         if syn:
-            chunks.append(f"<p><strong>Post-Critic synthesis:</strong> {_prose(syn)}</p>")
-    else:
+            chunks.append(_prose_paras(syn, "<strong>Post-Critic synthesis:</strong> "))
+            rationale_shown = True
+    if not rationale_shown:
         chunks.append(
             '<div class="gap-notice">'
             "<strong>W1 content notice:</strong> No dedicated reader-facing post-Critic final synthesis "
@@ -1660,13 +1714,13 @@ def _build_html(view) -> str:
     return "".join(parts)
 
 
-def render_run_html(run_dir_str: str, task, output_path: str) -> int:
+def render_run_html(run_dir_str: str, task, output_path: str, meta_overlay: dict | None = None) -> int:
     cli = _bundle()
     run_dir = Path(run_dir_str)
     if not run_dir.is_dir():
         cli._die(f"run directory does not exist: {run_dir_str}")
 
-    view = _load_run(run_dir)
+    view = _load_run(run_dir, meta_overlay=meta_overlay)
     view["task"] = _resolve_task(run_dir, task)
 
     html_text = _build_html(view)

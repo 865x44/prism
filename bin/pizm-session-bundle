@@ -104,6 +104,20 @@ def _validate_slug(slug: str) -> None:
         raise ValueError("slug must be lowercase alphanumeric with hyphens")
 
 
+def _default_record_path(run_dir: str, subject_slug: str | None, legacy_name: str) -> str:
+    """Default reader record path: named run-<subject-slug>.<ext> when a subject is known.
+
+    Explicit --output always wins at the call site; this only chooses the default.
+    Deterministic slugify keeps host-supplied labels ASCII-safe. Legacy bare
+    run.md/run.html remains the default when no subject slug is given.
+    """
+    if subject_slug and str(subject_slug).strip():
+        sub = pizm_run_state.slugify_subject(str(subject_slug))
+        suffix = ".md" if legacy_name.endswith(".md") else ".html"
+        return str(Path(run_dir) / f"run-{sub}{suffix}")
+    return str(Path(run_dir) / legacy_name)
+
+
 def _classify_stage(label: str) -> str:
     """Return stage category for a given label."""
     if label.startswith("pass-"):
@@ -532,7 +546,10 @@ def create_bundle(
 
         # Determine Pizm version
         version_file = skill_path / "VERSION"
-        rec_pizm_version = pizm_version or (version_file.read_text(encoding="utf-8").strip() if version_file.is_file() else "2026.09.09.1")
+        rec_pizm_version = pizm_version or (version_file.read_text(encoding="utf-8").strip() if version_file.is_file() else "2026.09.11.1")
+        # D1: normalize a host-supplied `provider/model` composite (first-`/` split
+        # only; never inferred from prose) so the manifest holds them separately.
+        model, provider = pizm_run_state.split_composite_identity(model, provider)
 
         manifest = {
             "schema_version": _SCHEMA_VERSION,
@@ -1512,7 +1529,7 @@ def _render_deep_section(development: dict) -> str:
     return "\n".join(lines).rstrip("\n")
 
 
-def _render_critic_section(review: dict) -> str:
+def _render_critic_section(review: dict, scope_id=None) -> str:
     lines = ["## Critic", ""]
     terminal = review.get("terminal_state")
     verified = review.get("identity_verified")
@@ -1550,13 +1567,14 @@ def _render_critic_section(review: dict) -> str:
             finding_lines.append("- Unresolved load-bearing contradiction: yes")
         blockers = findings.get("readiness_blockers") or []
         blocker_details = findings.get("readiness_blocker_details") or {}
+        scope = f" (applies to {scope_id})" if scope_id else ""
         if blockers:
             for b in blockers:
                 detail = blocker_details.get(b, "")
                 if detail:
-                    finding_lines.append(f"- Readiness blocker ({b}): {detail}")
+                    finding_lines.append(f"- Readiness blocker ({b}): {detail}{scope}")
                 else:
-                    finding_lines.append(f"- Readiness blocker: {b}")
+                    finding_lines.append(f"- Readiness blocker: {b}{scope}")
         for label, field in (("Identity drift", "identity_drift"), ("Cost relocation", "cost_relocation")):
             val = findings.get(field)
             if isinstance(val, str) and val.strip():
@@ -1815,19 +1833,20 @@ def _render_forge_deep_section(development: dict, target_id: str) -> str:
     return "\n".join(lines).rstrip("\n")
 
 
-def _side_blocker_lines(findings) -> list:
+def _side_blocker_lines(findings, side_id=None) -> list:
     """Deterministic readiness-blocker lines for one comparison side (may be empty)."""
     if not isinstance(findings, dict):
         return []
     out = []
     blockers = findings.get("readiness_blockers") or []
     details = findings.get("readiness_blocker_details") or {}
+    scope = f" (applies to {side_id})" if side_id else ""
     for b in blockers:
         detail = details.get(b, "") if isinstance(details, dict) else ""
         if detail:
-            out.append(f"- Readiness blocker ({b}): {detail}")
+            out.append(f"- Readiness blocker ({b}): {detail}{scope}")
         else:
-            out.append(f"- Readiness blocker: {b}")
+            out.append(f"- Readiness blocker: {b}{scope}")
     return out
 
 def _render_forge_comparison_section(
@@ -1879,7 +1898,7 @@ def _render_forge_comparison_section(
                 lines.append(f"- {label}: {x}")
         if findings1.get("unresolved_load_bearing_contradiction") is True:
             lines.append("- Unresolved load-bearing contradiction: yes")
-        lines.extend(_side_blocker_lines(findings1))
+        lines.extend(_side_blocker_lines(findings1, left_id))
     debt1 = [d for d in r1.get("evidence_debt") or [] if isinstance(d, str)]
     if debt1:
         lines.append("Evidence debt:")
@@ -1917,7 +1936,7 @@ def _render_forge_comparison_section(
                 lines.append(f"- {label}: {x}")
         if findings2.get("unresolved_load_bearing_contradiction") is True:
             lines.append("- Unresolved load-bearing contradiction: yes")
-        lines.extend(_side_blocker_lines(findings2))
+        lines.extend(_side_blocker_lines(findings2, right_id))
     debt2 = [d for d in r2.get("evidence_debt") or [] if isinstance(d, str)]
     if debt2:
         lines.append("Evidence debt:")
@@ -2145,7 +2164,7 @@ def _render_auto_run_md(
         sections.append(bundles_section)
     sections.append(_render_selected_section(auto_target, development, portfolio))
     sections.append(_render_deep_section(development))
-    sections.append(_render_critic_section(review))
+    sections.append(_render_critic_section(review, tid))
     if design is not None and lever_review is not None:
         sections.append(_render_lever_section(design, lever_review))
     sections.append(_render_final_section(auto_target, development, review, lever_review))
@@ -2360,7 +2379,7 @@ def _render_bonk_run_md(
         if comp_review:
             sections.append(_render_forge_comparison_section(comp_review, left_id, right_id))
         elif single_review:
-            sections.append(_render_critic_section(single_review))
+            sections.append(_render_critic_section(single_review, left_id))
         if design is not None and lever_review is not None:
             sections.append(_render_lever_section(design, lever_review))
         sections.append(_render_forge_final_section(portfolio, comp_review, single_review, lever_review))
@@ -2497,7 +2516,12 @@ def main() -> int:
     rp.add_argument(
         "--output",
         default=None,
-        help="Output path for run.md (default: <run-dir>/run.md)",
+        help="Output path for run.md (default: <run-dir>/run-<subject-slug>.md with --subject-slug, else <run-dir>/run.md)",
+    )
+    rp.add_argument(
+        "--subject-slug",
+        default=None,
+        help="Subject slug for the default named record (run-<subject-slug>.md); explicit --output wins",
     )
     hp = sub.add_parser(
         "render-html",
@@ -2516,8 +2540,17 @@ def main() -> int:
     hp.add_argument(
         "--output",
         default=None,
-        help="Output path for run.html (default: <run-dir>/run.html)",
+        help="Output path for run.html (default: <run-dir>/run-<subject-slug>.html with --subject-slug, else <run-dir>/run.html)",
     )
+    hp.add_argument(
+        "--subject-slug",
+        default=None,
+        help="Subject slug for the default named record (run-<subject-slug>.html); explicit --output wins",
+    )
+    hp.add_argument("--model", default=None, help="Model identifier for the run fingerprint header (no model call)")
+    hp.add_argument("--provider", default=None, help="Model provider identifier for the run fingerprint header (no model call)")
+    hp.add_argument("--model-source", default=None, help="Model source for the run fingerprint header: HOST_RUNTIME | EXPLICIT_OVERRIDE | UNKNOWN")
+    hp.add_argument("--pizm-version", default=None, help="Pizm version for the run fingerprint header (defaults from skills/pizm/VERSION at archive time; pass explicitly or UNKNOWN here)")
     hp.add_argument(
         "--ensure-reader",
         action="store_true",
@@ -2560,7 +2593,7 @@ def main() -> int:
         )
 
     if args.command == "render":
-        output = args.output if args.output else str(Path(args.run_dir) / "run.md")
+        output = args.output if args.output else _default_record_path(args.run_dir, args.subject_slug, "run.md")
         return render_run_md(
             run_dir_str=args.run_dir,
             task=args.task,
@@ -2573,11 +2606,22 @@ def main() -> int:
             sys.path.insert(0, bin_dir)
         from pizm_render_html import render_run_html
 
-        output = args.output if args.output else str(Path(args.run_dir) / "run.html")
+        output = args.output if args.output else _default_record_path(args.run_dir, args.subject_slug, "run.html")
+        overlay = {
+            key: val
+            for key, val in (
+                ("model", args.model),
+                ("provider", args.provider),
+                ("model_source", args.model_source),
+                ("pizm_version", args.pizm_version),
+            )
+            if val is not None
+        }
         res = render_run_html(
             run_dir_str=args.run_dir,
             task=args.task,
             output_path=output,
+            meta_overlay=overlay or None,
         )
         if res != 0:
             return res

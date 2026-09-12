@@ -646,3 +646,59 @@ class TestSideReadinessParity:
         res = freeze_file(tmp_path, "comparison-review-v1", run_id, p)
         assert res.returncode != 0
         assert "must match" in res.stderr
+
+
+class TestUseSiteWarrantSharedShape:
+    """BPATCH: the comparison role-review validator shares the warrant shape
+    helper (no duplicated logic); no count requirement on this path, so
+    legacy warrant-less role reviews stay valid."""
+
+    def _setup(self, tmp_path, run_id):
+        freeze_forge_portfolio(tmp_path, run_id, "B1", "B2")
+        res1 = freeze_file(tmp_path, "development-v2", run_id, valid_development_payload("B1"), target="B1")
+        assert res1.returncode == 0, res1.stderr
+        res2 = freeze_file(tmp_path, "development-v2", run_id, valid_development_payload("B2"), target="B2")
+        assert res2.returncode == 0, res2.stderr
+        return extract_freeze_hash(res1), extract_freeze_hash(res2)
+
+    def _warrant(self, **fields):
+        base = {
+            "source_says": "Anchored source statement from the frozen record.",
+            "model_added": "Causal step beyond the source.",
+            "warrant": "NONE in plain words: no grounding in the record.",
+            "residue": "Narrowed observation stands without the step.",
+        }
+        base.update(fields)
+        return base
+
+    def test_warrantless_role_reviews_still_freeze(self, tmp_path):
+        run_id = "warrant-legacy-ok"
+        hash1, hash2 = self._setup(tmp_path, run_id)
+        p = valid_comparison_payload(
+            left_id="B1", right_id="B2", preference="LEFT", left_hash=hash1, right_hash=hash2
+        )
+        res = freeze_file(tmp_path, "comparison-review-v1", run_id, p)
+        assert res.returncode == 0, res.stderr
+        assert "FREEZE_OK" in res.stdout
+
+    def test_well_shaped_warrant_accepted(self, tmp_path):
+        run_id = "warrant-shaped-ok"
+        hash1, hash2 = self._setup(tmp_path, run_id)
+        p = valid_comparison_payload(
+            left_id="B1", right_id="B2", preference="LEFT", left_hash=hash1, right_hash=hash2
+        )
+        p["left_review"]["load_bearing_reassessment"][0]["use_site_warrant"] = self._warrant()
+        res = freeze_file(tmp_path, "comparison-review-v1", run_id, p)
+        assert res.returncode == 0, res.stderr
+        assert "FREEZE_OK" in res.stdout
+
+    def test_malformed_warrant_rejected(self, tmp_path):
+        run_id = "warrant-malformed"
+        hash1, hash2 = self._setup(tmp_path, run_id)
+        p = valid_comparison_payload(
+            left_id="B1", right_id="B2", preference="LEFT", left_hash=hash1, right_hash=hash2
+        )
+        p["right_review"]["load_bearing_reassessment"][0]["use_site_warrant"] = self._warrant(residue="  ")
+        res = freeze_file(tmp_path, "comparison-review-v1", run_id, p)
+        assert res.returncode != 0
+        assert "use_site_warrant.residue" in res.stderr

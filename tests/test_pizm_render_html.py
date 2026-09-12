@@ -867,19 +867,32 @@ def test_r7_one_bundle_renders_cleanly(tmp_path):
     assert 'id="bundle-B1"' in text
     assert "Single Bundle" in text
 
-def test_w1_post_critic_gap_notice_on_complete_run_without_final_artifact(tmp_path):
+def test_w1_no_gap_notice_when_verdict_rationale_rendered(tmp_path):
     out = tmp_path / "run.html"
     assert run_html(RUN_H4, out).returncode == 0
     text = out.read_text(encoding="utf-8")
     final = text.split('id="final"', 1)[1].split("</section>", 1)[0]
+    assert "Verdict rationale:" in final
+    assert "W1 content notice" not in final
+    assert "gap-notice" not in final
+    assert "MODEL_READY" in final
+    assert "B8" in final
+
+
+def test_w1_gap_notice_when_no_rationale_and_no_final_artifact(tmp_path):
+    run_dir = _minimal_run(tmp_path / "norat-run", complete=True)
+    rev_path = run_dir / "deep-review-v2.json"
+    rev = json.loads(rev_path.read_text(encoding="utf-8"))
+    rev.pop("verdict_rationale", None)
+    rev_path.write_text(json.dumps(rev, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    out = tmp_path / "run.html"
+    assert run_html(run_dir, out, task="No rationale test").returncode == 0
+    text = out.read_text(encoding="utf-8")
+    final = text.split('id="final"', 1)[1].split("</section>", 1)[0]
+    assert "Verdict rationale:" not in final
     assert "W1 content notice" in final
     assert "No dedicated reader-facing post-Critic final synthesis is recorded in this frozen bundle" in final
     assert "W1 data/content gap" in final
-    assert "See Developed Model" not in final
-    assert "see Critic" not in final
-    assert "see Deep" not in final
-    assert "MODEL_READY" in final
-    assert "B8" in final
 
 
 def test_w1_post_critic_final_synthesis_rendered_when_present(tmp_path):
@@ -1162,3 +1175,132 @@ def test_h17_legacy_run_omits_reader_aids(tmp_path):
     text = out.read_text(encoding="utf-8")
     assert 'class="spotlight"' not in text
     assert "<strong>Plain explanation.</strong>" not in text
+
+
+# ---------------------------------------------------------------------------
+# GATE1-REPAIR: live-path fingerprint overlay + synthesis paragraphs
+# ---------------------------------------------------------------------------
+
+
+def test_g1_render_html_overlay_exact_fingerprint(tmp_path):
+    run_dir = _minimal_run(tmp_path / "overlay-run", complete=True)
+    out = tmp_path / "run.html"
+    cmd = [
+        sys.executable, BUNDLE_CLI, "render-html",
+        "--run-dir", str(run_dir),
+        "--output", str(out),
+        "--task", "Overlay task",
+        "--provider", "opencode-zen",
+        "--model", "muse-spark-1.3-test",
+        "--model-source", "HOST_RUNTIME",
+        "--pizm-version", "9.9.9-test",
+    ]
+    res = subprocess.run(cmd, capture_output=True, text=True)
+    assert res.returncode == 0, res.stderr
+    text = out.read_text(encoding="utf-8")
+    assert "muse-spark-1.3-test / opencode-zen" in text
+    assert "9.9.9-test" in text
+    assert "not recorded (legacy)" not in text
+
+
+def test_g1_render_html_overlay_unknown_fallback(tmp_path):
+    run_dir = _minimal_run(tmp_path / "unknown-run", complete=True)
+    out = tmp_path / "run.html"
+    cmd = [
+        sys.executable, BUNDLE_CLI, "render-html",
+        "--run-dir", str(run_dir),
+        "--output", str(out),
+        "--task", "Unknown task",
+        "--provider", "UNKNOWN",
+        "--model", "UNKNOWN",
+    ]
+    res = subprocess.run(cmd, capture_output=True, text=True)
+    assert res.returncode == 0, res.stderr
+    text = out.read_text(encoding="utf-8")
+    assert "not recorded (legacy)" not in text
+    assert text.count("<dd>unknown</dd>") == 2
+
+
+def test_g1_render_html_manifestless_stays_legacy_without_overlay(tmp_path):
+    run_dir = _minimal_run(tmp_path / "legacy-run", complete=True)
+    out = tmp_path / "run.html"
+    assert run_html(run_dir, out, task="Legacy task").returncode == 0
+    text = out.read_text(encoding="utf-8")
+    assert "not recorded (legacy)" in text
+
+
+def test_g1_synthesis_multiline_splits_into_paragraphs(tmp_path):
+    run_dir = _minimal_run(tmp_path / "paras-run", complete=True)
+    dev_path = run_dir / "development-v2.json"
+    dev = json.loads(dev_path.read_text(encoding="utf-8"))
+    dev["developed_model"] = {
+        "thesis": "Plain thesis.",
+        "synthesis": "First paragraph states the rule.\n\nSecond paragraph carries <b>markup</b> & entities.\nWrapped line continues here.",
+    }
+    dev_path.write_text(json.dumps(dev, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    out = tmp_path / "run.html"
+    assert run_html(run_dir, out, task="Paragraph task").returncode == 0
+    text = out.read_text(encoding="utf-8")
+    assert "<p><strong>Synthesis.</strong> First paragraph states the rule.</p>" in text
+    assert "<p>Second paragraph carries &lt;b&gt;markup&lt;/b&gt; &amp; entities.<br>\nWrapped line continues here.</p>" in text
+    assert "<br>\n<br>" not in text
+
+
+# ---------------------------------------------------------------------------
+# GATE1F-ITER2 D1: composite overlay normalized at render (display-only)
+# ---------------------------------------------------------------------------
+
+
+def test_g1f_render_html_overlay_composite_identity_split(tmp_path):
+    """Regression: overlay `--model provider/model` with no provider must render
+    the split header, not `composite / unknown`. FAILS pre-fix."""
+    run_dir = _minimal_run(tmp_path / "composite-run", complete=True)
+    out = tmp_path / "run.html"
+    cmd = [
+        sys.executable, BUNDLE_CLI, "render-html",
+        "--run-dir", str(run_dir),
+        "--output", str(out),
+        "--task", "Composite task",
+        "--model", "opencode-zen/muse-spark-1.3-test",
+        "--model-source", "HOST_RUNTIME",
+        "--pizm-version", "9.9.9-test",
+    ]
+    res = subprocess.run(cmd, capture_output=True, text=True)
+    assert res.returncode == 0, res.stderr
+    text = out.read_text(encoding="utf-8")
+    assert "muse-spark-1.3-test / opencode-zen" in text
+    assert "opencode-zen/muse-spark-1.3-test / unknown" not in text
+
+
+# ---------------------------------------------------------------------------
+# GATE1F-ITER2 D3: comparison blocker lines scoped to the owning review side
+# ---------------------------------------------------------------------------
+
+BONK_RUN = REPO_ROOT / ".ai" / "pizm" / "run-prism-identity-belonging-motivational-narrative-20260911t185110z-m7kh"
+
+
+def test_g1f_render_html_b2_blocker_scoped_to_owning_side(tmp_path):
+    """Regression: frozen B2 review carries B1_SPECULATIVE_DEPENDENCY (blocker
+    taxonomy, not target B1). HTML must scope it to B2 without renaming the
+    enum. FAILS pre-fix."""
+    import shutil
+    run_dir = tmp_path / "run-bonk-scope"
+    shutil.copytree(BONK_RUN, run_dir)
+    out = tmp_path / "run.html"
+    cmd = [
+        sys.executable, BUNDLE_CLI, "render-html",
+        "--run-dir", str(run_dir),
+        "--output", str(out),
+        "--task", "Scope task",
+        "--provider", "opencode-zen",
+        "--model", "muse-spark-1.3-test",
+        "--model-source", "HOST_RUNTIME",
+        "--pizm-version", "9.9.9-test",
+    ]
+    res = subprocess.run(cmd, capture_output=True, text=True)
+    assert res.returncode == 0, res.stderr
+    text = out.read_text(encoding="utf-8")
+    assert "B1_SPECULATIVE_DEPENDENCY" in text
+    assert "(applies to B2)" in text
+    assert "(applies to B1)" in text
+    assert "muse-spark-1.3-test / opencode-zen" in text

@@ -432,7 +432,7 @@ def test_regression_f_model_metadata_live_and_legacy(tmp_path):
     assert m1["model"] == "gemini-3.7-flash"
     assert m1["provider"] == "google"
     assert m1["model_source"] == "HOST_RUNTIME"
-    assert m1["pizm_version"] == "2026.09.09.1"
+    assert m1["pizm_version"] == (SKILL_ROOT / "VERSION").read_text(encoding="utf-8").strip()
 
     # 2. Live bundle with unavailable metadata -> fallback UNKNOWN
     cmd2 = [
@@ -448,7 +448,7 @@ def test_regression_f_model_metadata_live_and_legacy(tmp_path):
     assert m2["model"] == "UNKNOWN"
     assert m2["provider"] == "UNKNOWN"
     assert m2["model_source"] == "UNKNOWN"
-    assert m2["pizm_version"] == "2026.09.09.1"
+    assert m2["pizm_version"] == (SKILL_ROOT / "VERSION").read_text(encoding="utf-8").strip()
 
     # Ensure candidate prose "Claude 3.7" was NOT inferred as model
     assert m2["model"] != "Claude 3.7"
@@ -466,7 +466,7 @@ def test_regression_g_version_fingerprint_and_skill_hash(tmp_path, monkeypatch):
     assert res.returncode == 0, res.stderr
     assert (tmp_path / ".claude" / "skills" / "pizm" / "VERSION").is_file()
     assert (tmp_path / ".config" / "opencode" / "skills" / "pizm" / "VERSION").is_file()
-    assert (tmp_path / ".claude" / "skills" / "pizm" / "VERSION").read_text().strip() == "2026.09.09.1"
+    assert (tmp_path / ".claude" / "skills" / "pizm" / "VERSION").read_text().strip() == (SKILL_ROOT / "VERSION").read_text(encoding="utf-8").strip()
 
     # 2. _compute_skill_hash changes when VERSION changes
     fake_skill = tmp_path / "fake_skill"
@@ -639,3 +639,22 @@ def test_regression_h_determinism(tmp_path):
     subprocess.run([sys.executable, BUNDLE_CLI, "render", "--run-dir", str(run_dir2), "--task", "Determinism task", "--output", str(out_md2)], check=True)
 
     assert out_md1.read_bytes() == out_md2.read_bytes(), "Markdown output must be byte-identical"
+
+
+# ---------------------------------------------------------------------------
+# GATE1F-ITER2 D1: composite identity splitter unit rules
+# ---------------------------------------------------------------------------
+
+def test_g1f_split_composite_identity_first_slash_only():
+    split = pizm_run_state.split_composite_identity
+    assert split("opencode-zen/muse-spark-1.3-test", "") == ("muse-spark-1.3-test", "opencode-zen")
+    assert split("opencode-zen/muse-spark-1.3-test", "UNKNOWN") == ("muse-spark-1.3-test", "opencode-zen")
+    assert split("opencode-zen/muse-spark-1.3-test", None) == ("muse-spark-1.3-test", "opencode-zen")
+    # Explicit provider wins: no split.
+    assert split("muse-spark-1.3-test", "opencode-zen") == ("muse-spark-1.3-test", "opencode-zen")
+    assert split("opencode-zen/other", "opencode-zen") == ("opencode-zen/other", "opencode-zen")
+    # Prose with a slash is never parsed: whitespace guard refuses.
+    assert split("either this/that approach", "") == ("either this/that approach", "")
+    # No slash: unchanged.
+    assert split("muse-spark-1.3-test", "") == ("muse-spark-1.3-test", "")
+    assert split(None, None) == (None, None)

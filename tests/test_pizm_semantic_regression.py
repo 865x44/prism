@@ -390,6 +390,12 @@ def make_deep_review_v2_payload(
             {
                 "claim": "Context switching is the primary review friction",
                 "critic_epistemic_status": "SUPPORTED",
+                "use_site_warrant": {
+                    "source_says": "Frozen record documents context switching as the primary friction.",
+                    "model_added": "NONE — direct restatement",
+                    "warrant": "Directly supported by development-v2 record",
+                    "residue": "Context switching stands as the primary friction.",
+                },
             },
             {
                 "claim": "Reviewers adhere consistently to designated focus windows",
@@ -1257,10 +1263,22 @@ class TestObservedDogfoodReproduction:
                 {
                     "claim": "Context switching latency follows an exact 23-minute biological refractory period",
                     "critic_epistemic_status": "SPECULATIVE",
+                    "use_site_warrant": {
+                        "source_says": "Development asserts an exact 23-minute refractory period.",
+                        "model_added": "Exact biological duration beyond any measured observation.",
+                        "warrant": "NONE in plain words: no assay or citation in the record.",
+                        "residue": "NONE: no honest residue without the invented duration.",
+                    },
                 },
                 {
                     "claim": "Pre-push hooks reduce AST parsing overhead by exactly 87.4%",
-                    "critic_epistemic_status": "UNKNOWN",  # Demoted from SUPPORTED due to lack of proof
+                    "critic_epistemic_status": "UNKNOWN",
+                    "use_site_warrant": {
+                        "source_says": "Development asserts an exact 87.4% overhead reduction.",
+                        "model_added": "Exact percentage beyond any benchmark in the record.",
+                        "warrant": "NONE in plain words: no reproducible benchmark cited.",
+                        "residue": "NONE: no honest residue without the invented number.",
+                    },
                 },
             ],
             unsupported_specificity=[
@@ -1328,8 +1346,20 @@ class TestCriticRegression:
             terminal_state="NEED_EVIDENCE",
             epistemic_laundering=["Developer marked speculative customer adoption assumption as SUPPORTED"],
             reassessments=[
-                {"claim": "Context switching is the primary review friction", "critic_epistemic_status": "SPECULATIVE"},
-                {"claim": "Reviewers adhere consistently to designated focus windows", "critic_epistemic_status": "UNKNOWN"},
+                {"claim": "Context switching is the primary review friction", "critic_epistemic_status": "SPECULATIVE",
+                 "use_site_warrant": {
+                     "source_says": "Development claims context switching is the primary friction.",
+                     "model_added": "Primacy ranking beyond the observed friction reports.",
+                     "warrant": "NONE in plain words: primacy is asserted, not derived.",
+                     "residue": "Context switching is a reported friction; primacy is ungrounded.",
+                 }},
+                {"claim": "Reviewers adhere consistently to designated focus windows", "critic_epistemic_status": "UNKNOWN",
+                 "use_site_warrant": {
+                     "source_says": "Development claims consistent adherence to focus windows.",
+                     "model_added": "Consistency generalization beyond the observed windows.",
+                     "warrant": "NONE in plain words: telemetry check is listed as debt, not evidence.",
+                     "residue": "Some windows observed; consistency is ungrounded.",
+                 }},
             ],
             evidence_debt=["Verify actual developer adoption rate in telemetry"],
         )
@@ -1523,9 +1553,14 @@ class TestCriticRegression:
             terminal_state="NEED_EVIDENCE",
             unresolved_contradiction=True,
             reassessments=[
-                {"claim": "Primary causal driver operates via tacit knowledge gap", "critic_epistemic_status": "SPECULATIVE"}
+                {"claim": "Primary causal driver operates via tacit knowledge gap", "critic_epistemic_status": "SPECULATIVE",
+                 "use_site_warrant": {
+                     "source_says": "Development claims the tacit-knowledge gap drives outcomes.",
+                     "model_added": "Gap-to-outcome causal link beyond the observed correlation.",
+                     "warrant": "NONE in plain words: telemetry listed as debt, not evidence.",
+                     "residue": "Outcomes correlate with knowledge gaps; causation pending telemetry.",
+                 }}
             ],
-            evidence_debt=["Empirical telemetry on tacit knowledge transfer lag required"],
             verdict_rationale="Central mechanism is speculative; gate enforced -> NEED_EVIDENCE.",
         )
         res_ok = freeze_stage(tmp_path, "deep-review-v2", run_id, rev_ok)
@@ -1544,8 +1579,20 @@ class TestCriticRegression:
 
         reassessments = [
             {"claim": "Author experienced night without choice forks", "critic_epistemic_status": "SUPPORTED"},
-            {"claim": "Self-report codes night as repetition", "critic_epistemic_status": "SPECULATIVE"},
-            {"claim": "7 AM debrief functions to close loop", "critic_epistemic_status": "SPECULATIVE"},
+            {"claim": "Self-report codes night as repetition", "critic_epistemic_status": "SPECULATIVE",
+             "use_site_warrant": {
+                 "source_says": "Self-report describes the night as repetition.",
+                 "model_added": "Repetition-as-coding-function beyond the bare report.",
+                 "warrant": "NONE in plain words: no independent coding evidence in the record.",
+                 "residue": "The night is reported as repetitive; the coding function is ungrounded.",
+             }},
+            {"claim": "7 AM debrief functions to close loop", "critic_epistemic_status": "SPECULATIVE",
+             "use_site_warrant": {
+                 "source_says": "A 7 AM debrief entry exists in the record.",
+                 "model_added": "Loop-closing function of the debrief.",
+                 "warrant": "NONE in plain words: function inferred from timing alone.",
+                 "residue": "The debrief occurred; its loop-closing role is ungrounded.",
+             }},
             {"claim": "Explanatory frame relocates guilt", "critic_epistemic_status": "SPECULATIVE"},
         ]
         debts = [

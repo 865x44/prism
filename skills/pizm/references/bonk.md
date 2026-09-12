@@ -51,6 +51,9 @@ deterministic run.md and run.html rendering (zero model calls)
 
 ## 3. Detailed Stage Contracts
 
+### Stage 0: Run Identity (before any freeze)
+- Derive `subject_slug` from the task subject with the deterministic ASCII rule (`bin/pizm_run_state.py slugify_subject`: lowercase, Cyrillic transliterated, non-alphanumeric → hyphens). Mint one run-id `<subject_slug>-YYYYMMDDtHHMMSSz-<rand4>` (UTC timestamp + 4 lowercase-alphanumeric chars, same shape as `generate_run_id`). Use this run-id for every `--run-id` freeze below (run dir becomes `.ai/pizm/run-<run-id>/`) and for `--slug` at archive time, so run dir, bundle, and reader slug stay aligned. Never use a bare timestamp or short random id.
+
 ### Stage 1: Search Pass 1 (initial)
 - Run broad initial Search adhering to `references/explore.md` (soft target 12–16 candidates when supported; hard bounds 1..20 candidates, ≤ 192 KiB payload, ≤ 12 KiB per candidate).
 - Freeze the raw pass as `pass01` via `bin/pizm-checkpoint freeze --stage explore --run-id <slug> --artifact-suffix pass01 --input <path>` -> creates `candidates-pass01.{json,sha256,meta.json}` (or unsuffixed `candidates.{json,sha256,meta.json}`).
@@ -122,10 +125,9 @@ deterministic run.md and run.html rendering (zero model calls)
 - If `current_preference` is `CONDITIONAL` or `UNRESOLVED`: do NOT force LEVER; surface the discriminating observation as the recommended next step.
 - If task orientation is `ANALYTICAL`: do not run LEVER.
 - When executed, runs standard manual LEVER design and review (`references/lever.md` and `references/lever-reviewer.md`).
-
 ### Stage 7: Deterministic FINAL Assembly, run.md, and run.html
 - Assemble the final user-facing summary from frozen artifacts with zero model calls.
-- You must archive the run via `bin/pizm-session-bundle create` providing the required ephemeral accounting input (`--accounting <path>`) and allowlisted stage labels:
+- You must archive the run via `bin/pizm-session-bundle create` providing the required ephemeral accounting input (`--accounting <path>`), the minted `--slug <run-id>`, and the bookkeeping flags `--subject-slug <subject_slug> --provider <provider> --model <model> --model-source <source> --pizm-version <version>` (use literal `UNKNOWN` for any value the host cannot report exactly; never invent a model name), plus allowlisted stage labels:
   - `pass-01-normal` (or `pass-01-rift` / `pass-01-360`)
   - `pass-02-residual`
   - `search-field`
@@ -134,22 +136,22 @@ deterministic run.md and run.html rendering (zero model calls)
   - `deep-<right_target_id>`
   - `comparison-review`
 - The bundle derives and verifies `semantic_stage_count`, `candidate_bytes`, and `development_bytes`; caller supplies bounded non-derived counts (`host_inference_count`, `model_repair_count`, `checkpoint_retry_count`). The archive manifest records the normalized six-counter object; the accounting file is ephemeral and never copied into inputs.
-- Render the readable `run.md` deterministically using `bin/pizm-session-bundle render --run-dir <run-dir> --task "<task>"`.
+- Render the readable `run.md` deterministically using `bin/pizm-session-bundle render --run-dir <run-dir> --task "<task>" --subject-slug <subject_slug>` (writes the named record `run-<subject_slug>.md`; report that path).
 - Render the interactive full-trace `run.html` and resolve the reader link deterministically:
   ```bash
-  $HOME/.local/bin/pizm-session-bundle render-html --run-dir <run-dir> --task "<task>" --ensure-reader
+  $HOME/.local/bin/pizm-session-bundle render-html --run-dir <run-dir> --task "<task>" --subject-slug <subject_slug> --provider <provider> --model <model> --model-source <source> --pizm-version <version> --ensure-reader
   ```
   - If the local reader server is active, the tool outputs `READER_URL http://127.0.0.1:41144/run/<slug>/`. Present this URL in the final report.
   - If inactive or on port collision, the tool outputs `READER_OFFLINE file://<path>/run.html (local reader server inactive)`. Present this deterministic `file://` fallback.
 - In the final user-facing report, include the reading records:
   ```markdown
   ## Reading & Reader Record
-  - **Readable Record**: `<run-dir>/run.md`
-  - **Interactive Trace**: `<run-dir>/run.html`
-  - **Reader URL**: `http://127.0.0.1:41144/run/<slug>/` (or `file://<absolute-path>/run.html` if local reader server inactive)
+  - **Readable Record**: `<run-dir>/run-<subject_slug>.md`
+  - **Interactive Trace**: `<run-dir>/run-<subject_slug>.html`
+  - **Reader URL**: `http://127.0.0.1:41144/run/<run-id>/` (or `file://<absolute-path>/run-<subject_slug>.html` if local reader server inactive)
   ```
 - Output is a pure, byte-identical function of frozen inputs.
-- **Run Fingerprint Contract**: Capturing model, provider, model source (`HOST_RUNTIME | EXPLICIT_OVERRIDE | UNKNOWN`), Pizm version (`skills/pizm/VERSION`), and subject slug into the manifest is pure execution bookkeeping. Zero additional inference calls are performed. Metadata never enters reasoning prompts or influences candidate generation.
+- **Run Fingerprint Contract**: Capturing model, provider, model source (`HOST_RUNTIME | EXPLICIT_OVERRIDE | UNKNOWN`), Pizm version (`skills/pizm/VERSION`), and subject slug into the archive manifest AND the rendered `run.html` header is pure execution bookkeeping: pass the same flag values to `create` and to `render-html` (explicit `UNKNOWN` when the host cannot report a value exactly). Without these flags the header falls back to `not recorded (legacy)`. Zero additional inference calls are performed. Metadata never enters reasoning prompts or influences candidate generation. If the host reports a `provider/model` composite in `--model` with no separate provider, capture and render normalize it deterministically (first-`/` split); prefer passing `--provider` and `--model` separately when both are known.
 ---
 
 ## 4. Degraded Path (Single Defensible Bundle)

@@ -301,7 +301,13 @@ def review_payload(target_type="P", target_id="P1"):
         "independent_countermodel": "Batching could be status ritual rather than latency response.",
         "cheapest_discriminating_test": "Correlate per-developer batch size with observed latency.",
         "load_bearing_reassessment": [
-            {"claim": "Batching is rational amortization", "critic_epistemic_status": "INFERRED"}
+            {"claim": "Batching is rational amortization", "critic_epistemic_status": "INFERRED",
+             "use_site_warrant": {
+                 "source_says": "Frozen record links batch size growth to review latency.",
+                 "model_added": "Rational-amortization motive behind the observed batching.",
+                 "warrant": "Latency-batch co-movement across developers in the frozen record.",
+                 "residue": "Batching co-moves with latency; the motive reading is inferential.",
+             }}
         ],
         "findings": findings,
         "evidence_debt": [],

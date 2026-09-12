@@ -169,10 +169,15 @@ class TestAnalyticalReferencesUntouched:
         )
         if res.returncode == 0:
             changed_refs = [line.strip() for line in res.stdout.splitlines() if line.strip()]
+            # GATE1F-ITER2-20260912 authorizes two further bounded edits: deep.md
+            # (D2 presentation-only paragraph invariant) and deep-reviewer.md
+            # (D3 blocker-code target-label clarification, zero semantic change).
             allowed_changes = {
                 "skills/pizm/references/wordcraft.md",
                 "skills/pizm/references/auto.md",
                 "skills/pizm/references/bonk.md",
+                "skills/pizm/references/deep.md",
+                "skills/pizm/references/deep-reviewer.md",
             }
             for changed in changed_refs:
                 assert changed in allowed_changes, (

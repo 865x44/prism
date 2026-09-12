@@ -50,6 +50,51 @@ Audit the `load_bearing_claims` census yourself:
 - Are the 2–5 claims genuinely the ones the model stands on, or has the developer censused strawmen while the real load sits on unaudited assertions?
 - For each claim, form your OWN `epistemic_status` judgment and record it in `load_bearing_reassessment`. A developer label of `SUPPORTED` does not make it supported; a developer hint that an objection is not load-bearing does not make it so.
 
+### 3b. USE-SITE WARRANT (consequential transitions only, max 3 per review)
+
+For each reassessed claim the bottom line still leans on, reconstruct the exact
+inferential bridge where the model puts weight on the world — one compact table
+row per transition with four columns:
+
+- `SOURCE SAYS`: what the anchored source material actually states (anchored
+  quote or field reference; no paraphrase laundering — paraphrase that smuggles
+  in the conclusion counts as MODEL ADDED, not SOURCE SAYS).
+- `MODEL ADDED`: the extra step the model contributes beyond the source
+  (causal leap, mechanism, intent, audience, or effectiveness premise).
+  `NONE — direct restatement` is allowed, with
+  `WARRANT: Directly supported by <anchor>` naming the anchor.
+- `WARRANT`: why the added step follows from already-available premises, or
+  `NONE` stated in plain words when it does not. A full `RESIDUE: NONE` outcome
+  is allowed when no honest residue exists.
+- `RESIDUE`: what stays valid if the added step is removed (narrowed claim with
+  its honest status).
+
+Selection precedes reassessment: presence of the object means the claim passed
+use-site audit. Write the tables first, then reassess. Tables stay recorded
+even if the claim demotes to SPECULATIVE or UNKNOWN.
+
+Cap 3 is reviewer budget, NOT a readiness criterion: at most 3 warrant objects
+per review. A 4th or further unresolved central bridge still goes through the
+existing foundation and B1 audit — the cap never suppresses a blocker.
+
+Consequential means the claim's standing can change the terminal state, the
+bottom line, OR the surviving identity/thesis. Demotion or removal that changes
+the identity counts even if the terminal letter could stay the same.
+Peripheral uncertainty already covered by soft warnings gets no table.
+
+Bridge cues (recognition only, never a taxonomy to force-fit): observation→cause
+| similarity→same mechanism | function→intent | predicted gain→observed evidence |
+procedure specified→procedure effective.
+
+Anti-laundering rule: WARRANT connects already-available premises by reasoning
+only. Any new empirical fact, mechanism, intent, or audience premise stays
+MODEL ADDED — and evidence debt — until independently grounded. Reasoning that
+quietly imports such a premise is laundering, not warrant.
+
+NO direct-support discharge rule: a `MODEL ADDED: NONE` table never satisfies
+the audit obligation while an unresolved consequential inferential bridge
+exists elsewhere — one table must audit that bridge.
+
 ### 4. UNSUPPORTED SPECIFICITY
 
 Hunt for causal mechanisms, numbers, timelines, or named actors more specific than the source material supports — precision invented to sound rigorous. Central unsupported specificity means: record it under `findings.unsupported_specificity`, demand corresponding `evidence_debt`, and do not let it pass as established. This usually forces `NEED_EVIDENCE` or a revision demand.
@@ -86,6 +131,7 @@ Name the cheapest observation, check, or probe that would discriminate between t
 - An unresolved load-bearing contradiction forbids `MODEL_READY`.
 - Central unsupported specificity requires recorded `evidence_debt` and usually forces `NEED_EVIDENCE` or a revision demand; never launder it into accepted support.
 - Identity or composition collapse — the target itself not defensible — forces `RETURN_TO_EXPLORE`.
+- A consequential bridge with `WARRANT: NONE` is incompatible with a final status of `SUPPORTED` or `INFERRED` for that claim — there is no automatic one-step demotion; narrow the claim to its supported residue or set it to `SPECULATIVE`/`UNKNOWN`, then apply the existing B1 rule if the bridge stays task-relevant and load-bearing for the identity/thesis.
 
 ### Blocker-closure order
 
@@ -100,11 +146,11 @@ Evaluate in this order, with no step skipped or reordered:
 6. write verdict_rationale as the strongest conclusion that survives
 ```
 
-A weaker reader-facing conclusion may survive criticism, but it must not erase a blocker that genuinely applies to the developed model/thesis. Blocker assessment is about the developed model as submitted; narrowing the bottom line is never a loophole for suppressing B1/B3/B4.
+A weaker reader-facing conclusion may survive criticism, but it must not erase a blocker that genuinely applies to the developed model/thesis. Blocker assessment is about the developed model as submitted; narrowing the bottom line is never a loophole for suppressing B1/B3/B4. `verdict_rationale` is built from surviving claims and residue alone, and residue does not save `MODEL_READY` when the removed bridge was identity-defining.
 
 ### Terminal Readiness Blockers (B1–B4)
 
-A true blocker sets `findings.readiness_blockers` and strictly forbids `MODEL_READY` (forcing `NEED_EVIDENCE` or `RETURN_TO_EXPLORE`). Readiness blockers independently forbid `MODEL_READY` without setting `findings.unresolved_load_bearing_contradiction: true` (the contradiction carrier is reserved solely for actual logical contradictions):
+A true blocker sets `findings.readiness_blockers` and strictly forbids `MODEL_READY` (forcing `NEED_EVIDENCE` or `RETURN_TO_EXPLORE`). Readiness blockers independently forbid `MODEL_READY` without setting `findings.unresolved_load_bearing_contradiction: true` (the contradiction carrier is reserved solely for actual logical contradictions). `B1`–`B4` are blocker-taxonomy codes (blocker #1–#4), not target ids: a `B2` review may carry `B1_SPECULATIVE_DEPENDENCY`, meaning blocker #1 applies to that `B2` target. Renderers scope each blocker line to its owning review; never rename the enum value or rewrite a frozen artifact to disambiguate:
 
 1. **B1 (Central Load-Bearing Speculative/Unsupported Dependency)**: The central explanatory mechanism or core causal chain materially depends on unresolved claims that independent reassessment marked `SPECULATIVE` or `UNKNOWN`. Speculative central dependencies cannot be rationalized as acceptable for analytical tasks under `MODEL_READY`; they require recorded `evidence_debt` and force `NEED_EVIDENCE` (or `RETURN_TO_EXPLORE` if the core mechanism collapses).
 2. **B2 (Materially Stronger Parsimonious Independent Countermodel)**: The reviewer constructs an independent countermodel that explains the primary phenomenon materially better with lower assumption burden, and the developed model offers no compensating explanatory advantage. Forces `NEED_EVIDENCE` or `RETURN_TO_EXPLORE`.
@@ -191,7 +237,8 @@ Write the review JSON beside the frozen artifact, then freeze it:
   "identity_verified": true,
   "independent_countermodel": "the critic's own countermodel",
   "load_bearing_reassessment": [
-    {"claim": "...", "critic_epistemic_status": "SUPPORTED|INFERRED|SPECULATIVE|UNKNOWN"}
+    {"claim": "...", "critic_epistemic_status": "SUPPORTED|INFERRED|SPECULATIVE|UNKNOWN",
+     "use_site_warrant": {"source_says": "...", "model_added": "...", "warrant": "...", "residue": "..."}}
   ],
   "findings": {
     "identity_drift": "string | null",
@@ -230,6 +277,7 @@ Structural rules enforced by the checkpoint (fail closed):
 - Non-empty `unsupported_specificity` with empty `evidence_debt` is rejected.
 - A B target without a `member_ablation` finding is rejected.
 - Maximum serialized payload: 131072 bytes (128 KiB); exceeding it causes fail-closed rejection.
+- `use_site_warrant`, when present on a `load_bearing_reassessment` entry, must carry four non-empty strings (`source_says`, `model_added`, `warrant`, `residue`); the freeze path additionally requires 1–3 such objects per review as an ANTI-SKIP invariant (proof that the audit was performed, not proof of coverage).
 
 ## Freeze Turn
 

@@ -717,7 +717,13 @@ class TestForgeRendering:
             "identity_verified": True,
             "independent_countermodel": "Review capacity is sufficient.",
             "load_bearing_reassessment": [
-                {"claim": "Review latency drives batch inflation", "critic_epistemic_status": "SUPPORTED"}
+                {"claim": "Review latency drives batch inflation", "critic_epistemic_status": "SUPPORTED",
+                 "use_site_warrant": {
+                     "source_says": "Frozen development record ties batch inflation to review latency.",
+                     "model_added": "NONE — direct restatement",
+                     "warrant": "Directly supported by development-v2-B1.json",
+                     "residue": "Latency-driven batch inflation stands as stated.",
+                 }}
             ],
             "findings": {
                 "identity_drift": None,
@@ -938,3 +944,22 @@ class TestV4SideBlockerRendering:
         assert "Terminal state: **NEED_EVIDENCE**" in text
         assert "Readiness blocker (B1_SPECULATIVE_DEPENDENCY): Core loop rests on an unmeasured delay." in text
         assert "- Current preference: **LEFT**" in text
+
+
+class TestG1FBlockerSideScope:
+    BONK_RUN = REPO_ROOT / ".ai" / "pizm" / "run-prism-identity-belonging-motivational-narrative-20260911t185110z-m7kh"
+
+    def test_g1f_b2_blocker_line_scoped_to_owning_side(self, tmp_path):
+        """Regression: the frozen B2 review carries blocker B1_SPECULATIVE_DEPENDENCY
+        (B1_ is blocker taxonomy, not target B1). The rendered line must scope it
+        to its owning side without renaming the enum. FAILS pre-fix."""
+        import shutil
+        run_dir = tmp_path / "run-bonk-scope"
+        shutil.copytree(self.BONK_RUN, run_dir)
+        out = tmp_path / "scoped.md"
+        res = run_render(run_dir, TASK_TEXT, out)
+        assert res.returncode == 0, res.stderr
+        text = out.read_text(encoding="utf-8")
+        assert "B1_SPECULATIVE_DEPENDENCY" in text
+        assert "(applies to B2)" in text
+        assert "(applies to B1)" in text

@@ -61,6 +61,39 @@ _COMPARISON_REVIEW_MAX_TOTAL_BYTES = 131072  # 128 KiB
 
 # Deep v2 load-bearing claim census: authoritative epistemic status enum
 _EPISTEMIC_STATUSES = ("SUPPORTED", "INFERRED", "SPECULATIVE", "UNKNOWN")
+# Use-site warrant (Critic v2 contract §3b): sub-object of
+# load_bearing_reassessment entries. The shared shape helper below is used by
+# BOTH the deep-review-v2 freeze validator and the comparison role-review
+# validator — no duplicated logic. The 1..3 count is enforced on the
+# deep-review-v2 freeze path only, honestly named as an ANTI-SKIP invariant
+# (proof the audit was performed, not proof of coverage). Archive and render
+# paths never re-gate artifacts, so old warrant-less reviews stay valid legacy.
+_USE_SITE_WARRANT_FIELDS = ("source_says", "model_added", "warrant", "residue")
+_USE_SITE_WARRANT_MIN = 1
+_USE_SITE_WARRANT_MAX = 3
+
+
+def _validate_use_site_warrant_shape(entry: dict, context: str) -> bool:
+    """Validate one reassessment entry's use_site_warrant shape, if present.
+
+    Returns True when a warrant object is present (and well-shaped).
+    Absent warrant returns False; malformed warrant raises ValueError.
+    """
+    warrant = entry.get("use_site_warrant")
+    if warrant is None:
+        return False
+    if not isinstance(warrant, dict):
+        raise ValueError(
+            f"{context} use_site_warrant must be an object with "
+            f"{list(_USE_SITE_WARRANT_FIELDS)}"
+        )
+    for field in _USE_SITE_WARRANT_FIELDS:
+        val = warrant.get(field)
+        if not isinstance(val, str) or not val.strip():
+            raise ValueError(
+                f"{context} use_site_warrant.{field} must be non-empty string"
+            )
+    return True
 
 # Critic v2 terminal states — identical set to the v1 deep review (no fourth status)
 _DEEP_REVIEW_TERMINAL_STATES = ("MODEL_READY", "NEED_EVIDENCE", "RETURN_TO_EXPLORE")
@@ -269,6 +302,14 @@ def _validate_development_v2(data: dict, raw_bytes_len: int = 0) -> None:
         raise ValueError(
             "developed_model.synthesis must be first-class readable analytical prose "
             "(a single string), not a card list"
+        )
+    # D2 presentation-only writer invariant: a long synthesis must carry at
+    # least one blank-line paragraph break (deterministic structural rule; no
+    # sentence heuristics, no content or reasoning change).
+    if len(synthesis.strip()) > 2000 and not re.search(r"\n[ \t]*\n", synthesis):
+        raise ValueError(
+            "developed_model.synthesis longer than 2000 characters must contain "
+            "a blank-line paragraph break (presentation only: split the same prose)"
         )
 
     dynamics = model.get("dynamics")
@@ -532,6 +573,8 @@ def _validate_deep_review_v2(
                 f"load_bearing_reassessment[{i}].critic_epistemic_status must be one of "
                 f"SUPPORTED|INFERRED|SPECULATIVE|UNKNOWN, got {status!r}"
             )
+    for i, r in enumerate(reassessment):
+        _validate_use_site_warrant_shape(r, f"load_bearing_reassessment[{i}]")
 
     findings = data.get("findings")
     if not isinstance(findings, dict):
@@ -672,6 +715,19 @@ def _validate_deep_review_v2(
         raise ValueError(
             "findings.member_ablation must carry a non-empty assessment for a Bundle target"
         )
+    # ANTI-SKIP invariant (freeze path only), checked last so pre-existing
+    # structural failures keep their specific messages: at least one table must
+    # audit a consequential bridge, at most three (reviewer budget). This proves
+    # the audit was performed; it proves nothing about coverage.
+    n_warrant = sum(
+        1 for r in reassessment if isinstance(r, dict) and r.get("use_site_warrant") is not None
+    )
+    if not (_USE_SITE_WARRANT_MIN <= n_warrant <= _USE_SITE_WARRANT_MAX):
+        raise ValueError(
+            "load_bearing_reassessment must carry "
+            f"{_USE_SITE_WARRANT_MIN}..{_USE_SITE_WARRANT_MAX} use_site_warrant "
+            f"objects on the freeze path (ANTI-SKIP invariant), got {n_warrant}"
+        )
 
 
 def _validate_comparison_review(
@@ -775,6 +831,12 @@ def _validate_comparison_review(
                 raise ValueError(
                     f"{role_key}.load_bearing_reassessment[{idx}].critic_epistemic_status must be one of {list(_EPISTEMIC_STATUSES)}"
                 )
+            # Shared use-site warrant shape check (no count requirement here:
+            # the ANTI-SKIP count invariant lives on the deep-review-v2 freeze
+            # path only; role-reviews may be legacy warrant-less records).
+            _validate_use_site_warrant_shape(
+                item, f"{role_key}.load_bearing_reassessment[{idx}]"
+            )
         countermodel = review.get("independent_countermodel")
         if not isinstance(countermodel, str) or not countermodel.strip():
             raise ValueError(f"{role_key}.independent_countermodel must be non-empty string")

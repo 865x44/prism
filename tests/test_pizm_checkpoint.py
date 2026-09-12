@@ -3105,7 +3105,13 @@ class TestPolishingWaveInvariants:
             "identity_verified": True,
             "independent_countermodel": "Countermodel.",
             "load_bearing_reassessment": [
-                {"claim": "Claim 1", "critic_epistemic_status": "SUPPORTED"}
+                {"claim": "Claim 1", "critic_epistemic_status": "SUPPORTED",
+                 "use_site_warrant": {
+                     "source_says": "Frozen development record states Claim 1 verbatim.",
+                     "model_added": "NONE — direct restatement",
+                     "warrant": "Directly supported by development-v2-P3.json",
+                     "residue": "Claim 1 stands as stated.",
+                 }}
             ],
             "findings": {
                 "identity_drift": None,
@@ -3128,3 +3134,33 @@ class TestPolishingWaveInvariants:
         assert res_rev.returncode == 0, res_rev.stderr
         assert "FREEZE_OK" in res_rev.stdout
         assert (run_dir / "deep-review-v2-P3.json").is_file()
+
+
+# ---------------------------------------------------------------------------
+# GATE1F-ITER2 D2: long synthesis must carry a paragraph break (presentation only)
+# ---------------------------------------------------------------------------
+
+def test_g1f_development_v2_long_single_line_synthesis_rejected(workspace):
+    """Regression: BONK B1/B2 shipped 3550-char single-line syntheses. A long
+    synthesis without a blank-line break fails closed. FAILS pre-fix."""
+    payload = valid_dev_v2()
+    payload["developed_model"]["synthesis"] = "x" * 3550
+    result = freeze_dev_v2(workspace, payload, "synthesis-wall")
+    assert result.returncode != 0
+    assert "paragraph break" in result.stderr
+
+
+def test_g1f_development_v2_long_paragraphed_synthesis_accepted(workspace):
+    """Same length with a blank-line break passes: the rule is structural only."""
+    payload = valid_dev_v2()
+    payload["developed_model"]["synthesis"] = "y" * 2000 + "\n\n" + "z" * 1550
+    result = freeze_dev_v2(workspace, payload, "synthesis-paras")
+    assert result.returncode == 0, result.stderr
+
+
+def test_g1f_development_v2_short_single_line_synthesis_accepted(workspace):
+    """Short syntheses are untouched by the invariant: no forced breaks below the bound."""
+    payload = valid_dev_v2()
+    payload["developed_model"]["synthesis"] = "s" * 2000
+    result = freeze_dev_v2(workspace, payload, "synthesis-short")
+    assert result.returncode == 0, result.stderr

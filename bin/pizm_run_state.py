@@ -85,6 +85,30 @@ def generate_run_id(subject_slug: Optional[str] = None) -> str:
     suffix = "".join(random.choices(string.ascii_lowercase + string.digits, k=4))
     return f"{slug}-{ts}-{suffix}"
 
+def split_composite_identity(
+    model: Optional[str], provider: Optional[str]
+) -> tuple[Optional[str], Optional[str]]:
+    """Split a host-supplied `provider/model` composite into (model, provider).
+
+    Deterministic anchored rule only: when the provider slot is blank or
+    UNKNOWN and the model slot holds a `left/right` composite, split on the
+    first `/`. Both sides must be non-blank whitespace-free tokens, so prose
+    is never parsed or inferred from. Anything else returns inputs unchanged.
+    """
+    prov = provider.strip() if isinstance(provider, str) else provider
+    mod = model.strip() if isinstance(model, str) else model
+    if (not prov or (isinstance(prov, str) and prov.casefold() == "unknown")) and isinstance(
+        mod, str
+    ):
+        if "/" in mod:
+            left, right = mod.split("/", 1)
+            left, right = left.strip(), right.strip()
+            if left and right and not any(
+                ch.isspace() for ch in (left + right)
+            ):
+                return right, left
+    return model, provider
+
 
 @dataclass(frozen=True)
 class RunState:
