@@ -644,10 +644,40 @@ class TestSideReadinessParity:
     def test_side_blocker_details_must_match(self, tmp_path):
         run_id = "parity-details-mismatch"
         hash1, hash2 = self._setup(tmp_path, run_id)
+        # Mismatching details (wrong key) -> freeze reject.
         p = valid_comparison_payload(
             left_id="B1", right_id="B2", preference="LEFT", left_hash=hash1, right_hash=hash2
         )
         p["left_review"]["findings"]["readiness_blockers"] = ["B3_THESIS_LAUNDERING"]
+        p["left_review"]["findings"]["readiness_blocker_details"] = {"B1_SPECULATIVE_DEPENDENCY": "Wrong key."}
+        res = freeze_file(tmp_path, "comparison-review-v1", run_id, p)
+        assert res.returncode != 0
+        assert "must match" in res.stderr
+        # Empty details with non-empty blockers -> freeze reject.
+        p2 = valid_comparison_payload(
+            left_id="B1", right_id="B2", preference="LEFT", left_hash=hash1, right_hash=hash2
+        )
+        p2["left_review"]["findings"]["readiness_blockers"] = ["B3_THESIS_LAUNDERING"]
+        p2["left_review"]["findings"]["readiness_blocker_details"] = {}
+        res2 = freeze_file(tmp_path, "comparison-review-v1", run_id, p2)
+        assert res2.returncode != 0
+        assert "must match" in res2.stderr
+
+
+class TestCompareWriterCheckpointParity:
+    """Writer/validator parity: the comparator writer contract and the
+    checkpoint must not diverge again (BONK dual-path gapfix)."""
+
+    def test_compare_inherits_reviewer_warrant(self):
+        text = (REPO_ROOT / "skills" / "pizm" / "references" / "deep-compare.md").read_text(encoding="utf-8")
+        assert "references/deep-reviewer.md" in text
+        assert "use_site_warrant" in text
+        assert "1–3" in text or "1..3" in text
+
+    def test_bonk_stage5_reveals_both_contracts(self):
+        text = (REPO_ROOT / "skills" / "pizm" / "references" / "bonk.md").read_text(encoding="utf-8")
+        assert "references/deep-reviewer.md" in text
+        assert "references/deep-compare.md" in text
 class TestComparisonWarrantAntiSkip:
     """GAPFIX: the comparison freeze path enforces the same 1..3 ANTI-SKIP
     invariant per role (left_review/right_review separately) via the shared

@@ -107,8 +107,9 @@ deterministic run.md and run.html rendering (zero model calls)
   - Freeze `development-v2-<left_target_id>` and `development-v2-<right_target_id>` using `bin/pizm-checkpoint freeze --stage development-v2 --target <left_target_id> ...` and `--target <right_target_id> ...`.
 
 ### Stage 5: Critic and Comparative Review
-- Revealed (`references/deep-compare.md`) only after BOTH Deep LEFT and Deep RIGHT are frozen and hash-verified.
+- Revealed (`references/deep-reviewer.md` + `references/deep-compare.md`) only after BOTH Deep LEFT and Deep RIGHT are frozen and hash-verified.
 - Execute adversarial critique and comparative reasoning under `pizm-comparison-review-v1` (`references/deep-compare.md`):
+  - Each side review is a full Deep Reviewer pass under the CURRENT `references/deep-reviewer.md` (all checks, §3b use-site warrant with 1–3 tables per side, B1–B4 readiness semantics). The freeze enforces the tables; a side frozen without them is rejected.
   - Declare explicit LEFT and RIGHT development artifact references and verified frozen hashes (`left_review.development_ref`, `left_review.frozen_hash`, `right_review.development_ref`, `right_review.frozen_hash`), verifying targets matching LEFT and RIGHT bundle IDs.
   - Act as critic of LEFT, critic of RIGHT, and comparative reasoner using the 8-move Critic arsenal.
   - Formulate independent countermodels, audit load-bearing claims, flag unsupported specificity and epistemic laundering, and identify shared evidence debt.

@@ -172,12 +172,16 @@ class TestAnalyticalReferencesUntouched:
             # GATE1F-ITER2-20260912 authorizes two further bounded edits: deep.md
             # (D2 presentation-only paragraph invariant) and deep-reviewer.md
             # (D3 blocker-code target-label clarification, zero semantic change).
+            # BPATCH comparison-parity follow-up additionally authorizes the
+            # bounded deep-compare.md inheritance pointer + schema example
+            # (no Critic semantics duplicated or changed).
             allowed_changes = {
                 "skills/pizm/references/wordcraft.md",
                 "skills/pizm/references/auto.md",
                 "skills/pizm/references/bonk.md",
                 "skills/pizm/references/deep.md",
                 "skills/pizm/references/deep-reviewer.md",
+                "skills/pizm/references/deep-compare.md",
             }
             for changed in changed_refs:
                 assert changed in allowed_changes, (

@@ -11,6 +11,8 @@ The comparator acts simultaneously as:
 2. **Critic of RIGHT**: independent reassessment of the RIGHT candidate using the 8-move Critic arsenal.
 3. **Comparative Reasoner**: evaluating the load-bearing competition axis, identifying discriminating observations, and determining relative explanatory power without manufactured winners.
 
+Each side review (`left_review`, `right_review`) inherits the CURRENT Deep Reviewer contract (`references/deep-reviewer.md`) in full — every check, §3b use-site warrant (1–3 `use_site_warrant` tables per side, freeze-enforced ANTI-SKIP), and B1–B4 readiness semantics. Nothing here overrides it; this file adds only comparison-specific rules. A side frozen without its warrant tables is rejected, exactly like a standalone review.
+
 ---
 
 ## Comparison Output Schema (pizm-comparison-review-v1)
@@ -37,7 +39,13 @@ The comparator acts simultaneously as:
     "load_bearing_reassessment": [
       {
         "claim": "...",
-        "critic_epistemic_status": "SUPPORTED|INFERRED|SPECULATIVE|UNKNOWN"
+        "critic_epistemic_status": "SUPPORTED|INFERRED|SPECULATIVE|UNKNOWN",
+        "use_site_warrant": {
+          "source_says": "...",
+          "model_added": "...",
+          "warrant": "...",
+          "residue": "..."
+        }
       }
     ],
     "independent_countermodel": "critic countermodel against LEFT",
@@ -59,7 +67,13 @@ The comparator acts simultaneously as:
     "load_bearing_reassessment": [
       {
         "claim": "...",
-        "critic_epistemic_status": "SUPPORTED|INFERRED|SPECULATIVE|UNKNOWN"
+        "critic_epistemic_status": "SUPPORTED|INFERRED|SPECULATIVE|UNKNOWN",
+        "use_site_warrant": {
+          "source_says": "...",
+          "model_added": "...",
+          "warrant": "...",
+          "residue": "..."
+        }
       }
     ],
     "independent_countermodel": "critic countermodel against RIGHT",
