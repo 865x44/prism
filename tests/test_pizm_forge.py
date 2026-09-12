@@ -348,6 +348,12 @@ def comparison_review_payload(
                 {
                     "claim": f"Review latency directly drives PR batch size inflation for {left_id}",
                     "critic_epistemic_status": "SUPPORTED",
+                    "use_site_warrant": {
+                        "source_says": f"Frozen record ties batch inflation to latency for {left_id}.",
+                        "model_added": "NONE — direct restatement",
+                        "warrant": f"Directly supported by development record for {left_id}.",
+                        "residue": f"Latency-driven inflation for {left_id} stands as stated.",
+                    },
                 }
             ],
             "findings": {
@@ -368,6 +374,12 @@ def comparison_review_payload(
                 {
                     "claim": f"Ownership diffusion creates tragedy of review queue for {right_id}",
                     "critic_epistemic_status": "SUPPORTED",
+                    "use_site_warrant": {
+                        "source_says": f"Frozen record ties queue tragedy to ownership for {right_id}.",
+                        "model_added": "NONE — direct restatement",
+                        "warrant": f"Directly supported by development record for {right_id}.",
+                        "residue": f"Ownership-driven queue tragedy for {right_id} stands as stated.",
+                    },
                 }
             ],
             "findings": {

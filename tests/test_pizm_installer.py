@@ -236,3 +236,23 @@ def test_checkpoint_rejects_divergent_skill_roots(tmp_path, monkeypatch):
     )
     assert res.returncode != 0
     assert "Divergent skill roots detected" in res.stderr
+
+
+def test_installed_bundle_imports_clean(tmp_path, monkeypatch):
+    """Subprocess smoke: the INSTALLED pizm-session-bundle must import cleanly.
+    Guards the pizm_run_state.py shipping gap: top-level imports fail loud
+    here instead of mid-live-run. FAILS pre-fix (ModuleNotFoundError)."""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    res_inst = subprocess.run(
+        [sys.executable, INSTALLER_SCRIPT, "--host", "opencode"],
+        capture_output=True, text=True,
+    )
+    assert res_inst.returncode == 0, res_inst.stderr
+    local_bin = tmp_path / ".local" / "bin"
+    assert (local_bin / "pizm_run_state.py").is_file()
+    res = subprocess.run(
+        [sys.executable, str(local_bin / "pizm-session-bundle"), "--help"],
+        capture_output=True, text=True,
+    )
+    assert res.returncode == 0, res.stderr
+    assert "usage" in res.stdout.lower()

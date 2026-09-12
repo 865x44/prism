@@ -2422,7 +2422,9 @@ def test_comparison_seam_success(workspace):
             "terminal_state": "MODEL_READY",
             "independent_countermodel": "cm1",
             "load_bearing_reassessment": [
-                {"claim": "c1", "critic_epistemic_status": "SUPPORTED"}
+                {"claim": "c1", "critic_epistemic_status": "SUPPORTED",
+                 "use_site_warrant": {"source_says": "s1", "model_added": "m1",
+                                     "warrant": "w1", "residue": "r1"}}
             ],
             "findings": {"unresolved_load_bearing_contradiction": False},
         },
@@ -2433,7 +2435,9 @@ def test_comparison_seam_success(workspace):
             "terminal_state": "MODEL_READY",
             "independent_countermodel": "cm2",
             "load_bearing_reassessment": [
-                {"claim": "c2", "critic_epistemic_status": "SUPPORTED"}
+                {"claim": "c2", "critic_epistemic_status": "SUPPORTED",
+                 "use_site_warrant": {"source_says": "s2", "model_added": "m2",
+                                     "warrant": "w2", "residue": "r2"}}
             ],
             "findings": {"unresolved_load_bearing_contradiction": False},
         },

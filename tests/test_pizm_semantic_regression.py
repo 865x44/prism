@@ -463,6 +463,12 @@ def make_comparison_review_payload(
                 {
                     "claim": "Context switching is the primary review friction",
                     "critic_epistemic_status": "SUPPORTED",
+                    "use_site_warrant": {
+                        "source_says": "Frozen record documents context switching as the primary friction.",
+                        "model_added": "NONE — direct restatement",
+                        "warrant": "Directly supported by development-v2 record",
+                        "residue": "Context switching stands as the primary friction.",
+                    },
                 }
             ],
             "independent_countermodel": "Review queues inherently cause multi-hour lag regardless of batching.",
@@ -483,6 +489,12 @@ def make_comparison_review_payload(
                 {
                     "claim": "Diffs under 200 lines can be reviewed in under 15 minutes",
                     "critic_epistemic_status": "SUPPORTED",
+                    "use_site_warrant": {
+                        "source_says": "Frozen record documents sub-200-line review times.",
+                        "model_added": "NONE — direct restatement",
+                        "warrant": "Directly supported by development-v2 record",
+                        "residue": "Sub-200-line review time stands as stated.",
+                    },
                 }
             ],
             "independent_countermodel": "Calendar density and timezone differences make daily pairing unworkable.",

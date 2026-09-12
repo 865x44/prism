@@ -37,6 +37,12 @@ def valid_review(target_id="B1", dev_ref=None, dev_hash=None):
             {
                 "claim": f"Primary claim for {target_id}",
                 "critic_epistemic_status": "SUPPORTED",
+                "use_site_warrant": {
+                    "source_says": f"Anchored source for {target_id}.",
+                    "model_added": f"Inferential step for {target_id}.",
+                    "warrant": f"Derivation chain recorded for {target_id}.",
+                    "residue": f"Narrowed claim for {target_id}.",
+                },
             }
         ],
         "findings": {
@@ -642,16 +648,16 @@ class TestSideReadinessParity:
             left_id="B1", right_id="B2", preference="LEFT", left_hash=hash1, right_hash=hash2
         )
         p["left_review"]["findings"]["readiness_blockers"] = ["B3_THESIS_LAUNDERING"]
-        p["left_review"]["findings"]["readiness_blocker_details"] = {}
-        res = freeze_file(tmp_path, "comparison-review-v1", run_id, p)
-        assert res.returncode != 0
-        assert "must match" in res.stderr
+class TestComparisonWarrantAntiSkip:
+    """GAPFIX: the comparison freeze path enforces the same 1..3 ANTI-SKIP
+    invariant per role (left_review/right_review separately) via the shared
+    helper — a new BONK comparison cannot freeze either side warrant-less.
+    Shape-if-present still holds everywhere, so legacy frozen comparisons
+    stay readable (render path never re-gates)."""
 
-
-class TestUseSiteWarrantSharedShape:
-    """BPATCH: the comparison role-review validator shares the warrant shape
-    helper (no duplicated logic); no count requirement on this path, so
-    legacy warrant-less role reviews stay valid."""
+    LEGACY_BONK_RUN = (
+        REPO_ROOT / ".ai" / "pizm" / "run-20260911t194000"
+    )
 
     def _setup(self, tmp_path, run_id):
         freeze_forge_portfolio(tmp_path, run_id, "B1", "B2")
@@ -671,34 +677,70 @@ class TestUseSiteWarrantSharedShape:
         base.update(fields)
         return base
 
-    def test_warrantless_role_reviews_still_freeze(self, tmp_path):
-        run_id = "warrant-legacy-ok"
-        hash1, hash2 = self._setup(tmp_path, run_id)
-        p = valid_comparison_payload(
-            left_id="B1", right_id="B2", preference="LEFT", left_hash=hash1, right_hash=hash2
+    def _strip(self, payload, *roles):
+        for role in roles:
+            for entry in payload[role]["load_bearing_reassessment"]:
+                entry.pop("use_site_warrant", None)
+        return payload
+
+    def _payload(self, h1, h2):
+        return valid_comparison_payload(
+            left_id="B1", right_id="B2", preference="LEFT",
+            left_hash=h1, right_hash=h2,
         )
+
+    def test_zero_warrants_both_sides_rejected(self, tmp_path):
+        run_id = "antiskip-zero-both"
+        h1, h2 = self._setup(tmp_path, run_id)
+        p = self._strip(self._payload(h1, h2), "left_review", "right_review")
         res = freeze_file(tmp_path, "comparison-review-v1", run_id, p)
+        assert res.returncode != 0
+        assert "ANTI-SKIP" in res.stderr
+
+    def test_zero_warrants_one_side_rejected(self, tmp_path):
+        run_id = "antiskip-zero-right"
+        h1, h2 = self._setup(tmp_path, run_id)
+        p = self._strip(self._payload(h1, h2), "right_review")
+        res = freeze_file(tmp_path, "comparison-review-v1", run_id, p)
+        assert res.returncode != 0
+        assert "right_review.load_bearing_reassessment" in res.stderr
+
+    def test_one_warrant_each_side_accepted(self, tmp_path):
+        run_id = "antiskip-one-each"
+        h1, h2 = self._setup(tmp_path, run_id)
+        res = freeze_file(tmp_path, "comparison-review-v1", run_id, self._payload(h1, h2))
         assert res.returncode == 0, res.stderr
         assert "FREEZE_OK" in res.stdout
 
-    def test_well_shaped_warrant_accepted(self, tmp_path):
-        run_id = "warrant-shaped-ok"
-        hash1, hash2 = self._setup(tmp_path, run_id)
-        p = valid_comparison_payload(
-            left_id="B1", right_id="B2", preference="LEFT", left_hash=hash1, right_hash=hash2
-        )
-        p["left_review"]["load_bearing_reassessment"][0]["use_site_warrant"] = self._warrant()
+    def test_demoted_speculative_with_table_accepted(self, tmp_path):
+        run_id = "antiskip-demoted-kept"
+        h1, h2 = self._setup(tmp_path, run_id)
+        p = self._payload(h1, h2)
+        entry = p["left_review"]["load_bearing_reassessment"][0]
+        entry["critic_epistemic_status"] = "SPECULATIVE"
+        entry["use_site_warrant"] = self._warrant()
         res = freeze_file(tmp_path, "comparison-review-v1", run_id, p)
         assert res.returncode == 0, res.stderr
         assert "FREEZE_OK" in res.stdout
 
     def test_malformed_warrant_rejected(self, tmp_path):
-        run_id = "warrant-malformed"
-        hash1, hash2 = self._setup(tmp_path, run_id)
-        p = valid_comparison_payload(
-            left_id="B1", right_id="B2", preference="LEFT", left_hash=hash1, right_hash=hash2
-        )
+        run_id = "antiskip-malformed"
+        h1, h2 = self._setup(tmp_path, run_id)
+        p = self._payload(h1, h2)
         p["right_review"]["load_bearing_reassessment"][0]["use_site_warrant"] = self._warrant(residue="  ")
         res = freeze_file(tmp_path, "comparison-review-v1", run_id, p)
         assert res.returncode != 0
         assert "use_site_warrant.residue" in res.stderr
+
+    def test_legacy_frozen_comparison_render_unchanged(self, tmp_path):
+        out = tmp_path / "legacy-comparison.html"
+        res = subprocess.run(
+            [sys.executable, str(REPO_ROOT / "bin" / "pizm-session-bundle"),
+             "render-html", "--run-dir", str(self.LEGACY_BONK_RUN),
+             "--output", str(out), "--task", "Legacy BONK"],
+            capture_output=True, text=True,
+        )
+        assert res.returncode == 0, res.stderr
+        text = out.read_text(encoding="utf-8")
+        assert "Comparison (B1 vs B2)" in text
+        assert "CONDITIONAL" in text

@@ -62,12 +62,13 @@ _COMPARISON_REVIEW_MAX_TOTAL_BYTES = 131072  # 128 KiB
 # Deep v2 load-bearing claim census: authoritative epistemic status enum
 _EPISTEMIC_STATUSES = ("SUPPORTED", "INFERRED", "SPECULATIVE", "UNKNOWN")
 # Use-site warrant (Critic v2 contract §3b): sub-object of
-# load_bearing_reassessment entries. The shared shape helper below is used by
+# load_bearing_reassessment entries. The shared helpers below are used by
 # BOTH the deep-review-v2 freeze validator and the comparison role-review
-# validator — no duplicated logic. The 1..3 count is enforced on the
-# deep-review-v2 freeze path only, honestly named as an ANTI-SKIP invariant
-# (proof the audit was performed, not proof of coverage). Archive and render
-# paths never re-gate artifacts, so old warrant-less reviews stay valid legacy.
+# validator — no duplicated logic. The 1..3 count is enforced on freeze
+# paths only (standalone deep-review-v2 AND comparison left/right roles),
+# honestly named as an ANTI-SKIP invariant (proof the audit was performed,
+# not proof of coverage). Archive and render paths never re-gate artifacts,
+# so old warrant-less reviews stay valid legacy.
 _USE_SITE_WARRANT_FIELDS = ("source_says", "model_added", "warrant", "residue")
 _USE_SITE_WARRANT_MIN = 1
 _USE_SITE_WARRANT_MAX = 3
@@ -94,6 +95,27 @@ def _validate_use_site_warrant_shape(entry: dict, context: str) -> bool:
                 f"{context} use_site_warrant.{field} must be non-empty string"
             )
     return True
+
+def _count_use_site_warrants(reassessment: list) -> int:
+    """Count reassessment entries carrying a use_site_warrant object.
+
+    Shape is enforced separately by _validate_use_site_warrant_shape at each
+    call site; this counts presence only.
+    """
+    return sum(
+        1 for r in reassessment
+        if isinstance(r, dict) and r.get("use_site_warrant") is not None
+    )
+
+
+def _require_warrant_count(n: int, context: str) -> None:
+    """Enforce the 1..3 ANTI-SKIP invariant on a freeze path."""
+    if not (_USE_SITE_WARRANT_MIN <= n <= _USE_SITE_WARRANT_MAX):
+        raise ValueError(
+            f"{context} must carry "
+            f"{_USE_SITE_WARRANT_MIN}..{_USE_SITE_WARRANT_MAX} use_site_warrant "
+            f"objects on the freeze path (ANTI-SKIP invariant), got {n}"
+        )
 
 # Critic v2 terminal states — identical set to the v1 deep review (no fourth status)
 _DEEP_REVIEW_TERMINAL_STATES = ("MODEL_READY", "NEED_EVIDENCE", "RETURN_TO_EXPLORE")
@@ -719,15 +741,9 @@ def _validate_deep_review_v2(
     # structural failures keep their specific messages: at least one table must
     # audit a consequential bridge, at most three (reviewer budget). This proves
     # the audit was performed; it proves nothing about coverage.
-    n_warrant = sum(
-        1 for r in reassessment if isinstance(r, dict) and r.get("use_site_warrant") is not None
+    _require_warrant_count(
+        _count_use_site_warrants(reassessment), "load_bearing_reassessment"
     )
-    if not (_USE_SITE_WARRANT_MIN <= n_warrant <= _USE_SITE_WARRANT_MAX):
-        raise ValueError(
-            "load_bearing_reassessment must carry "
-            f"{_USE_SITE_WARRANT_MIN}..{_USE_SITE_WARRANT_MAX} use_site_warrant "
-            f"objects on the freeze path (ANTI-SKIP invariant), got {n_warrant}"
-        )
 
 
 def _validate_comparison_review(
@@ -831,9 +847,7 @@ def _validate_comparison_review(
                 raise ValueError(
                     f"{role_key}.load_bearing_reassessment[{idx}].critic_epistemic_status must be one of {list(_EPISTEMIC_STATUSES)}"
                 )
-            # Shared use-site warrant shape check (no count requirement here:
-            # the ANTI-SKIP count invariant lives on the deep-review-v2 freeze
-            # path only; role-reviews may be legacy warrant-less records).
+            # Shared use-site warrant shape check via the single helper.
             _validate_use_site_warrant_shape(
                 item, f"{role_key}.load_bearing_reassessment[{idx}]"
             )
@@ -869,7 +883,17 @@ def _validate_comparison_review(
                     f"{role_key}.development_ref target mismatch: expected {expected_target}, got {actual_target!r}"
                 )
 
-    # Portfolio verification
+    # ANTI-SKIP invariant per role on the freeze path (same shared helper as
+    # standalone reviews): each side must audit 1..3 consequential bridges.
+    # Freeze-path only — archive/render never re-gate, so old warrant-less
+    # frozen comparisons stay valid legacy.
+    for role_key in ("left_review", "right_review"):
+        _require_warrant_count(
+            _count_use_site_warrants(
+                data[role_key].get("load_bearing_reassessment") or []
+            ),
+            f"{role_key}.load_bearing_reassessment",
+        )
     if project_root is not None and run_dir is not None:
         portfolio_file = run_dir / "portfolio.json"
         if not portfolio_file.is_file():

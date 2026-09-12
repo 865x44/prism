@@ -277,7 +277,7 @@ Structural rules enforced by the checkpoint (fail closed):
 - Non-empty `unsupported_specificity` with empty `evidence_debt` is rejected.
 - A B target without a `member_ablation` finding is rejected.
 - Maximum serialized payload: 131072 bytes (128 KiB); exceeding it causes fail-closed rejection.
-- `use_site_warrant`, when present on a `load_bearing_reassessment` entry, must carry four non-empty strings (`source_says`, `model_added`, `warrant`, `residue`); the freeze path additionally requires 1–3 such objects per review as an ANTI-SKIP invariant (proof that the audit was performed, not proof of coverage).
+- `use_site_warrant`, when present on a `load_bearing_reassessment` entry, must carry four non-empty strings (`source_says`, `model_added`, `warrant`, `residue`); the freeze path additionally requires 1–3 such objects per review as an ANTI-SKIP invariant (proof that the audit was performed, not proof of coverage). A BONK/FORGE comparison freeze requires the same 1–3 in each of the two role reviews separately via the shared helper; shape-if-present holds everywhere, so legacy warrant-less frozen artifacts stay readable.
 
 ## Freeze Turn
 
