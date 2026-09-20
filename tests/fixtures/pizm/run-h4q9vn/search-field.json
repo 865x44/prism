@@ -1,0 +1,27 @@
+{
+  "schema_version": "pizm-search-field-v1",
+  "stage": "search-field",
+  "passes": [
+    {
+      "pass_id": "pass01",
+      "candidates_ref": "candidates.json",
+      "frozen_hash": "e6357bd6a765724b5f79f82001c9e8edcee67cfd463e8659104dcc1d001dbf42"
+    }
+  ],
+  "entries": [
+    "pass01:c01",
+    "pass01:c02",
+    "pass01:c03",
+    "pass01:c04",
+    "pass01:c05",
+    "pass01:c06",
+    "pass01:c07",
+    "pass01:c08",
+    "pass01:c09",
+    "pass01:c10",
+    "pass01:c11",
+    "pass01:c12",
+    "pass01:c13",
+    "pass01:c14"
+  ]
+}

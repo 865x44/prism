@@ -686,7 +686,7 @@ class TestComparisonWarrantAntiSkip:
     stay readable (render path never re-gates)."""
 
     LEGACY_BONK_RUN = (
-        REPO_ROOT / ".ai" / "pizm" / "run-20260911t194000"
+        REPO_ROOT / "tests" / "fixtures" / "pizm" / "run-20260911t194000"
     )
 
     def _setup(self, tmp_path, run_id):

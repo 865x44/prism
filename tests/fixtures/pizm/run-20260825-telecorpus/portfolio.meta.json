@@ -1,0 +1,7 @@
+{
+  "sha256": "835267cbc96fe83e5ef8ab5cfd0ac2463835dd549a4bf32fc0be1bbc181a9370",
+  "timestamp": "2026-08-25T16:24:35.459572+00:00",
+  "run_id": "20260825-telecorpus",
+  "stage": "portfolio",
+  "schema_version": "pizm-portfolio-selection-v1"
+}

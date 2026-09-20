@@ -18,6 +18,63 @@ The judge reasons about, at minimum:
 8. **Composition gain and bundle construction**: Build bundles strictly under the bundle rules below.
 9. **AUTO target nomination**: When `route` is `AUTO`, nominate exactly one target (a promoted perspective or a bundle).
 
+## Task-Relative Value Lens
+
+The selector evaluates value relative to what the user is trying to achieve, rather than applying a universal novelty-first objective. This is an internal reasoning lens within this single Portfolio evaluation — not a separate stage, not a classifier, not a persisted profile, and not a routing state.
+
+### Evaluating Task Value
+
+Inside this existing Portfolio inference, before candidate adjudication:
+1. Infer what success means for the task (What does "valuable" mean here?).
+2. Identify explicit or logically necessary load-bearing constraints (non-negotiables).
+3. Interpret existing Portfolio dimensions (novelty, evidence, decision relevance, requirement coverage) relative to that objective.
+4. Preserve the categorical machinery (no scores, no formulas, no schema changes).
+
+### Internal Value Archetypes (Non-Routing Guidance Aids)
+
+The selector may use these four archetypes as internal reasoning aids to determine the dominant value precedence:
+
+- **DISCOVERY**:
+  - Dominant objective: expand useful possibility space; surface structurally different perspectives; find non-obvious but grounded alternatives.
+  - Typical precedence: 1. constraint validity; 2. structural novelty; 3. unique residue; 4. generativity; 5. composition gain / productive tension; 6. standalone quality.
+  - Guard: Do not become conservative merely because a candidate is unusual; speculative-but-grounded territory remains valuable.
+
+- **INQUIRY**:
+  - Dominant objective: improve the model of reality; compare explanations; reduce epistemic confusion; identify discriminating evidence.
+  - Typical precedence: 1. grounding / evidence fit; 2. explanatory power; 3. discriminability; 4. useful boundaries / failure conditions; 5. epistemic honesty; 6. source-relative delta; 7. structural novelty.
+  - Guard: Novelty is useful only when it improves understanding; a surprising weakly-grounded explanation must not beat a better-supported explanation merely for being distinct.
+
+- **DECISION**:
+  - Dominant objective: choose a course of action under uncertainty.
+  - Typical precedence: 1. decision relevance; 2. consequence sensitivity; 3. robustness across plausible states; 4. reversibility / option value; 5. discriminating information; 6. downside / failure exposure; 7. useful novelty.
+  - Guard: The most useful Perspective may reveal what must be learned before choosing; decision value is not equivalent to immediate implementation feasibility.
+
+- **DELIVERY**:
+  - Dominant objective: produce an outcome satisfying the requested task / contract.
+  - Typical precedence: 1. load-bearing requirement coverage; 2. feasibility under known constraints; 3. execution / integration risk; 4. testability / verifiability; 5. useful source-relative delta; 6. structural novelty; 7. unique residue.
+  - Guard: Novelty must not buy permission to fail the task; conventionality must not earn value by itself; an unconventional candidate that better satisfies the task should still win.
+
+For mixed tasks, infer the dominant objective, preserve explicit non-negotiables, and allow secondary concerns when materially relevant. Do not expose archetype labels to the user unless requested for diagnostics.
+
+### Task-Orientation Consistency Guard
+
+Reuse the same underlying task judgment when emitting existing `task_orientation` (`ANALYTICAL` vs `ACTION_OR_DECISION`) in AUTO mode. Task-value archetypes remain soft non-routing guidance aids and must not independently reclassify the task or act as a second routing authority (e.g. do not construct rigid mappings such as DISCOVERY -> ANALYTICAL or DECISION -> ACTION_OR_DECISION).
+
+### Non-Negotiables and Anti-Conservatism Guards
+
+- **Non-Negotiables**: A non-negotiable must be explicitly required by the task/source or logically necessary for the requested outcome to count as satisfied. Never promote generic best practices, model preferences, conventionality, or merely desirable properties into hard requirements.
+- **Universal Guard**: Novelty, elegance, conceptual richness, structural distinctness, or unique residue must not compensate for violating a load-bearing task constraint. Novelty must not buy permission to fail the task.
+- **Anti-Conservatism Guard**: Task alignment must not reward conventionality by itself. Conventionality must not earn value by itself. If a more novel candidate satisfies the relevant constraints better, novelty remains a legitimate advantage.
+
+### Candidate Scope vs Task Completeness
+
+Avoid conflating "this candidate is a strong idea/mechanism within its boundary" with "this candidate alone is a complete solution to the whole task."
+A candidate may be narrow yet valuable. Do not downgrade an otherwise coherent candidate merely because its legitimate scope covers only one part of the overall task.
+Conversely:
+- do not treat a critical-but-partial contributor as a complete end-to-end answer;
+- do not let a narrow contributor become the sole AUTO target merely because it closes one requirement.
+Handle this distinction in selector reasoning and `reason` text without creating new schema fields.
+
 ## Judging Dimensions
 
 Candidates are addressed by composite ref `passNN:cMM`. All frozen passes of the accumulated field are judged together; a later pass's candidate is judged on equal terms with an earlier pass's candidate.
@@ -118,6 +175,14 @@ Eligible refs only:
 ### high_upside
 
 Only after candidate assessments, bundles, and routing (`auto_target` / `rival_shadow` / competition) are finalized, assign an optional attention spotlight: a top-level `high_upside` list with 0–3 entries and no quota. Each entry carries a frozen candidate ref (same eligibility as `plain_explanation`), a `why` (unusually large downstream/explanatory/action payoff if the Perspective survives scrutiny), and a `risk` (strongest reason it may be wrong, overstated, or less useful than it first appears). List order is recommended reading priority only — not 1st/2nd/3rd place on truth, quality, or likelihood. No scores, no new dispositions, no implication that unlisted Perspectives are weak.
+
+Interpret `high_upside` relative to task value:
+- DISCOVERY: possibility-space expansion or generative leverage.
+- INQUIRY: explanatory or epistemic payoff.
+- DECISION: ability to change the decision or cheaply resolve uncertainty.
+- DELIVERY: ability to close a critical requirement or significantly reduce execution risk.
+
+Guard: `high_upside` must not silently mean "most interesting". For partial candidates, `why` should name the specific contribution and `risk` should not imply end-to-end completeness.
 
 This ordering happens inside this single Portfolio inference; it reduces coupling and self-anchoring but is not stage separation and must not be described as such. `high_upside` may coincide with `auto_target` but must never be defined as the AUTO winner again. Perspective-only in this version; do not spotlight Bundles.
 

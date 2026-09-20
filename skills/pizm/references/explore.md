@@ -195,6 +195,9 @@ Within the active referenceable conversation/context:
 If supplied material cannot support materially distinct grounded models, do not manufacture breadth. Limit, abstain, or request only the critical context required for grounded analysis.
 
 Permit 0–3 clarifying questions only if different answers would materially change search territory, constraints, evidence interpretation, or the next reasoning spend. Bounded reasoning checks and existing context must be consumed before asking; "more context would help" is never sufficient.
+- Default budget: 0 questions; normal pre-search maximum is 1 question. Ask one high-information clarifying question before Search only on an unresolved scope fork with two or more plausible answers whose answers materially redirect the solution family, search territory, load-bearing constraints, evidence interpretation, or reasoning route.
+- Do not ask generic preference questionnaires; do not ask if the answer exists in context or if the materially relevant branches can be honestly and cheaply covered within this Search pass; do not silently pick one branch merely to avoid asking.
+- In a noninteractive context where conversational turn-taking cannot occur, do not block: cover the materially relevant branches within the search candidate pool when feasible, or state the assumed branch explicitly and preserve the alternative as a declared material assumption (host reasoning guidance, not a mechanical runtime mode detector).
 Separate what is supported by the source/task from inference and added assumptions. Do not imply completeness that the material cannot support.
 
 ## Boundary

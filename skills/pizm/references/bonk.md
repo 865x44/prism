@@ -18,6 +18,23 @@ BONK executes ONLY via explicit user delegation:
 Manual Pizm modes (`/pizm`, `normal`, `explore`, `rift`, `360`, `deep`, `/pizm lever`, `/pizm auto`) NEVER trigger or emulate BONK behavior. Discussing BONK with the user remains possible without executing it.
 
 ---
+## Operational happy path
+
+For normal successful BONK execution, follow the commands and artifact schemas in this contract and the currently loaded stage contracts directly. Do not invoke Pizm CLI `--help`, inspect Pizm Python source, or read Pizm tests before attempting prescribed operations. If the prescribed command succeeds, continue immediately to the next pipeline step.
+
+### Stage-contract loading order
+- Stage 1–2: Load `references/explore.md` for Search Pass 1 (initial) and Search Pass 2 (residual).
+- Stage 3: Reveal `references/explore-selector.md` only after final Search Field freeze (`pass02`).
+- Stage 4: Reveal `references/deep.md` for sequential Deep(LEFT) and Deep(RIGHT) development.
+- Stage 5: Reveal `references/deep-reviewer.md` and `references/deep-compare.md` only after BOTH Deep LEFT and Deep RIGHT are frozen and hash-verified.
+- Stage 6: Reveal `references/lever.md` and `references/lever-reviewer.md` only when the conditional LEVER gate fires (`task_orientation == "ACTION_OR_DECISION"` and preferred target is `MODEL_READY`).
+
+### Freeze success and repair rules
+- `FREEZE_OK` from the prescribed checkpoint command is authoritative for that freeze. After `FREEZE_OK`, do not reopen validator source/tests or re-read the just-frozen artifact solely to verify the successful freeze.
+- Validator rejection is not permission for unrestricted repository archaeology. First repair directly from: (1) the surfaced validation error, (2) the current stage contract, and (3) the existing bounded repair budget. Inspect implementation files only if these are genuinely insufficient to continue.
+
+---
+
 
 ## 2. Target Topology & Execution Sequence
 
@@ -127,23 +144,53 @@ deterministic run.md and run.html rendering (zero model calls)
 - If task orientation is `ANALYTICAL`: do not run LEVER.
 - When executed, runs standard manual LEVER design and review (`references/lever.md` and `references/lever-reviewer.md`).
 ### Stage 7: Deterministic FINAL Assembly, run.md, and run.html
-- Assemble the final user-facing summary from frozen artifacts with zero model calls.
-- You must archive the run via `bin/pizm-session-bundle create` providing the required ephemeral accounting input (`--accounting <path>`), the minted `--slug <run-id>`, and the bookkeeping flags `--subject-slug <subject_slug> --provider <provider> --model <model> --model-source <source> --pizm-version <version>` (use literal `UNKNOWN` for any value the host cannot report exactly; never invent a model name), plus allowlisted stage labels:
-  - `pass-01-normal` (or `pass-01-rift` / `pass-01-360`)
-  - `pass-02-residual`
-  - `search-field`
-  - `portfolio`
-  - `deep-<left_target_id>` (or `deep-<target_id>`)
-  - `deep-<right_target_id>`
-  - `comparison-review`
-- The bundle derives and verifies `semantic_stage_count`, `candidate_bytes`, and `development_bytes`; caller supplies bounded non-derived counts (`host_inference_count`, `model_repair_count`, `checkpoint_retry_count`). The archive manifest records the normalized six-counter object; the accounting file is ephemeral and never copied into inputs.
-- Render the readable `run.md` deterministically using `bin/pizm-session-bundle render --run-dir <run-dir> --task "<task>" --subject-slug <subject_slug>` (writes the named record `run-<subject_slug>.md`; report that path).
-- Render the interactive full-trace `run.html` and resolve the reader link deterministically:
+- **Deterministic Finalization Fast Path**: Once the last semantic artifact required by the BONK run (Comparison Review or degraded single Critic) is successfully frozen, semantic reasoning is finished. Proceed immediately through finalization:
+  1. execute the canonical `create` command to archive the run;
+  2. render the readable Markdown record;
+  3. render interactive HTML with `--ensure-reader`;
+  4. report the final user-facing summary with Reader URL or direct file URL.
+- **Prohibitions during finalization**:
+  - Do not inspect Pizm tests, CLI `--help`, or `bin/pizm-session-bundle` source.
+  - Do not read back generated `run-<subject-slug>.md` or `run-<subject-slug>.html` into context.
+  - Do not re-render outputs or copy named files to legacy `run.md`/`run.html` (named records are authoritative; do not manufacture duplicate files).
+  - Do not perform an unrequested extra semantic review turn.
+  - If any deterministic command succeeds, trust its output and proceed to the next step.
+
+- **Execution Scope & Root Contract**:
+  The displayed `bin/pizm-session-bundle` and `skills/pizm` commands are verified for execution from the Prism repository checkout. An installed host must use the helper and skill root deployed together by the supported installer, must not mix repo and installed locations, and must be synchronized to the label-aware version before executing this flow.
+
+- **Canonical Session Archive Command Template (`create`)**:
+  Execute archive creation using this exact recipe for two-bundle competition (zero `--help` calls needed):
   ```bash
-  $HOME/.local/bin/pizm-session-bundle render-html --run-dir <run-dir> --task "<task>" --subject-slug <subject_slug> --provider <provider> --model <model> --model-source <source> --pizm-version <version> --ensure-reader
+  bin/pizm-session-bundle create \
+    --output-root .ai/pizm/bundles \
+    --slug "$RUN_ID" \
+    --skill-root skills/pizm \
+    --stage pass-01-normal=".ai/pizm/run-$RUN_ID" \
+    --stage pass-02-residual=".ai/pizm/run-$RUN_ID" \
+    --stage search-field=".ai/pizm/run-$RUN_ID" \
+    --stage portfolio=".ai/pizm/run-$RUN_ID" \
+    --stage deep-"$LEFT_ID"=".ai/pizm/run-$RUN_ID" \
+    --stage deep-"$RIGHT_ID"=".ai/pizm/run-$RUN_ID" \
+    --stage comparison-review=".ai/pizm/run-$RUN_ID" \
+    --accounting "$ACCOUNTING_JSON" \
+    --subject-slug "$SUBJECT_SLUG" \
+    --provider "$PROVIDER" \
+    --model "$MODEL" \
+    --model-source "$MODEL_SOURCE" \
+    --pizm-version "$PIZM_VERSION" \
+    --evidence-kind live
   ```
-  - If the local reader server is active, the tool outputs `READER_URL http://127.0.0.1:41144/run/<slug>/`. Present this URL in the final report.
-  - If inactive or on port collision, the tool outputs `READER_OFFLINE file://<path>/run.html (local reader server inactive)`. Present this deterministic `file://` fallback.
+  *(Notes: for degraded single-bundle runs with `NO_SECOND_DEFENSIBLE_BUNDLE`, pass single `--stage deep-"$TARGET_ID"=".ai/pizm/run-$RUN_ID"` and omit `comparison-review`; if LEVER was executed, append `--stage lever-"$TARGET_ID"=".ai/pizm/run-$RUN_ID"`).*
+
+- **Deterministic Markdown and HTML Rendering**:
+  Render the readable `run.md` deterministically using `bin/pizm-session-bundle render --run-dir ".ai/pizm/run-$RUN_ID" --task "<task>" --subject-slug "$SUBJECT_SLUG"` (writes the named record `run-<subject-slug>.md`; report that path).
+  Render the interactive full-trace `run.html` and resolve the reader link deterministically:
+  ```bash
+  bin/pizm-session-bundle render-html --run-dir ".ai/pizm/run-$RUN_ID" --task "<task>" --subject-slug "$SUBJECT_SLUG" --provider "$PROVIDER" --model "$MODEL" --model-source "$MODEL_SOURCE" --pizm-version "$PIZM_VERSION" --ensure-reader
+  ```
+  - If the local reader server is active, the tool outputs `READER_URL http://127.0.0.1:41144/run/<run-id>/`. Present this URL in the final report.
+  - If inactive or on port collision, the tool outputs `READER_OFFLINE file://<path>/run-<subject_slug>.html (local reader server inactive)`. Present this deterministic `file://` fallback.
 - In the final user-facing report, include the reading records:
   ```markdown
   ## Reading & Reader Record

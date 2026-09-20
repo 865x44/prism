@@ -1867,3 +1867,387 @@ def test_g1f_separate_identity_fields_untouched(workspace):
     manifest = json.loads((workspace["output"] / "session-separate-identity" / "manifest.json").read_text())
     assert manifest["model"] == "muse-spark-1.3-test"
     assert manifest["provider"] == "opencode-zen"
+
+
+# ---------------------------------------------------------------------------
+# Label-Aware Artifact Selection in Shared Run Directories
+# ---------------------------------------------------------------------------
+
+
+class TestSharedRunDirLabelAwareBundling:
+    """Verifies label-aware artifact selection when multiple stages point to a shared run_dir."""
+
+    def _write_artifact(self, dir_path: Path, filename: str, content: dict) -> Path:
+        f = dir_path / filename
+        f.write_text(json.dumps(content, indent=2), encoding="utf-8")
+        sha_f = dir_path / (filename.rsplit(".", 1)[0] + ".sha256")
+        sha_f.write_text(_sha256_hex(f.read_bytes()), encoding="utf-8")
+        return f
+
+    def test_shared_run_dir_auto_bundle_label_aware(self, workspace, tmp_path):
+        """AUTO shared run-dir: pass-01 and pass-02 select only their respective candidates; no duplicates."""
+        run_dir = tmp_path / "shared_auto_run"
+        run_dir.mkdir()
+
+        # Write artifacts
+        c1 = self._write_artifact(run_dir, "candidates-pass01.json", {
+            "schema_version": "pizm-candidates-v1",
+            "stage": "explore",
+            "mode": "NORMAL",
+            "candidates": [{"candidate_id": "c01", "title": "Pass 1 Seed", "core_claim": "C1", "structural_shift": "S1", "mechanism": "M1", "boundary": "B1"}],
+        })
+        c2 = self._write_artifact(run_dir, "candidates-pass02.json", {
+            "schema_version": "pizm-candidates-v1",
+            "stage": "explore",
+            "mode": "RIFT",
+            "candidates": [{"candidate_id": "c02", "title": "Pass 2 Seed", "core_claim": "C2", "structural_shift": "S2", "mechanism": "M2", "boundary": "B2"}],
+        })
+        c1_size = c1.stat().st_size
+        c2_size = c2.stat().st_size
+
+        self._write_artifact(run_dir, "search-field-pass01.json", {
+            "schema_version": "pizm-search-field-v1", "stage": "search-field", "field_id": "sf1",
+            "passes": [{"pass_id": "pass01", "candidates_ref": "candidates-pass01.json", "frozen_hash": "h1"}],
+            "entries": ["pass01:c01"],
+        })
+        self._write_artifact(run_dir, "search-field-pass02.json", {
+            "schema_version": "pizm-search-field-v1", "stage": "search-field", "field_id": "sf2",
+            "passes": [
+                {"pass_id": "pass01", "candidates_ref": "candidates-pass01.json", "frozen_hash": "h1"},
+                {"pass_id": "pass02", "candidates_ref": "candidates-pass02.json", "frozen_hash": "h2"},
+            ],
+            "entries": ["pass01:c01", "pass02:c02"],
+        })
+        self._write_artifact(run_dir, "portfolio.json", {
+            "schema_version": "pizm-portfolio-selection-v1", "stage": "portfolio", "route": "AUTO",
+            "field_hash": "h_sf2",
+            "candidate_assessments": [{"candidate_ref": "pass01:c01", "disposition": "KEEP", "standalone_quality": "strong", "unique_residue": "R1", "nearest_overlap": None, "reason": "Good"}],
+            "bundles": [], "auto_target": {"target_type": "P", "target_id": "P1"}, "perspectives": {"P1": "pass01:c01"},
+        })
+        dev_file = self._write_artifact(run_dir, "development-v2-P1.json", {
+            "schema_version": "pizm-development-v2", "stage": "development-v2",
+            "target": {"target_type": "P", "target_id": "P1"},
+            "identity_lock": {"p_id": "P1", "title": "P1 Title", "core_claim": "C1", "structural_shift": "S1", "mechanism": "M1", "boundary": "B1"},
+            "developed_model": {"thesis": "T", "synthesis": "S", "dynamics": "D", "mechanism_chain": ["M"], "implications": ["I"], "predictions_or_observables": ["P"], "break_conditions": ["B"], "unresolved_tensions": ["U"], "evidence_debt": [], "load_bearing_claims": [], "development_delta": {"summary": "Init"}},
+        })
+        dev_size = dev_file.stat().st_size
+
+        self._write_artifact(run_dir, "deep-review-v2-P1.json", {
+            "schema_version": "pizm-deep-review-v2", "stage": "deep-review-v2",
+            "terminal_state": "MODEL_READY", "verdict_rationale": "Solid", "evidence_debt": [],
+        })
+        # Accounting input for AUTO contract
+        acc_file = tmp_path / "accounting_auto.json"
+        acc_file.write_text(json.dumps({
+            "host_inference_count": 5,
+            "model_repair_count": 0,
+            "checkpoint_retry_count": 0,
+        }), encoding="utf-8")
+
+        # Run bundle creation with multiple stages pointing to the shared run_dir
+        r = run_bundle(
+            "create",
+            "--output-root", str(workspace["output"]),
+            "--slug", "auto-shared-test",
+            "--skill-root", str(workspace["skill"]),
+            "--stage", f"pass-01-normal={run_dir}",
+            "--stage", f"pass-02-rift={run_dir}",
+            "--stage", f"search-field={run_dir}",
+            "--stage", f"portfolio={run_dir}",
+            "--stage", f"deep-P1={run_dir}",
+            "--accounting", str(acc_file),
+        )
+        bundle = workspace["output"] / "session-auto-shared-test"
+
+        # Verify exact, non-duplicated file contents in stage directories
+        pass1_files = {f.name for f in (bundle / "pass-01-normal").iterdir()}
+        assert "candidates-pass01.json" in pass1_files
+        assert "candidates-pass02.json" not in pass1_files, "pass-02 artifact leaked into pass-01 stage dir"
+
+        pass2_files = {f.name for f in (bundle / "pass-02-rift").iterdir()}
+        assert "candidates-pass02.json" in pass2_files
+        assert "candidates-pass01.json" not in pass2_files, "pass-01 artifact leaked into pass-02 stage dir"
+
+        deep_files = {f.name for f in (bundle / "deep-P1").iterdir()}
+        assert "development-v2-P1.json" in deep_files
+        assert "candidates-pass01.json" not in deep_files
+
+        # Verify accounting in manifest: exact sum, no double counting
+        manifest = json.loads((bundle / "manifest.json").read_text(encoding="utf-8"))
+        assert manifest["accounting"]["candidate_bytes"] == c1_size + c2_size, (
+            f"candidate_bytes double-counted: expected {c1_size + c2_size}, got {manifest['accounting']['candidate_bytes']}"
+        )
+        assert manifest["accounting"]["development_bytes"] == dev_size
+        assert manifest["accounting"]["semantic_stage_count"] == 5
+
+    def test_shared_run_dir_bonk_two_deep_bundle_label_aware(self, workspace, tmp_path):
+        """BONK shared run-dir: deep-B1 and deep-B2 select only their respective development artifacts."""
+        run_dir = tmp_path / "shared_bonk_run"
+        run_dir.mkdir()
+
+        # Explore passes
+        c1 = self._write_artifact(run_dir, "candidates-pass01.json", {
+            "schema_version": "pizm-candidates-v1", "stage": "explore", "mode": "NORMAL", "candidates": [{"candidate_id": "c01"}],
+        })
+        c2 = self._write_artifact(run_dir, "candidates-pass02.json", {
+            "schema_version": "pizm-candidates-v1", "stage": "explore", "mode": "RESIDUAL", "candidates": [{"candidate_id": "c02"}],
+        })
+        self._write_artifact(run_dir, "search-field-pass02.json", {
+            "schema_version": "pizm-search-field-v1", "stage": "search-field", "field_id": "sf2",
+            "passes": [{"pass_id": "pass01", "candidates_ref": "c1", "frozen_hash": "h1"}, {"pass_id": "pass02", "candidates_ref": "c2", "frozen_hash": "h2"}],
+            "entries": ["pass01:c01", "pass02:c02"],
+        })
+        self._write_artifact(run_dir, "portfolio.json", {
+            "schema_version": "pizm-portfolio-selection-v2", "stage": "portfolio", "route": "BONK",
+            "field_hash": "h_sf2", "competition_status": "TWO_DEFENSIBLE_BUNDLES",
+            "recommended_competition": {"left_bundle_id": "B1", "right_bundle_id": "B2", "competition_axis": "Axis", "discriminating_observation": "Obs", "discriminating_question": "Q"},
+            "candidate_assessments": [], "bundles": [
+                {"bundle_id": "B1", "member_refs": ["pass01:c01"], "bundle_thesis": "TB1", "composition_gain": "G1", "member_roles": {}, "member_ablation": {}, "internal_tension": "T1", "weakest_link": "W1", "new_consequence_or_prediction": "P1"},
+                {"bundle_id": "B2", "member_refs": ["pass02:c02"], "bundle_thesis": "TB2", "composition_gain": "G2", "member_roles": {}, "member_ablation": {}, "internal_tension": "T2", "weakest_link": "W2", "new_consequence_or_prediction": "P2"},
+            ],
+            "perspectives": {"P1": "pass01:c01", "P2": "pass02:c02"},
+        })
+
+        # Deep B1 and Deep B2
+        dev_b1 = self._write_artifact(run_dir, "development-v2-B1.json", {
+            "schema_version": "pizm-development-v2", "stage": "development-v2",
+            "target": {"target_type": "B", "target_id": "B1"},
+            "identity_lock": {"bundle_id": "B1", "member_refs": ["pass01:c01"], "title": "B1", "core_claim": "CB1", "structural_shift": "SB1", "mechanism": "MB1", "boundary": "BB1"},
+            "developed_model": {"thesis": "TB1", "synthesis": "S1", "dynamics": "D1", "mechanism_chain": ["M1"], "implications": [], "predictions_or_observables": [], "break_conditions": [], "unresolved_tensions": [], "evidence_debt": [], "load_bearing_claims": [], "development_delta": {"summary": "Init"}},
+        })
+        self._write_artifact(run_dir, "deep-review-v2-B1.json", {
+            "schema_version": "pizm-deep-review-v2", "stage": "deep-review-v2",
+            "terminal_state": "MODEL_READY", "verdict_rationale": "OK", "evidence_debt": [],
+        })
+
+        dev_b2 = self._write_artifact(run_dir, "development-v2-B2.json", {
+            "schema_version": "pizm-development-v2", "stage": "development-v2",
+            "target": {"target_type": "B", "target_id": "B2"},
+            "identity_lock": {"bundle_id": "B2", "member_refs": ["pass02:c02"], "title": "B2", "core_claim": "CB2", "structural_shift": "SB2", "mechanism": "MB2", "boundary": "BB2"},
+            "developed_model": {"thesis": "TB2", "synthesis": "S2", "dynamics": "D2", "mechanism_chain": ["M2"], "implications": [], "predictions_or_observables": [], "break_conditions": [], "unresolved_tensions": [], "evidence_debt": [], "load_bearing_claims": [], "development_delta": {"summary": "Init"}},
+        })
+        self._write_artifact(run_dir, "deep-review-v2-B2.json", {
+            "schema_version": "pizm-deep-review-v2", "stage": "deep-review-v2",
+            "terminal_state": "MODEL_READY", "verdict_rationale": "OK", "evidence_debt": [],
+        })
+
+        self._write_artifact(run_dir, "comparison-review-v1.json", {
+            "schema_version": "pizm-comparison-review-v1", "stage": "comparison-review-v1",
+            "left_target_id": "B1", "right_target_id": "B2",
+            "left_review": {"target_id": "B1", "terminal_state": "MODEL_READY"},
+            "right_review": {"target_id": "B2", "terminal_state": "MODEL_READY"},
+            "comparison": {"current_preference": "LEFT", "competition_axis": "Axis", "strongest_reason_for_left": "R1", "strongest_reason_for_right": "R2", "discriminating_observation": "Obs", "what_would_change_the_decision": "Ev", "shared_evidence_debt": []},
+        })
+
+        b1_size = dev_b1.stat().st_size
+        b2_size = dev_b2.stat().st_size
+
+        # Accounting input for BONK contract
+        acc_file = tmp_path / "accounting_bonk.json"
+        acc_file.write_text(json.dumps({
+            "host_inference_count": 7,
+            "model_repair_count": 0,
+            "checkpoint_retry_count": 0,
+        }), encoding="utf-8")
+
+        r = run_bundle(
+            "create",
+            "--output-root", str(workspace["output"]),
+            "--slug", "bonk-shared-test",
+            "--skill-root", str(workspace["skill"]),
+            "--stage", f"pass-01-normal={run_dir}",
+            "--stage", f"pass-02-residual={run_dir}",
+            "--stage", f"search-field={run_dir}",
+            "--stage", f"portfolio={run_dir}",
+            "--stage", f"deep-B1={run_dir}",
+            "--stage", f"deep-B2={run_dir}",
+            "--stage", f"comparison-review={run_dir}",
+            "--accounting", str(acc_file),
+        )
+        assert r.returncode == 0, r.stderr
+        bundle = workspace["output"] / "session-bonk-shared-test"
+
+        # Check stage separation: no cross-contamination between B1 and B2
+        b1_files = {f.name for f in (bundle / "deep-B1").iterdir()}
+        assert "development-v2-B1.json" in b1_files
+        assert "development-v2-B2.json" not in b1_files, "B2 artifact leaked into deep-B1 stage dir"
+
+        b2_files = {f.name for f in (bundle / "deep-B2").iterdir()}
+        assert "development-v2-B2.json" in b2_files
+        assert "development-v2-B1.json" not in b2_files, "B1 artifact leaked into deep-B2 stage dir"
+
+        # Check accounting: exact sum, no double counting
+        manifest = json.loads((bundle / "manifest.json").read_text(encoding="utf-8"))
+        assert manifest["accounting"]["development_bytes"] == b1_size + b2_size, (
+            f"development_bytes double-counted: expected {b1_size + b2_size}, got {manifest['accounting']['development_bytes']}"
+        )
+        assert manifest["accounting"]["candidate_bytes"] == c1.stat().st_size + c2.stat().st_size
+        assert manifest["accounting"]["semantic_stage_count"] == 7
+
+    def test_shared_run_dir_bonk_comparison_lever_isolation(self, workspace, tmp_path):
+        """BONK + LEVER shared run-dir: comparison-review and lever-B1 isolate each other's artifacts and sidecars."""
+        run_dir = tmp_path / "shared_bonk_lever_run"
+        run_dir.mkdir()
+
+        # Explore passes
+        c1 = self._write_artifact(run_dir, "candidates-pass01.json", {
+            "schema_version": "pizm-candidates-v1",
+            "stage": "explore",
+            "mode": "NORMAL",
+            "candidates": [{"candidate_id": "c01", "title": "Pass 1 Seed", "core_claim": "C1", "structural_shift": "S1", "mechanism": "M1", "boundary": "B1"}],
+        })
+        (run_dir / "candidates-pass01.meta.json").write_text('{"stage":"explore","suffix":"pass01"}', encoding="utf-8")
+
+        c2 = self._write_artifact(run_dir, "candidates-pass02.json", {
+            "schema_version": "pizm-candidates-v1",
+            "stage": "explore",
+            "mode": "RESIDUAL",
+            "candidates": [{"candidate_id": "c02", "title": "Pass 2 Seed", "core_claim": "C2", "structural_shift": "S2", "mechanism": "M2", "boundary": "B2"}],
+        })
+        (run_dir / "candidates-pass02.meta.json").write_text('{"stage":"explore","suffix":"pass02"}', encoding="utf-8")
+
+        # Search fields
+        self._write_artifact(run_dir, "search-field-pass01.json", {
+            "schema_version": "pizm-search-field-v1", "stage": "search-field", "field_id": "sf1",
+            "passes": [{"pass_id": "pass01", "candidates_ref": "candidates-pass01.json", "frozen_hash": "h1"}],
+            "entries": ["pass01:c01"],
+        })
+        (run_dir / "search-field-pass01.meta.json").write_text('{"stage":"search-field","suffix":"pass01"}', encoding="utf-8")
+
+        self._write_artifact(run_dir, "search-field-pass02.json", {
+            "schema_version": "pizm-search-field-v1", "stage": "search-field", "field_id": "sf2",
+            "passes": [
+                {"pass_id": "pass01", "candidates_ref": "candidates-pass01.json", "frozen_hash": "h1"},
+                {"pass_id": "pass02", "candidates_ref": "candidates-pass02.json", "frozen_hash": "h2"},
+            ],
+            "entries": ["pass01:c01", "pass02:c02"],
+        })
+        (run_dir / "search-field-pass02.meta.json").write_text('{"stage":"search-field","suffix":"pass02"}', encoding="utf-8")
+
+        # Portfolio (BONK route, TWO_DEFENSIBLE_BUNDLES)
+        self._write_artifact(run_dir, "portfolio.json", {
+            "schema_version": "pizm-portfolio-selection-v2", "stage": "portfolio", "route": "BONK",
+            "field_hash": "h_sf2",
+            "competition_status": "TWO_DEFENSIBLE_BUNDLES",
+            "recommended_competition": {
+                "left_bundle_id": "B1",
+                "right_bundle_id": "B2",
+                "competition_axis": "Axis",
+                "why_both_merit_deep": "Reason",
+            },
+            "candidate_assessments": [
+                {"candidate_ref": "pass01:c01", "disposition": "KEEP", "standalone_quality": "strong", "unique_residue": "R1", "nearest_overlap": None, "reason": "Good"},
+                {"candidate_ref": "pass02:c02", "disposition": "KEEP", "standalone_quality": "strong", "unique_residue": "R2", "nearest_overlap": None, "reason": "Good"},
+            ],
+            "bundles": [
+                {"bundle_id": "B1", "title": "Bundle 1", "member_refs": ["pass01:c01"], "core_claim": "C1", "structural_shift": "S1", "compositional_thesis": "T1", "internal_tension": "I1", "synthesis_rationale": "SR1"},
+                {"bundle_id": "B2", "title": "Bundle 2", "member_refs": ["pass02:c02"], "core_claim": "C2", "structural_shift": "S2", "compositional_thesis": "T2", "internal_tension": "I2", "synthesis_rationale": "SR2"},
+            ],
+            "perspectives": {"P1": "pass01:c01", "P2": "pass02:c02"},
+        })
+        (run_dir / "portfolio.meta.json").write_text('{"stage":"portfolio"}', encoding="utf-8")
+
+        # Deep B1 & B2
+        dev_b1 = self._write_artifact(run_dir, "development-v2-B1.json", {
+            "schema_version": "pizm-development-v2", "stage": "development-v2",
+            "target": {"target_type": "B", "target_id": "B1"},
+            "identity_lock": {"bundle_id": "B1", "member_refs": ["pass01:c01"], "title": "B1 Title", "core_claim": "C1", "structural_shift": "S1", "mechanism": "M1", "boundary": "B1"},
+            "developed_model": {"thesis": "T1", "synthesis": "S1", "dynamics": "D1", "mechanism_chain": ["M1"], "implications": ["I1"], "predictions_or_observables": ["P1"], "break_conditions": ["B1"], "unresolved_tensions": ["U1"], "evidence_debt": [], "load_bearing_claims": [], "development_delta": {"summary": "Init"}, "member_contributions": {"pass01:c01": "C1"}, "member_ablation": {"pass01:c01": "A1"}},
+        })
+        (run_dir / "development-v2-B1.meta.json").write_text('{"stage":"development-v2","target":"B1"}', encoding="utf-8")
+
+        dev_b2 = self._write_artifact(run_dir, "development-v2-B2.json", {
+            "schema_version": "pizm-development-v2", "stage": "development-v2",
+            "target": {"target_type": "B", "target_id": "B2"},
+            "identity_lock": {"bundle_id": "B2", "member_refs": ["pass02:c02"], "title": "B2 Title", "core_claim": "C2", "structural_shift": "S2", "mechanism": "M2", "boundary": "B2"},
+            "developed_model": {"thesis": "T2", "synthesis": "S2", "dynamics": "D2", "mechanism_chain": ["M2"], "implications": ["I2"], "predictions_or_observables": ["P2"], "break_conditions": ["B2"], "unresolved_tensions": ["U2"], "evidence_debt": [], "load_bearing_claims": [], "development_delta": {"summary": "Init"}, "member_contributions": {"pass02:c02": "C2"}, "member_ablation": {"pass02:c02": "A2"}},
+        })
+        (run_dir / "development-v2-B2.meta.json").write_text('{"stage":"development-v2","target":"B2"}', encoding="utf-8")
+
+        # Canonical Comparison Review
+        self._write_artifact(run_dir, "comparison-review-v1.json", {
+            "schema_version": "pizm-comparison-review-v1", "stage": "comparison-review-v1",
+            "left_target_id": "B1", "right_target_id": "B2",
+            "left_review": {"target_id": "B1", "terminal_state": "MODEL_READY"},
+            "right_review": {"target_id": "B2", "terminal_state": "MODEL_READY"},
+            "comparison": {"current_preference": "LEFT", "competition_axis": "Axis", "strongest_reason_for_left": "R1", "strongest_reason_for_right": "R2", "discriminating_observation": "Obs", "what_would_change_the_decision": "Ev", "shared_evidence_debt": []},
+        })
+        (run_dir / "comparison-review-v1.meta.json").write_text('{"stage":"comparison-review-v1"}', encoding="utf-8")
+
+        # LEVER design and review in the same run_dir
+        self._write_artifact(run_dir, "design.json", {
+            "schema_version": "pizm-lever-design-v1",
+            "stage": "lever",
+            "levers": [{"lever_id": "L1", "intervention_or_test_point": "Test move"}],
+        })
+        (run_dir / "design.meta.json").write_text('{"stage":"lever-design"}', encoding="utf-8")
+
+        design_bytes = (run_dir / "design.json").read_bytes()
+        self._write_artifact(run_dir, "review.json", {
+            "schema_version": "pizm-lever-review-v1",
+            "stage": "lever",
+            "frozen_hash": _sha256_hex(design_bytes),
+            "outcome": "LEVER",
+        })
+        (run_dir / "review.meta.json").write_text('{"stage":"lever-review"}', encoding="utf-8")
+
+        b1_size = dev_b1.stat().st_size
+        b2_size = dev_b2.stat().st_size
+
+        acc_file = tmp_path / "accounting_bonk_lever.json"
+        acc_file.write_text(json.dumps({
+            "host_inference_count": 9,
+            "model_repair_count": 0,
+            "checkpoint_retry_count": 0,
+        }), encoding="utf-8")
+
+        r = run_bundle(
+            "create",
+            "--output-root", str(workspace["output"]),
+            "--slug", "bonk-lever-shared-test",
+            "--skill-root", str(workspace["skill"]),
+            "--stage", f"pass-01-normal={run_dir}",
+            "--stage", f"pass-02-residual={run_dir}",
+            "--stage", f"search-field={run_dir}",
+            "--stage", f"portfolio={run_dir}",
+            "--stage", f"deep-B1={run_dir}",
+            "--stage", f"deep-B2={run_dir}",
+            "--stage", f"comparison-review={run_dir}",
+            "--stage", f"lever-B1={run_dir}",
+            "--accounting", str(acc_file),
+        )
+        assert r.returncode == 0, r.stderr
+        bundle = workspace["output"] / "session-bonk-lever-shared-test"
+
+        # Bidirectional isolation assertions:
+        # 1. Comparison must contain comparison artifacts and sidecars; NO lever artifacts
+        comp_files = {f.name for f in (bundle / "comparison-review").iterdir()}
+        assert "comparison-review-v1.json" in comp_files
+        assert "comparison-review-v1.sha256" in comp_files
+        assert "comparison-review-v1.meta.json" in comp_files
+        assert "review.json" not in comp_files, "LEVER review.json leaked into comparison-review stage dir"
+        assert "review.sha256" not in comp_files, "LEVER review.sha256 leaked into comparison-review stage dir"
+        assert "review.meta.json" not in comp_files, "LEVER review.meta.json leaked into comparison-review stage dir"
+        assert "design.json" not in comp_files, "LEVER design.json leaked into comparison-review stage dir"
+        assert "design.sha256" not in comp_files, "LEVER design.sha256 leaked into comparison-review stage dir"
+        assert "design.meta.json" not in comp_files, "LEVER design.meta.json leaked into comparison-review stage dir"
+
+        # 2. LEVER must contain design and review artifacts and sidecars; NO comparison artifacts
+        lever_files = {f.name for f in (bundle / "lever-B1").iterdir()}
+        assert "design.json" in lever_files
+        assert "design.sha256" in lever_files
+        assert "design.meta.json" in lever_files
+        assert "review.json" in lever_files
+        assert "review.sha256" in lever_files
+        assert "review.meta.json" in lever_files
+        assert "comparison-review-v1.json" not in lever_files, "comparison-review-v1.json leaked into lever-B1 stage dir"
+        assert "comparison-review-v1.sha256" not in lever_files, "comparison-review-v1.sha256 leaked into lever-B1 stage dir"
+        assert "comparison-review-v1.meta.json" not in lever_files, "comparison-review-v1.meta.json leaked into lever-B1 stage dir"
+
+        # 3. Derived accounting assertions: exact counts, no cross-contamination
+        manifest = json.loads((bundle / "manifest.json").read_text(encoding="utf-8"))
+        assert manifest["accounting"]["development_bytes"] == b1_size + b2_size, (
+            f"development_bytes mismatch: expected {b1_size + b2_size}, got {manifest['accounting']['development_bytes']}"
+        )
+        assert manifest["accounting"]["candidate_bytes"] == c1.stat().st_size + c2.stat().st_size
+        assert manifest["accounting"]["semantic_stage_count"] == 8

@@ -175,6 +175,8 @@ class TestAnalyticalReferencesUntouched:
             # BPATCH comparison-parity follow-up additionally authorizes the
             # bounded deep-compare.md inheritance pointer + schema example
             # (no Critic semantics duplicated or changed).
+            # WAVE1-RELEASE-PATCH-20260920 authorizes bounded task-relative
+            # explore-selector.md and synchronized explore.md pre-search clarification.
             allowed_changes = {
                 "skills/pizm/references/wordcraft.md",
                 "skills/pizm/references/auto.md",
@@ -182,6 +184,8 @@ class TestAnalyticalReferencesUntouched:
                 "skills/pizm/references/deep.md",
                 "skills/pizm/references/deep-reviewer.md",
                 "skills/pizm/references/deep-compare.md",
+                "skills/pizm/references/explore-selector.md",
+                "skills/pizm/references/explore.md",
             }
             for changed in changed_refs:
                 assert changed in allowed_changes, (

@@ -78,8 +78,7 @@ class TestMirrorIntegrity:
     def test_reviewer_mirror_byte_identical(self):
         mirror = SKILL_ROOT / "references" / "deep-reviewer.md"
         assert mirror.exists(), "staged deep-reviewer.md mirror missing"
-        if mirror.read_bytes() != INSTALLED_REVIEWER.read_bytes():
-            pytest.skip("staged deep-reviewer.md modified ahead of Step 3 mirror sync")
+        assert mirror.read_bytes() == INSTALLED_REVIEWER.read_bytes()
     @pytest.mark.skipif(not MIRROR_PRESENT, reason="developer-machine skill mirror not installed")
     def test_compare_mirror_byte_identical(self):
         mirror = SKILL_ROOT / "references" / "deep-compare.md"

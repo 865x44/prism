@@ -6,7 +6,7 @@ Prism is a semantic exploration and model-development tool designed to discover 
 
 ## What Prism Is
 
-Prism helps users move beyond surface-level brainstorming. Instead of generating lists of fluent stylistic variations, Prism searches for structurally independent causal models of a problem, identifies non-obvious composition gains between perspectives, subjects developed models to independent adversarial evaluation, and determines testable leverage points.
+Prism helps users move beyond surface-level brainstorming. Instead of treating stylistic variations as semantic novelty, Prism's analytical core searches for structurally independent causal models of a problem, identifies non-obvious composition gains between perspectives, subjects developed models to independent adversarial evaluation, and determines testable leverage points. For dedicated language work, Prism provides WORDCRAFT as a separate, optional creative operation.
 
 ---
 
@@ -34,6 +34,7 @@ Mode cheat sheet:
 /pizm lever P3         derive bounded actionable leverage from a MODEL_READY model
 /pizm auto <task>      autonomous single-target pipeline (explore -> portfolio -> deep -> critic -> lever)
 /pizm bonk <task>      heavy dual-competition pipeline (left vs right bundle)
+/pizm wordcraft <text>   craft memorable words, phrases, and linguistic hooks
 ```
 ---
 
@@ -51,6 +52,8 @@ Mode cheat sheet:
 ### Automated Pipelines
 - **AUTO (`/pizm auto <task>`)**: Dynamic single-target pipeline: Search(initial) $\to$ Search(rift) $\to$ Portfolio $\to$ dynamic reasoning-budget branch (Deep on nominated target $\to$ Critic $\to$ optional LEVER; intentional Information Gathering stop; or field Preservation stop) $\to$ deterministic final synthesis (`run.md` and `run.html`).
 - **BONK (`/pizm bonk <task>`)**: Heavy dual-competition pipeline: Search(initial) $\to$ Search(residual) $\to$ Portfolio $\to$ Deep(LEFT) $\to$ Deep(RIGHT) $\to$ Compare $\to$ optional LEVER $\to$ deterministic final synthesis (`run.md` and `run.html`).
+### Optional Creative Operation
+- **WORDCRAFT (`/pizm wordcraft <text>`)**: Generates memorable, quotable, and coined language (words, derived forms, compounds, metaphors, aphorisms, punchlines) from direct text or accessible Pizm perspectives/bundles. Executes on the current host model in a single prompt-only pass with qualitative context-first selection and an explicit `NO WINNER` path when the source text is already stronger. WORDCRAFT is strictly optional and is not part of analytical readiness or AUTO/BONK pipelines.
 ---
 
 ## Mental Model & Topologies
@@ -113,7 +116,7 @@ This copies the canonical skill directory and copies the deterministic helpers (
 Verify mirror integrity:
 
 ```bash
-for f in SKILL.md agents/openai.yaml references/auto.md references/deep.md references/deep-compare.md references/deep-reviewer.md references/explore.md references/explore-selector.md references/bonk.md references/lever.md references/lever-reviewer.md references/reasoning-arsenal.md; do
+for f in SKILL.md agents/openai.yaml references/auto.md references/deep.md references/deep-compare.md references/deep-reviewer.md references/explore.md references/explore-selector.md references/bonk.md references/lever.md references/lever-reviewer.md references/reasoning-arsenal.md references/wordcraft.md; do
   cmp -s "skills/pizm/$f" "$HOME/.config/opencode/skills/pizm/$f" || { echo "Mirror mismatch in $f"; exit 1; }
 done
 echo "Skill mirror verified."

@@ -112,22 +112,19 @@ class TestStagedMirrorIntegrity:
     def test_deep_mirror_byte_identical(self):
         mirror = STAGED_ROOT / "references" / "deep.md"
         assert mirror.exists(), "staged deep.md mirror missing"
-        if mirror.read_bytes() != INSTALLED_DEEP.read_bytes():
-            pytest.skip("staged deep.md modified ahead of Step 3 mirror sync")
+        assert mirror.read_bytes() == INSTALLED_DEEP.read_bytes()
 
     @pytest.mark.skipif(not MIRROR_PRESENT, reason="developer-machine skill mirror not installed")
     def test_reviewer_mirror_byte_identical(self):
         mirror = STAGED_ROOT / "references" / "deep-reviewer.md"
         assert mirror.exists(), "staged deep-reviewer.md mirror missing"
-        if mirror.read_bytes() != INSTALLED_REVIEWER.read_bytes():
-            pytest.skip("staged deep-reviewer.md modified ahead of Step 3 mirror sync")
+        assert mirror.read_bytes() == INSTALLED_REVIEWER.read_bytes()
 
     @pytest.mark.skipif(not MIRROR_PRESENT, reason="developer-machine skill mirror not installed")
     def test_skill_mirror_byte_identical(self):
         mirror = STAGED_ROOT / "SKILL.md"
         assert mirror.exists(), "staged SKILL.md mirror missing"
-        if mirror.read_bytes() != INSTALLED_SKILL.read_bytes():
-            pytest.skip("staged SKILL.md modified ahead of Step 3 mirror sync")
+        assert mirror.read_bytes() == INSTALLED_SKILL.read_bytes()
 
     @pytest.mark.skipif(not MIRROR_PRESENT, reason="developer-machine skill mirror not installed")
     def test_openai_mirror_byte_identical(self):
@@ -141,16 +138,14 @@ class TestStagedMirrorIntegrity:
         assert INSTALLED_EXPLORE.exists()
         staged_explore = STAGED_ROOT / "references" / "explore.md"
         assert staged_explore.exists()
-        if staged_explore.read_bytes() != INSTALLED_EXPLORE.read_bytes():
-            pytest.skip("staged explore.md modified ahead of Step 3 mirror sync")
+        assert staged_explore.read_bytes() == INSTALLED_EXPLORE.read_bytes()
 
     @pytest.mark.skipif(not MIRROR_PRESENT, reason="developer-machine skill mirror not installed")
     def test_selector_files_unchanged(self):
         assert INSTALLED_SELECTOR.exists()
         staged_sel = STAGED_ROOT / "references" / "explore-selector.md"
         assert staged_sel.exists()
-        if staged_sel.read_bytes() != INSTALLED_SELECTOR.read_bytes():
-            pytest.skip("staged explore-selector.md modified ahead of Step 3 mirror sync")
+        assert staged_sel.read_bytes() == INSTALLED_SELECTOR.read_bytes()
 
 
 # ---------------------------------------------------------------------------
