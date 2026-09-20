@@ -24,6 +24,29 @@ Read only the reference needed for the requested primitive:
 - WORDCRAFT (optional creative operation): read `references/wordcraft.md`.
 Follow the staged tool sequence defined in the loaded reference file exactly. Each reference defines its own generator/developer workflow, artifact schema, freeze command, and bounded retry behavior.
 
+## Operational authority
+
+The loaded Pizm skill and reference contracts are authoritative for ordinary successful execution.
+
+Do not inspect Pizm implementation source, tests, validator internals, or CLI `--help` merely to reconfirm a schema, command, stage order, file name, or invariant already specified by the loaded contract.
+
+In particular, ordinary execution must not perform exploratory reads or greps of:
+- `bin/pizm-checkpoint`
+- `bin/pizm-session-bundle`
+- `bin/pizm_run_state.py`
+- `tests/test_pizm_*`
+or routine `pizm-* --help` calls.
+
+Implementation inspection is permitted only when at least one of these operational failure conditions holds:
+1. a prescribed command returns a non-zero exit code unexpectedly;
+2. an executable or option prescribed by the current contract is missing;
+3. two canonical contract instructions directly conflict or are insufficient to proceed;
+4. a frozen artifact is rejected by checkpoint validation and the surfaced error is insufficient to perform the contract-bounded repair.
+
+A successful prescribed checkpoint, render, or archive command is sufficient operational evidence. Trust successful command output without reading implementation files or tests to re-verify it.
+
+Do not re-read an unchanged Pizm reference or frozen artifact whose complete content is already present in active conversation context unless exact reloading is explicitly required.
+
 ## Route the request
 
 - `/pizm <task>` (legacy alias `/prism <task>`) with no explicit mode → Explore NORMAL: Search(initial) -> Portfolio -> visible Perspectives/Bundles -> STOP.
@@ -73,6 +96,14 @@ Run fingerprint capture (`model`, `provider`, `model_source`, `pizm_version`, `s
 ## Information gathering and question budget
 
 Permit 0–3 clarifying questions only if different answers would materially change search territory, constraints, evidence interpretation, or the next reasoning spend. Existing context or a bounded reasoning check must be consumed first; "more context would help" is insufficient.
+
+- **Default budget**: 0 questions. Proceed directly with available context whenever feasible.
+- **One-Question Scope-Fork Trigger**: Ask **one high-information clarifying question** before committing to Search only when an unresolved, realistic A/B fork exists where different answers would materially redirect the solution family, search territory, load-bearing constraints, evidence interpretation, or reasoning route. Do not ask generic preference questionnaires (e.g. "what are your priorities?"); a preference question is permitted only when the answer directly discriminates between materially different solution families.
+- **Suppression Guards**:
+  - Do not ask if the answer is already stated or clearly inferable from existing context.
+  - Do not ask if both plausible branches can be honestly and cheaply covered within the same Search pass.
+  - Do not silently pick one branch merely to avoid asking when a genuine material fork exists.
+- **Noninteractive Fallback**: In an automated, headless, batch, or noninteractive context where conversational turn-taking cannot occur, do not block or halt execution waiting for clarification. Instead, cover both material branches within the initial search candidate pool when feasible; otherwise, state the assumed branch explicitly and preserve the alternative as a declared material assumption. (This is host reasoning guidance, not a mechanical runtime mode detector.)
 
 ## Source authority
 
