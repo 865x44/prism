@@ -47,6 +47,8 @@ A successful prescribed checkpoint, render, or archive command is sufficient ope
 
 Do not re-read an unchanged Pizm reference or frozen artifact whose complete content is already present in active conversation context unless exact reloading is explicitly required.
 
+A fresh Pizm run must not inspect artifacts or rendered records from prior `.ai/pizm/run-*` runs to infer schemas, examples, candidate content, or decisions. Prior runs may be read only when the user explicitly requests continuation, replay, comparison, or analysis of that prior run. Canonical current contracts, not prior run artifacts, are schema authority.
+
 ## Route the request
 
 - `/pizm <task>` (legacy alias `/prism <task>`) with no explicit mode → Explore NORMAL: Search(initial) -> Portfolio -> visible Perspectives/Bundles -> STOP.

@@ -177,6 +177,23 @@ def _get_stage_artifacts(
             return []
         return raw_allowlisted
 
+    elif stage_type == "comparison":
+        comp_files = [f for f in raw_allowlisted if f.name.startswith("comparison-review")]
+        if comp_files:
+            return comp_files
+        same_dir_claiming_review = [
+            s for s in all_stage_specs
+            if s[1] == run_dir and s[2] in ("deep", "lever")
+        ]
+        if not same_dir_claiming_review:
+            same_dir_comps = [
+                s for s in all_stage_specs
+                if s[1] == run_dir and s[2] == "comparison"
+            ]
+            if len(same_dir_comps) == 1:
+                return raw_allowlisted
+        return []
+
     return raw_allowlisted
 
 def _die(msg: str, code: int = 1) -> int:
