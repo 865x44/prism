@@ -1,0 +1,7 @@
+{
+  "sha256": "fba7423a61376721b3c7047d1e33162a01791a97c02323bfc475d2b249ebf882",
+  "timestamp": "2026-08-25T16:24:40.069142+00:00",
+  "run_id": "20260825-telecorpus",
+  "stage": "deep-review-v2",
+  "schema_version": "pizm-deep-review-v2"
+}

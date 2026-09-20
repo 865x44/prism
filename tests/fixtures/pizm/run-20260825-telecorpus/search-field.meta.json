@@ -1,0 +1,7 @@
+{
+  "sha256": "b31a74823efea5769d8a203727f4ac3eaaf06e5fb84a6c63b8896978d3dc9947",
+  "timestamp": "2026-08-25T16:24:35.320179+00:00",
+  "run_id": "20260825-telecorpus",
+  "stage": "search-field",
+  "schema_version": "pizm-search-field-v1"
+}

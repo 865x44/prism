@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Prism run k7n2qm — MANUAL · incomplete</title>
+<style>
+:root {
+  --bg: #faf9f6;
+  --fg: #1a1a1a;
+  --muted: #666666;
+  --line: #dedbd2;
+  --card: #ffffff;
+  --chip-bg: #f0eee8;
+  --chip-fg: #333333;
+}
+* {
+  box-sizing: border-box;
+}
+html {
+  scroll-behavior: auto;
+}
+body {
+  margin: 0;
+  padding: 2.5rem 1.5rem 6rem;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: "Iosevka", "JetBrains Mono", "IBM Plex Mono", "SFMono-Regular", "SF Mono", "Fira Code", "Cascadia Mono", "Liberation Mono", monospace;
+  font-size: 17px;
+  line-height: 1.6;
+  font-variant-ligatures: none;
+  font-feature-settings: "liga" 0, "calt" 0;
+}
+main,
+.reader-shell {
+  width: min(100% - 48px, 980px);
+  margin-inline: auto;
+}
+h1, h2, h3, h4, h5, h6 {
+  font-family: inherit;
+  font-weight: 600;
+  line-height: 1.25;
+  color: var(--fg);
+}
+h1 {
+  font-size: 1.75rem;
+  margin: 0.25rem 0 1rem;
+}
+h2 {
+  font-size: 1.35rem;
+  margin: 0 0 0.75rem;
+}
+h3 {
+  font-size: 1.12rem;
+  margin: 1.25rem 0 0.5rem;
+}
+h4 {
+  font-size: 1.0rem;
+  margin: 1rem 0 0.4rem;
+}
+p {
+  margin: 0.6rem 0;
+}
+a {
+  color: var(--fg);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.kicker {
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  font-size: 0.75rem;
+  color: var(--muted);
+  margin: 0 0 0.25rem;
+}
+.tech, .cid, .pid, .bid {
+  font-family: inherit;
+  font-size: 0.9em;
+  background: var(--chip-bg);
+  color: var(--chip-fg);
+  padding: 0.1em 0.35em;
+  border-radius: 2px;
+}
+.state {
+  font-weight: 600;
+}
+header {
+  border-bottom: 2px solid var(--line);
+  padding-bottom: 1.5rem;
+  margin-bottom: 2rem;
+}
+.stage {
+  margin: 2.25rem 0;
+  padding-bottom: 2rem;
+  border-bottom: 1px solid var(--line);
+}
+.stage:last-of-type {
+  border-bottom: none;
+}
+.stage.summary,
+.stage.economics,
+.box {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  padding: 1.25rem;
+}
+.stage.missing {
+  color: var(--muted);
+  border: 1px dashed var(--line);
+  padding: 1rem 1.25rem;
+  border-radius: 3px;
+  background: transparent;
+}
+.gap-notice {
+  background: var(--chip-bg);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  padding: 0.75rem 1rem;
+  margin: 0.75rem 0;
+  font-size: 0.92rem;
+  color: var(--muted);
+}
+dl.facts {
+  display: grid;
+  grid-template-columns: 14rem 1fr;
+  gap: 0.35rem 1rem;
+  margin: 0.5rem 0;
+  font-size: 0.95rem;
+}
+dl.facts dt {
+  color: var(--muted);
+}
+dl.facts dd {
+  margin: 0;
+}
+nav.toc {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  padding: 1rem 1.25rem;
+  margin: 1.5rem 0 2rem;
+}
+nav.toc h2 {
+  font-size: 0.85rem;
+  margin: 0 0 0.6rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--muted);
+}
+nav.toc ol {
+  margin: 0;
+  padding-left: 1.25rem;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 0.35rem 1rem;
+}
+nav.toc li {
+  font-size: 0.9rem;
+}
+.toolbar {
+  margin: 1rem 0;
+  display: flex;
+  gap: 0.6rem;
+  align-items: center;
+}
+.toolbar button {
+  font-family: inherit;
+  font-size: 0.85rem;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  padding: 0.35rem 0.75rem;
+  cursor: pointer;
+  color: var(--fg);
+}
+.toolbar button:hover {
+  background: var(--chip-bg);
+}
+details {
+  margin: 0.5rem 0;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: var(--card);
+}
+summary {
+  cursor: pointer;
+  padding: 0.6rem 0.85rem;
+  font-weight: 600;
+  user-select: none;
+  outline: none;
+}
+summary:hover {
+  background: var(--chip-bg);
+}
+details[open] > summary {
+  border-bottom: 1px solid var(--line);
+}
+.detail-body {
+  padding: 0.85rem 1rem;
+}
+article.perspective,
+article.bundle {
+  border-top: 1px solid var(--line);
+  padding-top: 0.75rem;
+  margin-top: 0.75rem;
+}
+aside.gate {
+  border: 1px solid var(--line);
+  background: var(--card);
+  border-radius: 3px;
+  padding: 0.85rem 1rem;
+  margin-top: 1.25rem;
+}
+pre {
+  background: var(--chip-bg);
+  padding: 0.75rem 1rem;
+  border-radius: 3px;
+  overflow-x: auto;
+  font-size: 0.88rem;
+  border: 1px solid var(--line);
+}
+.back {
+  margin-top: 2.5rem;
+  font-size: 0.9rem;
+}
+footer.reader-footer {
+  margin-top: 3rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--line);
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+@media (max-width: 768px) {
+  body {
+    padding: 1rem 1rem 4rem;
+  }
+  main, .reader-shell {
+    width: 100%;
+  }
+  dl.facts {
+    grid-template-columns: 1fr;
+    gap: 0.15rem;
+  }
+  nav.toc ol {
+    grid-template-columns: 1fr;
+  }
+}
+@media print {
+  body { background: #fff; color: #000; padding: 0; }
+  main, .reader-shell { width: 100%; max-width: none; }
+  nav.toc, .toolbar, .back { display: none; }
+  details { border: none; }
+  details > *:not(summary) { display: block !important; }
+  .stage, header { break-inside: avoid; border: none; }
+}
+</style>
+</head>
+<body>
+<main class="reader-shell">
+<header id="top"><p class="kicker">Prism run</p><h1>MANUAL · incomplete</h1><dl class="facts">
+<dt>Route / shape</dt><dd>MANUAL · incomplete</dd>
+<dt>Run ID</dt><dd><span class="tech">k7n2qm</span></dd>
+<dt>Timestamp</dt><dd>2026-09-02T10:45:32.184797+00:00</dd>
+<dt>Model / provider</dt><dd>not recorded</dd>
+<dt>Terminal state</dt><dd><span class="state">not reached</span></dd>
+</dl></header>
+<nav class="toc" id="toc"><h2>Contents</h2><ol><li><a href="#task">Task</a></li><li><a href="#summary">What came out</a></li><li><a href="#final">Final result</a></li><li><a href="#deep">Developed model</a></li><li><a href="#perspectives">Perspectives</a></li><li><a href="#bundles">Bundles</a></li><li><a href="#critic">Critic</a></li><li><a href="#lever">LEVER</a></li><li><a href="#economics">Run cost</a></li></ol></nav>
+<div class="toolbar" id="js-toolbar" hidden><button type="button" id="expand-all">Expand all</button><button type="button" id="collapse-all">Collapse all</button><a href="#top">Back to top</a></div>
+<section id="task" class="stage task"><h2>Task</h2><p>Not specified</p></section>
+<section id="summary" class="stage summary"><h2>What came out</h2><dl class="facts">
+<dt>Selected target</dt><dd>none / not reached</dd>
+<dt>Terminal state</dt><dd><span class="state">not reached</span></dd>
+<dt>Visible Perspectives</dt><dd>12</dd>
+<dt>Bundles</dt><dd>4</dd>
+</dl></section>
+<section id="final" class="stage final"><h2>Final result</h2><div class="gap-notice">Final: not reached. Incomplete run; no terminal synthesis invented.</div></section>
+<section id="deep" class="stage missing"><h2>Developed model</h2><p class="gap">Deep: not reached. Missing next stage after Portfolio.</p></section>
+<section id="perspectives" class="stage perspectives">
+<h2>Perspectives</h2>
+<details open class="perspective" id="perspective-P1"><summary><span class="pid">P1</span> — (untitled candidate)</summary><div class="detail-body"><p><strong>Source.</strong> pass01:c01</p><p><strong>Status.</strong> KEEP</p>
+</div></details>
+<details open class="perspective" id="perspective-P2"><summary><span class="pid">P2</span> — (untitled candidate)</summary><div class="detail-body"><p><strong>Source.</strong> pass01:c02</p><p><strong>Status.</strong> KEEP</p>
+</div></details>
+<details open class="perspective" id="perspective-P3"><summary><span class="pid">P3</span> — (untitled candidate)</summary><div class="detail-body"><p><strong>Source.</strong> pass01:c03</p><p><strong>Status.</strong> KEEP</p>
+</div></details>
+<details open class="perspective" id="perspective-P4"><summary><span class="pid">P4</span> — (untitled candidate)</summary><div class="detail-body"><p><strong>Source.</strong> pass01:c04</p><p><strong>Status.</strong> KEEP</p>
+</div></details>
+<details open class="perspective" id="perspective-P5"><summary><span class="pid">P5</span> — (untitled candidate)</summary><div class="detail-body"><p><strong>Source.</strong> pass01:c05</p><p><strong>Status.</strong> KEEP</p>
+</div></details>
+<details open class="perspective" id="perspective-P6"><summary><span class="pid">P6</span> — (untitled candidate)</summary><div class="detail-body"><p><strong>Source.</strong> pass01:c06</p><p><strong>Status.</strong> KEEP</p>
+</div></details>
+<details open class="perspective" id="perspective-P7"><summary><span class="pid">P7</span> — (untitled candidate)</summary><div class="detail-body"><p><strong>Source.</strong> pass01:c07</p><p><strong>Status.</strong> KEEP</p>
+</div></details>
+<details open class="perspective" id="perspective-P8"><summary><span class="pid">P8</span> — (untitled candidate)</summary><div class="detail-body"><p><strong>Source.</strong> pass01:c08</p><p><strong>Status.</strong> KEEP</p>
+</div></details>
+<details open class="perspective" id="perspective-P9"><summary><span class="pid">P9</span> — (untitled candidate)</summary><div class="detail-body"><p><strong>Source.</strong> pass01:c09</p><p><strong>Status.</strong> KEEP</p>
+</div></details>
+<details open class="perspective" id="perspective-P10"><summary><span class="pid">P10</span> — (untitled candidate)</summary><div class="detail-body"><p><strong>Source.</strong> pass01:c10</p><p><strong>Status.</strong> KEEP</p>
+</div></details>
+<details open class="perspective" id="perspective-P11"><summary><span class="pid">P11</span> — (untitled candidate)</summary><div class="detail-body"><p><strong>Source.</strong> pass01:c12</p><p><strong>Status.</strong> KEEP</p>
+</div></details>
+<details open class="perspective" id="perspective-P12"><summary><span class="pid">P12</span> — (untitled candidate)</summary><div class="detail-body"><p><strong>Source.</strong> pass01:c14</p><p><strong>Status.</strong> KEEP</p>
+</div></details>
+</section>
+<section id="bundles" class="stage bundles"><h2>Bundles</h2>
+<details class="bundle" id="bundle-B1"><summary><span class="bid">B1</span> — P1, P12</summary><div class="detail-body"><p><strong>Members.</strong> <a href="#perspective-P1">P1</a> <span class="cid">(pass01:c01)</span>, <a href="#perspective-P12">P12</a> <span class="cid">(pass01:c14)</span></p>
+<p><strong>Member roles.</strong> <a href="#perspective-P1">P1</a> <span class="cid">(pass01:c01)</span>: феноменология: нет ощущения действия; <a href="#perspective-P12">P12</a> <span class="cid">(pass01:c14)</span>: инструмент: нет прерываемого объекта с концом</p>
+<p><strong>Bundle thesis.</strong> В дне не было ни ощущения выбора, ни заранее лежащего стоп-объекта; утреннее «just do better» не производит ни того ни другого.</p>
+<p><strong>Composition gain.</strong> Порознь дрейф объясняет, почему выход не всплыл, а стоп-объект — какого инструмента не было. Вместе: постфактумный стыд структурно бессилен, потому что не создаёт ни точку «это выбор», ни карманное условие выхода.</p>
+<p><strong>New consequence / prediction.</strong> Стыд в 7 утра не меняет следующий вечер, пока до входа в шов не лежат оба: сигнал «это развилка» и названный конец.</p>
+<p><strong>Internal tension.</strong> Если дрейф полон, стоп-объект всё равно не достаётся из кармана; если стоп-объект работает, дрейф был неполным.</p>
+<p><strong>Weakest link.</strong> Неизвестно, был бы заранее сказанный лимит извлечён внутри роли контейнера и новизны канала.</p>
+<p><strong>Member ablation.</strong> <a href="#perspective-P1">P1</a> <span class="cid">(pass01:c01)</span>: Без него история сводится к «забыл таймер», как будто таймер был бы услышан. | <a href="#perspective-P12">P12</a> <span class="cid">(pass01:c14)</span>: Без него кажется, что осознания в моменте хватило бы.</p>
+</div></details>
+<details class="bundle" id="bundle-B2"><summary><span class="bid">B2</span> — P6, P7</summary><div class="detail-body"><p><strong>Members.</strong> <a href="#perspective-P6">P6</a> <span class="cid">(pass01:c06)</span>, <a href="#perspective-P7">P7</a> <span class="cid">(pass01:c07)</span></p>
+<p><strong>Member roles.</strong> <a href="#perspective-P6">P6</a> <span class="cid">(pass01:c06)</span>: топливо: социальный голод; <a href="#perspective-P7">P7</a> <span class="cid">(pass01:c07)</span>: проводник: ориентировочный рефлекс формата</p>
+<p><strong>Bundle thesis.</strong> Часы на nekto.me — голод по людям, едущий на новом канале; ни голод, ни новизна по отдельности не предсказывают 4–5 часов.</p>
+<p><strong>Composition gain.</strong> Совместный тест: потолок без другого выхода голода не удержится; повтор того же канала без голода будет короче. Ни один член этого двойного предсказания не даёт.</p>
+<p><strong>New consequence / prediction.</strong> Завтра на том же сервисе сессия короче, если голод снижен; при том же голоде и новом канале снова длинная сессия.</p>
+<p><strong>Internal tension.</strong> Если доминирует новизна, больше контакта не лечение; если доминирует одиночество, формат почти не важен.</p>
+<p><strong>Weakest link.</strong> Нет второго вечера для разделения вкладов; доли приятного/пустого внутри 4–5 часов неизвестны.</p>
+<p><strong>Member ablation.</strong> <a href="#perspective-P6">P6</a> <span class="cid">(pass01:c06)</span>: Остаётся «новая игрушка» — любой новый сайт объяснил бы залип, голод лишний. | <a href="#perspective-P7">P7</a> <span class="cid">(pass01:c07)</span>: Остаётся «нужны люди» — Свят уже был людьми, и тогда чат-рулетка не выделяется.</p>
+</div></details>
+<details class="bundle" id="bundle-B3"><summary><span class="bid">B3</span> — P4, P10</summary><div class="detail-body"><p><strong>Members.</strong> <a href="#perspective-P4">P4</a> <span class="cid">(pass01:c04)</span>, <a href="#perspective-P10">P10</a> <span class="cid">(pass01:c10)</span></p>
+<p><strong>Member roles.</strong> <a href="#perspective-P4">P4</a> <span class="cid">(pass01:c04)</span>: механика удержания пьяной связи; <a href="#perspective-P10">P10</a> <span class="cid">(pass01:c10)</span>: разборка ложного агрегата «другие люди»</p>
+<p><strong>Bundle thesis.</strong> Ярлык «из-за других людей» прячет, что дорогой эпизод — роль без конца, другой класс агентности, чем мама и чем чат-рулетка.</p>
+<p><strong>Composition gain.</strong> Инструмент границы разный: для канала — потолок времени, для контейнера — выход из роли. Этого нет ни в разборе трёх эпизодов, ни в роли по отдельности.</p>
+<p><strong>New consequence / prediction.</strong> Лимит «два часа» сработал бы на nekto и не сработал бы на пьяный ремонт, если не менять правило выхода из роли.</p>
+<p><strong>Internal tension.</strong> Выход из контейнера всё равно ощущается как выбор против человека — то есть как раз тот класс, который c10 называет выбранным.</p>
+<p><strong>Weakest link.</strong> Не измерено, насколько продолжение со Святом ощущалось как выбор внутри разговора.</p>
+<p><strong>Member ablation.</strong> <a href="#perspective-P4">P4</a> <span class="cid">(pass01:c04)</span>: Три эпизода выглядят как одно и то же «надо было сказать нет». | <a href="#perspective-P10">P10</a> <span class="cid">(pass01:c10)</span>: Контейнер раздувается в объяснение всего дня, включая маму и nekto.</p>
+</div></details>
+<details class="bundle" id="bundle-B4"><summary><span class="bid">B4</span> — P5, P9, P11</summary><div class="detail-body"><p><strong>Members.</strong> <a href="#perspective-P5">P5</a> <span class="cid">(pass01:c05)</span>, <a href="#perspective-P9">P9</a> <span class="cid">(pass01:c09)</span>, <a href="#perspective-P11">P11</a> <span class="cid">(pass01:c12)</span></p>
+<p><strong>Member roles.</strong> <a href="#perspective-P5">P5</a> <span class="cid">(pass01:c05)</span>: предмет обвинения: сон vs работа; <a href="#perspective-P9">P9</a> <span class="cid">(pass01:c09)</span>: время знания: карта появилась после остановки; <a href="#perspective-P11">P11</a> <span class="cid">(pass01:c12)</span>: носитель суда: нижняя точка спайка</p>
+<p><strong>Bundle thesis.</strong> Суд семи утра судит не того (работу/характер), не тем знанием (лимиты после факта) и в той фазе цикла, где всё выглядит как провал.</p>
+<p><strong>Composition gain.</strong> Порознь это неверный KPI, ретроспективное знание и аффективный спад. Вместе: сегодняшний вердикт непригоден как план — он собран из трёх искажений сразу.</p>
+<p><strong>New consequence / prediction.</strong> Повторная оценка завтра вечером ослабит заряд «не поработал» и оставит заряд «не защитил сон»; формулировка «из-за других людей» ослабнет.</p>
+<p><strong>Internal tension.</strong> Сон действительно сломан — это не только артефакт суда; обесценить грусть целиком нельзя.</p>
+<p><strong>Weakest link.</strong> Вклад стыда, физиологии и недосыпа в уныние не разделён.</p>
+<p><strong>Member ablation.</strong> <a href="#perspective-P5">P5</a> <span class="cid">(pass01:c05)</span>: Даже честный суд всё ещё судит характер вместо сломанного сна. | <a href="#perspective-P9">P9</a> <span class="cid">(pass01:c09)</span>: Правильный заряд «сон» всё равно ставится знанием, которого вечером не было. | <a href="#perspective-P11">P11</a> <span class="cid">(pass01:c12)</span>: Остаётся холодный разбор без учёта, что формула произнесена на дне цикла.</p>
+</div></details>
+</section>
+<section id="critic" class="stage missing"><h2>Critic</h2><p class="gap">Critic: not reached. Missing next stage after Portfolio.</p></section>
+<section id="lever" class="stage missing"><h2>LEVER</h2><p class="gap">LEVER: not reached.</p></section>
+<section id="economics" class="stage economics"><h2>Run cost</h2><p>Accounting instrumentation not recorded in run manifest.</p><p>Stage-wise usage: not recorded</p></section>
+<p class="back"><a href="#top">Back to top</a></p>
+<footer class="reader-footer"><p>Prism run <span class="tech">k7n2qm</span> · 2026-09-02T10:45:32.184797+00:00</p></footer>
+</main>
+<script>
+(function () {
+  var bar = document.getElementById("js-toolbar");
+  if (bar) bar.removeAttribute("hidden");
+  function setOpen(v) {
+    var nodes = document.querySelectorAll("details");
+    for (var i = 0; i < nodes.length; i++) nodes[i].open = v;
+  }
+  var ex = document.getElementById("expand-all");
+  var cl = document.getElementById("collapse-all");
+  if (ex) ex.onclick = function () { setOpen(true); };
+  if (cl) cl.onclick = function () { setOpen(false); };
+})();
+</script>
+</body>
+</html>

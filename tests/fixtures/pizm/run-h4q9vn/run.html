@@ -1,0 +1,528 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Prism run h4q9vn — AUTO</title>
+<style>
+:root {
+  --bg: #faf9f6;
+  --fg: #1a1a1a;
+  --muted: #666666;
+  --line: #dedbd2;
+  --card: #ffffff;
+  --chip-bg: #f0eee8;
+  --chip-fg: #333333;
+}
+* {
+  box-sizing: border-box;
+}
+html {
+  scroll-behavior: auto;
+}
+body {
+  margin: 0;
+  padding: 2.5rem 1.5rem 6rem;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: "Iosevka", "JetBrains Mono", "IBM Plex Mono", "SFMono-Regular", "SF Mono", "Fira Code", "Cascadia Mono", "Liberation Mono", monospace;
+  font-size: 17px;
+  line-height: 1.6;
+  font-variant-ligatures: none;
+  font-feature-settings: "liga" 0, "calt" 0;
+}
+main,
+.reader-shell {
+  width: min(100% - 48px, 980px);
+  margin-inline: auto;
+}
+h1, h2, h3, h4, h5, h6 {
+  font-family: inherit;
+  font-weight: 600;
+  line-height: 1.25;
+  color: var(--fg);
+}
+h1 {
+  font-size: 1.75rem;
+  margin: 0.25rem 0 1rem;
+}
+h2 {
+  font-size: 1.35rem;
+  margin: 0 0 0.75rem;
+}
+h3 {
+  font-size: 1.12rem;
+  margin: 1.25rem 0 0.5rem;
+}
+h4 {
+  font-size: 1.0rem;
+  margin: 1rem 0 0.4rem;
+}
+p {
+  margin: 0.6rem 0;
+}
+a {
+  color: var(--fg);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.kicker {
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  font-size: 0.75rem;
+  color: var(--muted);
+  margin: 0 0 0.25rem;
+}
+.tech, .cid, .pid, .bid {
+  font-family: inherit;
+  font-size: 0.9em;
+  background: var(--chip-bg);
+  color: var(--chip-fg);
+  padding: 0.1em 0.35em;
+  border-radius: 2px;
+}
+.state {
+  font-weight: 600;
+}
+header {
+  border-bottom: 2px solid var(--line);
+  padding-bottom: 1.5rem;
+  margin-bottom: 2rem;
+}
+.stage {
+  margin: 2.25rem 0;
+  padding-bottom: 2rem;
+  border-bottom: 1px solid var(--line);
+}
+.stage:last-of-type {
+  border-bottom: none;
+}
+.stage.summary,
+.stage.economics,
+.box {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  padding: 1.25rem;
+}
+.stage.missing {
+  color: var(--muted);
+  border: 1px dashed var(--line);
+  padding: 1rem 1.25rem;
+  border-radius: 3px;
+  background: transparent;
+}
+.gap-notice {
+  background: var(--chip-bg);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  padding: 0.75rem 1rem;
+  margin: 0.75rem 0;
+  font-size: 0.92rem;
+  color: var(--muted);
+}
+dl.facts {
+  display: grid;
+  grid-template-columns: 14rem 1fr;
+  gap: 0.35rem 1rem;
+  margin: 0.5rem 0;
+  font-size: 0.95rem;
+}
+dl.facts dt {
+  color: var(--muted);
+}
+dl.facts dd {
+  margin: 0;
+}
+nav.toc {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  padding: 1rem 1.25rem;
+  margin: 1.5rem 0 2rem;
+}
+nav.toc h2 {
+  font-size: 0.85rem;
+  margin: 0 0 0.6rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--muted);
+}
+nav.toc ol {
+  margin: 0;
+  padding-left: 1.25rem;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 0.35rem 1rem;
+}
+nav.toc li {
+  font-size: 0.9rem;
+}
+.toolbar {
+  margin: 1rem 0;
+  display: flex;
+  gap: 0.6rem;
+  align-items: center;
+}
+.toolbar button {
+  font-family: inherit;
+  font-size: 0.85rem;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  padding: 0.35rem 0.75rem;
+  cursor: pointer;
+  color: var(--fg);
+}
+.toolbar button:hover {
+  background: var(--chip-bg);
+}
+details {
+  margin: 0.5rem 0;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: var(--card);
+}
+summary {
+  cursor: pointer;
+  padding: 0.6rem 0.85rem;
+  font-weight: 600;
+  user-select: none;
+  outline: none;
+}
+summary:hover {
+  background: var(--chip-bg);
+}
+details[open] > summary {
+  border-bottom: 1px solid var(--line);
+}
+.detail-body {
+  padding: 0.85rem 1rem;
+}
+article.perspective,
+article.bundle {
+  border-top: 1px solid var(--line);
+  padding-top: 0.75rem;
+  margin-top: 0.75rem;
+}
+aside.gate {
+  border: 1px solid var(--line);
+  background: var(--card);
+  border-radius: 3px;
+  padding: 0.85rem 1rem;
+  margin-top: 1.25rem;
+}
+pre {
+  background: var(--chip-bg);
+  padding: 0.75rem 1rem;
+  border-radius: 3px;
+  overflow-x: auto;
+  font-size: 0.88rem;
+  border: 1px solid var(--line);
+}
+.back {
+  margin-top: 2.5rem;
+  font-size: 0.9rem;
+}
+footer.reader-footer {
+  margin-top: 3rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--line);
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+@media (max-width: 768px) {
+  body {
+    padding: 1rem 1rem 4rem;
+  }
+  main, .reader-shell {
+    width: 100%;
+  }
+  dl.facts {
+    grid-template-columns: 1fr;
+    gap: 0.15rem;
+  }
+  nav.toc ol {
+    grid-template-columns: 1fr;
+  }
+}
+@media print {
+  body { background: #fff; color: #000; padding: 0; }
+  main, .reader-shell { width: 100%; max-width: none; }
+  nav.toc, .toolbar, .back { display: none; }
+  details { border: none; }
+  details > *:not(summary) { display: block !important; }
+  .stage, header { break-inside: avoid; border: none; }
+}
+</style>
+</head>
+<body>
+<main class="reader-shell">
+<header id="top"><p class="kicker">Prism run</p><h1>AUTO</h1><dl class="facts">
+<dt>Route / shape</dt><dd>AUTO</dd>
+<dt>Run ID</dt><dd><span class="tech">h4q9vn</span></dd>
+<dt>Timestamp</dt><dd>2026-09-02T10:58:06.644839+00:00</dd>
+<dt>Model / provider</dt><dd>not recorded</dd>
+<dt>Terminal state</dt><dd><span class="state">MODEL_READY</span></dd>
+</dl></header>
+<nav class="toc" id="toc"><h2>Contents</h2><ol><li><a href="#task">Task</a></li><li><a href="#summary">What came out</a></li><li><a href="#final">Final result</a></li><li><a href="#deep">Developed model</a></li><li><a href="#perspectives">Perspectives</a></li><li><a href="#bundles">Bundles</a></li><li><a href="#critic">Critic</a></li><li><a href="#lever">LEVER</a></li><li><a href="#economics">Run cost</a></li></ol></nav>
+<div class="toolbar" id="js-toolbar" hidden><button type="button" id="expand-all">Expand all</button><button type="button" id="collapse-all">Collapse all</button><a href="#top">Back to top</a></div>
+<section id="task" class="stage task"><h2>Task</h2><p>Ночь дрейфа: мама, Свят, nekto.me, 7 утра, самоупрёк «опять не собрался»</p></section>
+<section id="summary" class="stage summary"><h2>What came out</h2><dl class="facts">
+<dt>Selected target</dt><dd>B B8</dd>
+<dt>Terminal state</dt><dd><span class="state">MODEL_READY</span></dd>
+<dt>Visible Perspectives</dt><dd>13</dd>
+<dt>Bundles</dt><dd>1</dd>
+</dl></section>
+<section id="final" class="stage final"><h2>Final result</h2>
+<p><strong>Selected:</strong> B8 — Исповедь закрывает орбиту дрейфа</p>
+<p><strong>Terminal state:</strong> <span class="state">MODEL_READY</span></p>
+<p><strong>Lever:</strong> not present</p>
+<div class="gap-notice"><strong>W1 content notice:</strong> No dedicated reader-facing post-Critic final synthesis is recorded in this frozen bundle (W1 data/content gap).</div>
+</section>
+<section id="deep" class="stage deep"><h2>Developed model</h2>
+<h3>Target B8 — Исповедь закрывает орбиту дрейфа</h3>
+<p><strong>Identity core claim.</strong> Ночь — сэмпл орбиты «опять», произведённый дрейфом без точки выбора и закрытый исповедью; утреннее «do better» завершает виток, а не выводит из него.</p>
+<p><strong>Identity structural shift.</strong> С суда над одним проваленным днём на систему, которая умеет собирать сутки без развилки и закрывать их моральным рассказом.</p>
+<p><strong>Identity boundary.</strong> Ряд ночей не дан — только риторика «опять» и вчерашний сон; неизвестно, были ли микро-импульсы выбора; текст мог быть разгрузкой без ритуальной функции.</p>
+<p><strong>Thesis.</strong> Семиутрашняя формула «день пошёл по пизде, just do better» не описывает провал работы и не является планом. Она — закрывающий ход орбиты: ночь собралась без точки выбора, остановилась на рассвете, и тогда понадобился рассказ со свидетелем, чтобы виток считался завершённым. Пока входы те же, следующий «опять» этой формулой не отменяется.</p>
+<p><strong>Synthesis.</strong> Исходный текст держит два разных объекта и постоянно подменяет один другим. Первый объект — календарный день: мама, макароны, Свят, nekto.me, еда, семь утра. Второй — моральный субъект, который «опять не собрался» и «опять забыл приоритеты». Самоотчёт судит первый объект по законам второго: часы с людьми читаются как кража труда, залип в чат-рулетке — как слабость, грусть — как вердикт о характере. Состав B8 разводит эти объекты. Календарная ночь здесь не предмет суда. Она — сэмпл. Предмет модели — как система производит такие сэмплы и чем их закрывает.<br>
+<br>
+Дрейф задаёт производство. Автор не говорит: я выбрал остаться, я выбрал ещё один чат, я выбрал не лечь. Он говорит обратное: не чувствовал, что действую, плыл, вынесло. Это не метафора стыда, наложенная потом. Это описание режима, в котором выход не генерируется, потому что нет точки, где поток становится развилкой. Пока режим такой, «приоритеты» могут существовать как знание — список еда–прогулка–душ–работа, желание лечь раньше вчерашнего — и не иметь хода. Они не проигрывают в сравнении. Их просто некому сравнить. Отсюда странная честность текста: он умеет задним числом назвать правильные лимиты («закончить со Святом гораздо раньше», «два часа, не четыре») и одновременно признать, что в моменте этого расчёта не было. Модель принимает оба факта без примирения через «нужно было просто захотеть».<br>
+<br>
+Орбита задаёт горизонт. Первая фраза дважды говорит «опять». Цель лечь раньше уже сравнивает эту ночь с вчерашней ломкой. Если читать только календарь, это один плохой вторник. Если читать «опять», это возврат. Модель не утверждает статистику: ряда ночей в источнике нет, и риторика стыда сама любит слово «опять». Она утверждает более узкое: самоотчёт уже не считает эту ночь исключением. Он считает её узнаваемой. Узнаваемость меняет вопрос. Не «почему сегодня не собрался», а «какая сборка снова дала ту же форму». Сборка, которую даёт дрейф: чужое время, еда, живой контакт, отсутствие развилки, рассвет. Стыд после остановки в эту сборку входит не как тормоз, а как финальный кадр.<br>
+<br>
+Исповедь задаёт закрытие. К семи утра текст уже не черновик событий. Он смонтирован: завязка (мама, еда), продление (Свят, ремонт, ребёнок, бадди), захват (nekto), соматический хвост (голод, нельзя лежать), мораль. Есть адресат — «чувак». Есть епитимья — just do better, ты правда можешь быть лучше. Есть передача в разбор. Это можно прочесть как побочный эффект бессонницы: человек просто выгрузил. Модель предлагает более сильное и более рискованное чтение: выгрузка — не хвост, а изделие. Пока формула провала не произнесена при свидетеле, ночь не закрыта. Грусть тогда не только спад после еды и не только ретроспективный суд с картой, которой вечером не было. Она — материал обряда. Обряд делает из бесформенного дрейфа событие, у которого есть смысл: я снова такой, я это назвал, теперь можно лечь.<br>
+<br>
+Составное утверждение, которого нет ни у одного члена: закрытие не есть выход. Дрейф в одиночку даёт эту ночь без прогноза. Орбита в одиночку даёт повтор без объяснения, зачем в семь утра нужен цельный моральный текст. Исповедь в одиночку даёт ритуал без прогноза следующего витка. Вместе они говорят: система умеет завершать цикл рассказом так, чтобы у рассказчика появилось ощущение, что он понял и что понимание уже есть действие. «Do better» звучит как императив на будущее. По функции это титры. Титры не меняют входные условия следующего сеанса: не ставят развилку на пороге после прогулки, не кладут в карман стоп до входа в новый канал, не охраняют сон как единственный оставшийся ход. Они охраняют связность я: я тот, кто может быть лучше, и я это сегодня засвидетельствовал.<br>
+<br>
+Поэтому утренний суд так тотален и так бессилен одновременно. Тотален — потому что обряду нужен цельный грех: не три разных эпизода с разной агентностью, а «день из-за других людей». Бессилен — потому что после обряда можно спать, не имея ни одной новой развилки. Модель не говорит, что рассказывать бесполезно. Она говорит, что этот жанр рассказа — с епитимьей вместо названного входа — принадлежит орбите. Он её кормит узнаваемостью: вот он я опять. Узнаваемость утешает и закрепляет.<br>
+<br>
+Что модель сознательно не берёт на себя. Часы со Святом имеют отдельные механики: роль контейнера, вопрос без halt, ребёнок как третий. Часы на nekto.me — голод, новизна, возможно переменный график награды. Соматика пишет часть расписания. Спасаемой ставкой ночи, если судить календарь, был сон, не работа. Всё это может быть верно и не отменяет B8. B8 отвечает на другой вопрос: почему в семь утра человеку нужно именно это предложение о себе, и почему оно не работает как руль. Руль был бы про входы. Предложение — про идентичность после факта.<br>
+<br>
+Слабое место композиции честно лежит на поверхности. Если «опять» — только стилистика стыда, орбита лишняя, и остаётся одна плохо собранная ночь плюс утренний текст. Если внутри часов были развилки, которые автор не заметил в рассказе, дрейф преувеличен: была агентность, её стёр монтаж. Если текст написан без нужды быть услышанным, исповедь — декорация, и закрытие цикла не требует свидетеля. Если завтрашний вечер пойдёт иначе именно потому, что этот текст произнесён, внутреннее напряжение состава реализуется в пользу управления: рассказ всё-таки сдвинул вход. Модель это напряжение не снимает. Она только фиксирует, что в самом тексте нет следов нового входа — есть следы епитимьи.</p>
+<h4>Mechanism / structural chain</h4><ol>
+<li>Сутки входят в режим без точки «я выбираю»: живые стимулы сцепляются, план существует как знание и не получает хода.</li>
+<li>Цепочка длится, пока внешние куски не кончатся сами: разговор, канал, голод, запрет лежать.</li>
+<li>На остановке (рассвет, уныние) собирается цельный рассказ с моралью и адресатом.</li>
+<li>Рассказ засчитывается как понимание и завершает виток: можно лечь, идентичность «я тот, кто может лучше» подтверждена.</li>
+<li>Инвариант входов не назван и не изменён; следующий «опять» этой епитимьей не отменяется.</li>
+</ol>
+<p><strong>Dynamics.</strong> Петля положительная на узнаваемость: чем привычнее ночь, тем легче смонтировать её в «опять», и тем сильнее утренний обряд. Стыд не тормозит вход в дрейф; он награждает выход из него смыслом. Обратная связь на действие слабая: императив «do better» не указывает операцию на следующем шве, поэтому не конкурирует с живым стимулом. Равновесие — повторяемый цикл «сцепка без развилки → рассветный рассказ → сон», пока не сменится вход (появится точка выбора до захвата) или не сменится жанр закрытия (рассказ без епитимьи, с названным входом). Второй порядок: чем лучше написан самоотчёт, тем полнее закрыт виток и тем меньше остаётся незавершённости, которая могла бы искать другую сборку следующего вечера.</p>
+<h4>Member contributions</h4><ul>
+<li>pass01:c01: Генератор этого сэмпла: отсутствие ощущения действия, из-за которого приоритеты не вступают в сравнение.</li>
+<li>pass01:c11: Горизонт повтора: «опять» и вчерашний сон делают ночь витком, не исключением.</li>
+<li>pass01:c14: Закрывающий ход: цельный моральный текст со свидетелем как изделие ночи, не хвост событий.</li>
+</ul>
+<h4>Implications</h4><ul>
+<li>Утренний вердикт непригоден как план следующего вечера, пока не указывает вход (развилку или стоп), а не идентичность.</li>
+<li>Чем связнее исповедь, тем полнее закрыт виток и тем меньше незавершённости, которая искала бы другую сборку.</li>
+<li>Разбор «почему не собрался сегодня» кормит ту же орбиту, если не переводится в вопрос об инварианте входов.</li>
+<li>Лимиты «два часа» и «выйти раньше», названные после факта, принадлежат обряду, пока не лежат в дне до шва.</li>
+</ul>
+<h4>Predictions / observables</h4><ul>
+<li>В тексте есть цельная мораль и адресат при отсутствии названного нового входа на следующий шов — это уже наблюдается.</li>
+<li>Если модель верна, похожая ночь после этой исповеди не становится автоматически короче или реже.</li>
+<li>Если «опять» — не только риторика, в соседних сутках должен находиться тот же каркас: чужое время, отсутствие развилки, рассветный самоотчёт.</li>
+<li>Рассказ без свидетеля должен быть короче и слабее в епитимье, если закрытию нужен адресат.</li>
+</ul>
+<h4>Load-bearing claims</h4><ul>
+<li><strong>В ходе ночи автор не переживал себя как выбирающего; события сцеплялись без развилки.</strong> (SUPPORTED) — role: Без этого ночь снова становится набором решений, которые «надо было принять иначе», и дрейф как генератор сэмпла исчезает.; weakened/refuted by: След микро-решения уйти или оборвать, который в рассказе просто не акцентирован; тогда монтаж стёр агентность.</li>
+<li><strong>Самоотчёт кодирует эту ночь как повтор («опять», сравнение с вчерашним сном), а не как исключение.</strong> (INFERRED) — role: Без этого пропадает горизонт орбиты, и модель схлопывается в разбор одного календарного дня.; weakened/refuted by: «Опять» только как фигура стыда при обычно других ночах; нет ряда, только две смежные ломки сна.</li>
+<li><strong>Цельный рассказ в семь утра со свидетелем и епитимьей выполняет функцию закрытия витка, а не только выгрузки фактов.</strong> (SPECULATIVE) — role: Без этого исповедь не входит в динамику орбиты, и «do better» можно читать как настоящий план.; weakened/refuted by: Текст как случайная разгрузка без нужды быть услышанным; такие тексты не пишутся в другие плохие ночи.</li>
+<li><strong>Закрывающая епитимья не изменяет инвариант входов следующего витка.</strong> (SPECULATIVE) — role: Это и есть составной выигрыш: закрытие ≠ выход. Если ложно, рассказ — управление, и тезис B8 падает.; weakened/refuted by: Следующий вечер с явным новым входом (стоп до шва, охрана сна), причинно связанным с этим текстом.</li>
+</ul>
+<h4>Break conditions</h4><ul>
+<li>Если это редкий выброс при обычно другой ночи, орбита лишняя.</li>
+<li>Если внутри часов были явные развилки, дрейф — монтажный артефакт самоотчёта.</li>
+<li>Если текст не нуждался в свидетеле, исповедь не закрывает цикл.</li>
+<li>Если после рассказа меняется вход следующего вечера, закрытие оказывается управлением.</li>
+</ul>
+<h4>Unresolved tensions</h4><ul>
+<li>Если рассказ меняет завтрашний вход, исповедь — руль, не координата; состав тогда переоценивает бессилие епитимьи.</li>
+<li>Календарные механики (Свят, nekto, ЖКТ, сон) могут объяснять часы лучше, чем орбита, не отменяя утренний обряд — тогда B8 покрывает только хвост ночи, не её тело.</li>
+</ul>
+<h4>Evidence debt</h4><ul>
+<li>Частота таких ночей и наличие рассветных самоотчётов в другие сутки.</li>
+<li>Были ли внутри разговора и чата минуты, где лимит или желание уйти реально всплыли.</li>
+<li>Писался ли сопоставимый текст без внешнего адресата.</li>
+<li>Что произойдёт со следующим вечером: сменится ли вход или только риторика «опять».</li>
+</ul>
+</section>
+<section id="perspectives" class="stage perspectives">
+<h2>Perspectives</h2>
+<details open class="perspective" id="perspective-P1"><summary><span class="pid">P1</span> — Дрейф без точки выбора</summary><div class="detail-body"><p><strong>Source.</strong> pass01:c01</p><p><strong>Status.</strong> KEEP</p>
+<p><strong>Thesis.</strong> Ночь сложилась как сцепка событий без ощущения действия; приоритеты не проиграли в решении, потому что решения не было.</p>
+<p><strong>Structural shift.</strong> С провала воли на отсутствие архитектуры выбора.</p>
+<p><strong>Mechanism.</strong> Пока нет «я выбираю», выход не генерируется; оценка появляется только после остановки.</p>
+<p><strong>Grounding anchor.</strong> «Я не чувствовал, что действую, я просто плыл по течению».</p>
+<p><strong>Becomes visible.</strong> Нужна точка, где поток становится развилкой, а не более жёсткий характер.</p>
+<p><strong>Boundary.</strong> Не измеряет, были ли незамеченные импульсы уйти.</p>
+<p><strong>Epistemics.</strong> inferred: Самоупрёк принадлежит остановке, не выбору.; speculative: Внешний разрыв мог создать ощущение действия.; supported: Прямо названо отсутствие ощущения действия.; unknown: Микро-импульсы выхода внутри часов.</p>
+</div></details>
+<details open class="perspective" id="perspective-P2"><summary><span class="pid">P2</span> — Поле занято чужими телами</summary><div class="detail-body"><p><strong>Source.</strong> pass01:c02</p><p><strong>Status.</strong> KEEP</p>
+<p><strong>Thesis.</strong> Приоритеты остались знанием без слота: поле держали мама, Свят и незнакомцы.</p>
+<p><strong>Structural shift.</strong> Забывание → вытеснение из рабочего поля.</p>
+<p><strong>Mechanism.</strong> Живой стимул занимает поверхность целиком; план не конкурирует, пока поле не опустеет.</p>
+<p><strong>Grounding anchor.</strong> «Это было вне поля зрения, потому что оно всё было занято другими людьми».</p>
+<p><strong>Becomes visible.</strong> Граница — способ вернуть слот, не моральная норма.</p>
+<p><strong>Boundary.</strong> Не разделяет невыбранный визит и выбранное продолжение.</p>
+<p><strong>Epistemics.</strong> inferred: План существовал как знание.; speculative: Пауза после социального блока вернула бы приоритет в видимость.; supported: Занятость поля людьми названа автором.; unknown: Что было в поле между отъездом мамы и Святом.</p>
+</div></details>
+<details open class="perspective" id="perspective-P3"><summary><span class="pid">P3</span> — Поломка на шве прогулки</summary><div class="detail-body"><p><strong>Source.</strong> pass01:c03</p><p><strong>Status.</strong> KEEP</p>
+<p><strong>Thesis.</strong> План «еда–прогулка–душ–работа» сломался на прогулке, не в рабочем окне.</p>
+<p><strong>Structural shift.</strong> Уязвимость — переход, не блок труда.</p>
+<p><strong>Mechanism.</strong> Собеседник встроился в ритуал сборки без стоп-условия и растянул шов на вечер.</p>
+<p><strong>Grounding anchor.</strong> Вышел на прогулку, 40–50 минут, затем ещё около трёх часов дома.</p>
+<p><strong>Becomes visible.</strong> Охранять нужно порог перехода, не список целей.</p>
+<p><strong>Boundary.</strong> День уже съели мама и еда; шов мог быть мёртвым заранее.</p>
+<p><strong>Epistemics.</strong> inferred: Прогулка была сборкой, не досугом.; speculative: Стоп на пороге дома оборвал бы продление.; supported: План и место старта разговора названы.; unknown: Был ли вход домой осознан как развилка.</p>
+</div></details>
+<details open class="perspective" id="perspective-P4"><summary><span class="pid">P4</span> — Контейнер без конца</summary><div class="detail-body"><p><strong>Source.</strong> pass01:c04</p><p><strong>Status.</strong> KEEP</p>
+<p><strong>Thesis.</strong> После пьяного раскопа автор держал чужую дисрегуляцию; у этой роли нет естественного конца.</p>
+<p><strong>Structural shift.</strong> С длинного звонка на роль удержания.</p>
+<p><strong>Mechanism.</strong> Выход читается как отказ чинить связь; поэтому свидетель остаётся.</p>
+<p><strong>Grounding anchor.</strong> Пьяный спич о прошлых конфликтах; «вроде получилось отремонтировать».</p>
+<p><strong>Becomes visible.</strong> Часы объясняются ценой выхода из роли.</p>
+<p><strong>Boundary.</strong> Неизвестно, что сделал бы ранний обрыв со связью.</p>
+<p><strong>Epistemics.</strong> inferred: Оставание было функцией удержания.; speculative: Уход был бы прочитан как отказ от связи.; supported: Пьянство, раскоп, ремонт названы.; unknown: Чувствовал ли автор запрет уйти.</p>
+</div></details>
+<details open class="perspective" id="perspective-P5"><summary><span class="pid">P5</span> — Спасаемой ставкой был сон</summary><div class="detail-body"><p><strong>Source.</strong> pass01:c05</p><p><strong>Status.</strong> KEEP</p>
+<p><strong>Thesis.</strong> Работа уже выбыла днём; единственный узкий ход ночи — лечь раньше вчерашнего.</p>
+<p><strong>Structural shift.</strong> Предмет провала — коррекция сна, не продуктивность.</p>
+<p><strong>Mechanism.</strong> Самооценка держит KPI «работа», поэтому люди выглядят как кража труда.</p>
+<p><strong>Grounding anchor.</strong> Днём мама и макароны; хотел уснуть раньше; 7 утра, сон сломан сильнее.</p>
+<p><strong>Becomes visible.</strong> Охранять надо было сон, не «хорошее дело» в абстракции.</p>
+<p><strong>Boundary.</strong> Неизвестно, открылось бы рабочее окно при раннем выходе.</p>
+<p><strong>Epistemics.</strong> inferred: Рабочий KPI маскирует провал сна.; speculative: Защита только сна изменила бы утреннюю оценку.; supported: Дневная блокировка работы и цель лечь раньше названы.; unknown: Насколько вчерашний сон уже был сломан.</p>
+</div></details>
+<details open class="perspective" id="perspective-P6"><summary><span class="pid">P6</span> — Голод по людям</summary><div class="detail-body"><p><strong>Source.</strong> pass01:c06</p><p><strong>Status.</strong> KEEP</p>
+<p><strong>Thesis.</strong> Залип в nekto.me держит отложенный голод по контакту, не «слабая дисциплина».</p>
+<p><strong>Structural shift.</strong> Отвлечение → поиск людей.</p>
+<p><strong>Mechanism.</strong> После дорогого контакта со Святом анонимный чат даёт людей без цены истории.</p>
+<p><strong>Grounding anchor.</strong> «Наверное, я одинок»; «соскучился по людям»; 4–5 часов.</p>
+<p><strong>Becomes visible.</strong> Потолок часов не кормит голод.</p>
+<p><strong>Boundary.</strong> Самодиагностика в 7 утра; дневной голод не измерен.</p>
+<p><strong>Epistemics.</strong> inferred: Сервис закрывал голод дешевле, чем Свят.; speculative: Другой живой контакт сократил бы сессию.; supported: Гипотеза одиночества и длительный залип названы.; unknown: Обычный уровень одиночества вне этой ночи.</p>
+</div></details>
+<details open class="perspective" id="perspective-P7"><summary><span class="pid">P7</span> — Новый канал как захват</summary><div class="detail-body"><p><strong>Source.</strong> pass01:c07</p><p><strong>Status.</strong> KEEP</p>
+<p><strong>Thesis.</strong> Длительность объясняет лютая новизна формата сильнее, чем отдельные диалоги.</p>
+<p><strong>Structural shift.</strong> Единица захвата — исследование канала.</p>
+<p><strong>Mechanism.</strong> Ориентировочный рефлекс не даёт стоп «хватит людей», пока жанр не выдохнется.</p>
+<p><strong>Grounding anchor.</strong> «Удивительный новый формат»; «лютая новизна, поэтому залип».</p>
+<p><strong>Becomes visible.</strong> Потолок нужен новым каналам, не социалке вообще.</p>
+<p><strong>Boundary.</strong> Вклад новизны и одиночества не разделены.</p>
+<p><strong>Epistemics.</strong> inferred: Исследование перебило стоп по сну.; speculative: Повтор площадки завтра будет короче.; supported: Новизна названа причиной залипа.; unknown: Доля пустых часов внутри сессии.</p>
+</div></details>
+<details open class="perspective" id="perspective-P8"><summary><span class="pid">P8</span> — ЖКТ пишет расписание</summary><div class="detail-body"><p><strong>Source.</strong> pass01:c08</p><p><strong>Status.</strong> KEEP</p>
+<p><strong>Thesis.</strong> Еда и запрет лежать закрывали окна сильнее календаря приоритетов.</p>
+<p><strong>Structural shift.</strong> Планировщик — соматика.</p>
+<p><strong>Mechanism.</strong> Макароны сняли день; ночной голод снова ставит еду; еда снова запрещает сон.</p>
+<p><strong>Grounding anchor.</strong> Обожран и не мог работать; после чатов дико хотел есть; ЖКТ, нельзя лежать 1–1.5 ч.</p>
+<p><strong>Becomes visible.</strong> Охрана сна включает правило еды.</p>
+<p><strong>Boundary.</strong> Не все часы объясняются телом.</p>
+<p><strong>Epistemics.</strong> inferred: Ночная еда сдвинула отход ко сну отдельно от оценки дня.; speculative: Другое время еды сузило бы провал.; supported: Дневная блокада едой и ночное правило не лежать названы.; unknown: Медицинская тяжесть ЖКТ.</p>
+</div></details>
+<details open class="perspective" id="perspective-P9"><summary><span class="pid">P9</span> — Лимиты родились утром</summary><div class="detail-body"><p><strong>Source.</strong> pass01:c09</p><p><strong>Status.</strong> KEEP</p>
+<p><strong>Thesis.</strong> «Выйти раньше» и «два часа» — нормы семи утра, не объекты, лежавшие в дне.</p>
+<p><strong>Structural shift.</strong> Приоритет-идентичность → приоритет как прерываемый объект.</p>
+<p><strong>Mechanism.</strong> Без названного конца канал длится, пока не кончится сам; стыд потом ставит норму.</p>
+<p><strong>Grounding anchor.</strong> Сейчас ясно про ранний выход и два часа; в плане дня этих лимитов нет.</p>
+<p><strong>Becomes visible.</strong> «Do better» не указывает, какой стоп должен был быть в кармане до прогулки.</p>
+<p><strong>Boundary.</strong> Не доказано, что заранее сказанный лимит удержался бы.</p>
+<p><strong>Epistemics.</strong> inferred: Идентичность «будь лучше» не порождает стоп.; speculative: Карманный лимит на новый канал сократил бы ночь.; supported: Лимиты сформулированы после факта.; unknown: Всплывал ли лимит хоть раз внутри чата.</p>
+</div></details>
+<details open class="perspective" id="perspective-P10"><summary><span class="pid">P10</span> — Три разных «других»</summary><div class="detail-body"><p><strong>Source.</strong> pass01:c10</p><p><strong>Status.</strong> KEEP</p>
+<p><strong>Thesis.</strong> Мама, Свят и nekto схлопнуты в одну вину, хотя агентность разная.</p>
+<p><strong>Structural shift.</strong> Единый внешний виновник → три режима участия.</p>
+<p><strong>Mechanism.</strong> Визит почти не выбран; Свят продлён; рулетка — вход в канал.</p>
+<p><strong>Grounding anchor.</strong> Мама приехала; со Святом «стоило закончить раньше»; с сервисом «мог ограничиться двумя часами».</p>
+<p><strong>Becomes visible.</strong> Один тип границы не покрывает три эпизода.</p>
+<p><strong>Boundary.</strong> Неизвестно, насколько продление со Святом ощущалось как выбор.</p>
+<p><strong>Epistemics.</strong> inferred: Ярлык «другие люди» разгружает агентность.; speculative: Раздельный разбор ослабит тотальный вердикт.; supported: Автор сам различает, что два эпизода мог оборвать.; unknown: Насколько мама реально закрыла любое окно.</p>
+</div></details>
+<details open class="perspective" id="perspective-P11"><summary><span class="pid">P11</span> — Орбита, не вторник</summary><div class="detail-body"><p><strong>Source.</strong> pass01:c11</p><p><strong>Status.</strong> KEEP</p>
+<p><strong>Thesis.</strong> «Опять не собрался» описывает повтор, не единичный срыв.</p>
+<p><strong>Structural shift.</strong> Единица — виток аттрактора.</p>
+<p><strong>Mechanism.</strong> Те же входы возвращают на ту же траекторию; утренний стыд — часть витка.</p>
+<p><strong>Grounding anchor.</strong> Два «опять» в первой фразе; цель выправить относительно вчера.</p>
+<p><strong>Becomes visible.</strong> Искать инвариант входов, не мораль этого утра.</p>
+<p><strong>Boundary.</strong> «Опять» может быть риторикой, не рядом.</p>
+<p><strong>Epistemics.</strong> inferred: Самоупрёк не выводит из петли.; speculative: Стыд стабилизирует орбиту.; supported: Риторика повтора и сравнение с вчера есть.; unknown: Частота таких ночей.</p>
+</div></details>
+<details open class="perspective" id="perspective-P12"><summary><span class="pid">P12</span> — Ребёнок сменил физику</summary><div class="detail-body"><p><strong>Source.</strong> pass01:c12</p><p><strong>Status.</strong> KEEP</p>
+<p><strong>Thesis.</strong> Новость о ребёнке Свята сделала уход другим актом, чем обрыв болтовни.</p>
+<p><strong>Structural shift.</strong> Двоица → долг перед третьим.</p>
+<p><strong>Mechanism.</strong> Оставление пьяного отца дороже; дальше «что делать» и бадди.</p>
+<p><strong>Grounding anchor.</strong> Узнал про ребёнка, обсуждали что делать, договорились бадди-дапиться.</p>
+<p><strong>Becomes visible.</strong> Часы после спича могут держаться будущим, не прошлым.</p>
+<p><strong>Boundary.</strong> Неизвестно, когда всплыл ребёнок относительно длительности.</p>
+<p><strong>Epistemics.</strong> inferred: Третий удорожил выход.; speculative: Бадди адресован ребёнку.; supported: Факт ребёнка и переход к плану названы.; unknown: Возраст, роль автора, что просили.</p>
+</div></details>
+<details open class="perspective" id="perspective-P13"><summary><span class="pid">P13</span> — Исповедь закрыла ночь</summary><div class="detail-body"><p><strong>Source.</strong> pass01:c14</p><p><strong>Status.</strong> KEEP</p>
+<p><strong>Thesis.</strong> Изделие ночи — этот самоотчёт для свидетеля, не пустой календарь.</p>
+<p><strong>Structural shift.</strong> Суд над днём → ритуал с адресатом.</p>
+<p><strong>Mechanism.</strong> Пока формула провала не произнесена, виток не закрыт.</p>
+<p><strong>Grounding anchor.</strong> Цельный рассказ в 7 утра, «чувак, just do better», передача в разбор.</p>
+<p><strong>Becomes visible.</strong> Рассказ может быть завершающим ходом, не побочным эффектом.</p>
+<p><strong>Boundary.</strong> Текст мог быть разгрузкой без нужды в свидетеле.</p>
+<p><strong>Epistemics.</strong> inferred: Рассказ завершает ночь как событие.; speculative: Без адресата вердикт был бы короче.; supported: Нарратив с моралью и обращением есть.; unknown: Писались ли такие тексты в другие ночи.</p>
+</div></details>
+</section>
+<section id="bundles" class="stage bundles"><h2>Bundles</h2>
+<details class="bundle" id="bundle-B8"><summary><span class="bid">B8</span> — P1, P11, P13</summary><div class="detail-body"><p><strong>Members.</strong> <a href="#perspective-P1">P1</a> <span class="cid">(pass01:c01)</span>, <a href="#perspective-P11">P11</a> <span class="cid">(pass01:c11)</span>, <a href="#perspective-P13">P13</a> <span class="cid">(pass01:c14)</span></p>
+<p><strong>Member roles.</strong> <a href="#perspective-P1">P1</a> <span class="cid">(pass01:c01)</span>: генератор сэмпла: нет точки выбора; <a href="#perspective-P11">P11</a> <span class="cid">(pass01:c11)</span>: горизонт: повтор, не вторник; <a href="#perspective-P13">P13</a> <span class="cid">(pass01:c14)</span>: закрытие: рассказ как обряд</p>
+<p><strong>Bundle thesis.</strong> Ночь — сэмпл орбиты «опять», произведённый дрейфом без точки выбора и закрытый исповедью; утреннее «do better» завершает виток, а не выводит из него.</p>
+<p><strong>Composition gain.</strong> Порознь дрейф объясняет эту ночь, орбита — повтор, исповедь — зачем текст. Вместе: этот рассказ — как система закрывает цикл, и он не является управлением следующим входом.</p>
+<p><strong>New consequence / prediction.</strong> После этой исповеди следующая похожая ночь не становится менее вероятной, пока не меняется инвариант входов и не появляется точка выбора до шва.</p>
+<p><strong>Internal tension.</strong> Если рассказ меняет завтрашний вход, исповедь всё-таки управление, не только координата цикла.</p>
+<p><strong>Weakest link.</strong> Ряд ночей не дан, только риторика «опять» и вчерашний сон; неизвестно, были ли микро-импульсы выбора.</p>
+<p><strong>Member ablation.</strong> <a href="#perspective-P1">P1</a> <span class="cid">(pass01:c01)</span>: Орбита плюс исповедь не говорят, как именно собран этот виток. | <a href="#perspective-P11">P11</a> <span class="cid">(pass01:c11)</span>: Дрейф плюс рассказ остаются историей одной ночи без прогноза «опять». | <a href="#perspective-P13">P13</a> <span class="cid">(pass01:c14)</span>: Дрейф плюс орбита не объясняют, зачем в 7 утра нужен цельный моральный текст.</p>
+</div></details>
+</section>
+<section id="critic" class="stage critic"><h2>Critic</h2>
+<p><strong>Terminal recommendation: MODEL_READY (identity verified: yes)</strong></p>
+<p><strong>Terminal recommendation.</strong> Идентичность B8 совпадает с портфелем, эмерджентность не пустая, несущие противоречия не вскрыты. Контрмодель лучше объясняет тело ночи и слабее — зачем в 7 утра нужен смонтированный текст с адресатом; она не уничтожает дрейф как факт источника. Три несущих утверждения спекулятивны, одно поддержано. Для аналитической задачи (понять утренний вердикт) этого достаточно при явном долге. Не ACTION: рычаг не запускается.</p>
+<p><strong>Independent countermodel.</strong> Ночь объясняется календарно, без орбиты и без обряда. Работа уже была снята мамой и едой; единственный узкий ход — сон — не охраняли. Часы со Святом держала роль контейнера (пьяный раскоп без конца), часы nekto — захват канала и/или голод по людям, хвост — ЖКТ и запрет лежать. Текст в семь утра — обычная руминация после недосыпа и спада, а не изделие системы. «Опять» — фигура стыда, не аттрактор. «Do better» — усталый императив, не титры витка. Эта альтернатива опирается на те же якоря, не нуждается в повторяющейся системе и лучше покрывает тело ночи (Свят, рулетка, еда), чем B8, который сильнее на хвосте-рассказе.</p>
+<p><strong>Discriminating test.</strong> Не разбор этой исповеди, а следующий вечер: до первого длинного социального блока назван ли конкретный стоп (время, порог, число попыток). Если стопа нет и снова есть утренний моральный текст — B8 жив. Если стоп есть и ночь короче — контрмодель календарной охраны сна/границ сильнее.</p>
+<h4>Load-bearing claim reassessment</h4><ul>
+<li>В ходе ночи автор не переживал себя как выбирающего; события сцеплялись без развилки. (SUPPORTED)</li>
+<li>Самоотчёт кодирует эту ночь как повтор («опять», сравнение с вчерашним сном), а не как исключение. (SPECULATIVE)</li>
+<li>Цельный рассказ в семь утра со свидетелем и епитимьей выполняет функцию закрытия витка, а не только выгрузки фактов. (SPECULATIVE)</li>
+<li>Закрывающая епитимья не изменяет инвариант входов следующего витка. (SPECULATIVE)</li>
+</ul>
+<h4>Findings</h4><ul>
+<li>Epistemic laundering: Синтез говорит о титрах и кормлении орбиты узнаваемостью увереннее, чем census, где три из четырёх несущих утверждения спекулятивны. Статусы в census честные; тон прозы их слегка обгоняет.</li>
+<li>Unresolved load-bearing contradiction: no</li>
+<li>Cost relocation: Модель снимает вину с «слабости воли» и переносит стоимость изменения на неназванный сдвиг входов. Это не выдаётся за уже сделанный ход, но оставляет агентность без оператора: система виновата, вход надо сменить, как именно — за кадром.</li>
+<li>Round-trip skeleton: 1) Ночь собрана без точки выбора. 2) Текст кодирует её как «опять». 3) Рассветный рассказ со свидетелем закрывает виток и не ставит новый вход. Каркас восстанавливается из прозы; глубина не только в риторике.</li>
+<li>Member ablation assessment: Три члена не пассажиры. c01 даёт режим производства этой ночи; c11 — горизонт повтора; c14 — зачем смонтированный текст. Эмерджентность «закрытие ≠ выход» держится только на тройке. Слабое место: c11 почти целиком спекулятивен (нет ряда), поэтому композиция фактически опирается на дрейф+исповедь сильнее, чем lock признаёт; это ослабляет, но не обнуляет состав.</li>
+</ul>
+<h4>Critic evidence debt</h4><ul>
+<li>Ряд соседних ночей: есть ли тот же каркас или только две смежные ломки сна.</li>
+<li>Микро-импульсы выхода внутри разговора и чата, стёртые монтажом.</li>
+<li>Писались ли сопоставимые самоотчёты без адресата.</li>
+<li>Следующий вечер: появится ли стоп до шва или только новый рассветный текст.</li>
+</ul>
+<aside class="gate"><h4>Gate transition</h4><p>Before Critic: developed target B8</p><p>Critic verdict: <span class="state">MODEL_READY</span></p><p>Terminal state: <span class="state">MODEL_READY</span></p></aside>
+</section>
+<section id="lever" class="stage missing"><h2>LEVER</h2><p class="gap">LEVER artifacts not present.</p></section>
+<section id="economics" class="stage economics"><h2>Run cost</h2><p>Accounting instrumentation not recorded in run manifest.</p><p>Stage-wise usage: not recorded</p></section>
+<p class="back"><a href="#top">Back to top</a></p>
+<footer class="reader-footer"><p>Prism run <span class="tech">h4q9vn</span> · 2026-09-02T10:58:06.644839+00:00</p></footer>
+</main>
+<script>
+(function () {
+  var bar = document.getElementById("js-toolbar");
+  if (bar) bar.removeAttribute("hidden");
+  function setOpen(v) {
+    var nodes = document.querySelectorAll("details");
+    for (var i = 0; i < nodes.length; i++) nodes[i].open = v;
+  }
+  var ex = document.getElementById("expand-all");
+  var cl = document.getElementById("collapse-all");
+  if (ex) ex.onclick = function () { setOpen(true); };
+  if (cl) cl.onclick = function () { setOpen(false); };
+})();
+</script>
+</body>
+</html>

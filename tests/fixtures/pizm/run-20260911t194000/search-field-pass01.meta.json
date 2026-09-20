@@ -1,0 +1,7 @@
+{
+  "sha256": "bae76be61b75ae47563465097cfc91da89cf32f77d80cc85cd451dd9b842dc9a",
+  "timestamp": "2026-09-11T14:35:41.273877+00:00",
+  "run_id": "20260911t194000",
+  "stage": "search-field",
+  "schema_version": "pizm-search-field-v1"
+}

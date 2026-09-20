@@ -960,7 +960,7 @@ class TestV4SideBlockerRendering:
 
 
 class TestG1FBlockerSideScope:
-    BONK_RUN = REPO_ROOT / ".ai" / "pizm" / "run-prism-identity-belonging-motivational-narrative-20260911t185110z-m7kh"
+    BONK_RUN = REPO_ROOT / "tests" / "fixtures" / "pizm" / "run-prism-identity-belonging-motivational-narrative-20260911t185110z-m7kh"
 
     def test_g1f_b2_blocker_line_scoped_to_owning_side(self, tmp_path):
         """Regression: the frozen B2 review carries blocker B1_SPECULATIVE_DEPENDENCY

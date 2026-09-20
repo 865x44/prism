@@ -11,9 +11,9 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 BUNDLE_CLI = str(REPO_ROOT / "bin" / "pizm-session-bundle")
 HTML_RENDERER = REPO_ROOT / "bin" / "pizm_render_html.py"
-RUN_H4 = REPO_ROOT / ".ai" / "pizm" / "run-h4q9vn"
-RUN_TELE = REPO_ROOT / ".ai" / "pizm" / "run-20260825-telecorpus"
-RUN_INCOMPLETE = REPO_ROOT / ".ai" / "pizm" / "run-k7n2qm"
+RUN_H4 = REPO_ROOT / "tests" / "fixtures" / "pizm" / "run-h4q9vn"
+RUN_TELE = REPO_ROOT / "tests" / "fixtures" / "pizm" / "run-20260825-telecorpus"
+RUN_INCOMPLETE = REPO_ROOT / "tests" / "fixtures" / "pizm" / "run-k7n2qm"
 
 FORBIDDEN_SOURCE_TERMS = (
     "openai",
@@ -1276,7 +1276,7 @@ def test_g1f_render_html_overlay_composite_identity_split(tmp_path):
 # GATE1F-ITER2 D3: comparison blocker lines scoped to the owning review side
 # ---------------------------------------------------------------------------
 
-BONK_RUN = REPO_ROOT / ".ai" / "pizm" / "run-prism-identity-belonging-motivational-narrative-20260911t185110z-m7kh"
+BONK_RUN = REPO_ROOT / "tests" / "fixtures" / "pizm" / "run-prism-identity-belonging-motivational-narrative-20260911t185110z-m7kh"
 
 
 def test_g1f_render_html_b2_blocker_scoped_to_owning_side(tmp_path):

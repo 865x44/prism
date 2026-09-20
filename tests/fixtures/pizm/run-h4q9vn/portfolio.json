@@ -1,0 +1,146 @@
+{
+  "schema_version": "pizm-portfolio-selection-v1",
+  "stage": "portfolio",
+  "route": "AUTO",
+  "field_hash": "99a33f428c55785fc68fa99b1201c28d6ccffe3f10750a78ed3b581c8de7d1c7",
+  "field_ref": "search-field.json",
+  "candidate_assessments": [
+    {
+      "candidate_ref": "pass01:c01",
+      "disposition": "KEEP",
+      "standalone_quality": "strong",
+      "unique_residue": "Нет архитектуры выбора: приоритеты не проиграли решению, потому что решения не было.",
+      "nearest_overlap": "pass01:c09",
+      "reason": "Прямой якорь «плыл по течению». Сосед c09 про отсутствующий стоп-объект, здесь — феноменология действия."
+    },
+    {
+      "candidate_ref": "pass01:c02",
+      "disposition": "KEEP",
+      "standalone_quality": "strong",
+      "unique_residue": "Приоритет вытеснен из поля, занятого людьми, а не стёрт как знание.",
+      "nearest_overlap": "pass01:c10",
+      "reason": "Формула вне поля зрения задаёт механизм занятости. c10 делит агентность, не поле."
+    },
+    {
+      "candidate_ref": "pass01:c03",
+      "disposition": "KEEP",
+      "standalone_quality": "strong",
+      "unique_residue": "Точка поломки — шов прогулки, не рабочий блок.",
+      "nearest_overlap": "pass01:c01",
+      "reason": "Локализует, где поток захватил ритуал сборки. Не общая теория дрейфа."
+    },
+    {
+      "candidate_ref": "pass01:c04",
+      "disposition": "KEEP",
+      "standalone_quality": "strong",
+      "unique_residue": "Роль удержания пьяной дисрегуляции без естественного конца.",
+      "nearest_overlap": "pass01:c12",
+      "reason": "Объясняет часы со Святом функцией свидетеля. c12 добавляет третьего, не заменяет роль."
+    },
+    {
+      "candidate_ref": "pass01:c05",
+      "disposition": "KEEP",
+      "standalone_quality": "strong",
+      "unique_residue": "Спасаемая ставка — сон, не работа; труд уже выбыл днём.",
+      "nearest_overlap": "pass01:c08",
+      "reason": "Меняет предмет самосуда. Сосед c08 — соматический планировщик, не KPI."
+    },
+    {
+      "candidate_ref": "pass01:c06",
+      "disposition": "KEEP",
+      "standalone_quality": "strong",
+      "unique_residue": "Одиночество как топливо залипа, не провал дисциплины.",
+      "nearest_overlap": "pass01:c07",
+      "reason": "Прямая гипотеза голода по людям. Новизна канала — другой механизм на том же эпизоде."
+    },
+    {
+      "candidate_ref": "pass01:c07",
+      "disposition": "KEEP",
+      "standalone_quality": "strong",
+      "unique_residue": "Единица захвата — новый формат, ориентировочный рефлекс.",
+      "nearest_overlap": "pass01:c06",
+      "reason": "«Лютая новизна» названа причиной. Не сводится к голоду: стоп «хватит людей» не бьёт по жанру."
+    },
+    {
+      "candidate_ref": "pass01:c08",
+      "disposition": "KEEP",
+      "standalone_quality": "strong",
+      "unique_residue": "ЖКТ и еда как фактический планировщик окон.",
+      "nearest_overlap": "pass01:c05",
+      "reason": "Другая граница системы. Петля еда→нельзя лечь независима от разговоров."
+    },
+    {
+      "candidate_ref": "pass01:c09",
+      "disposition": "KEEP",
+      "standalone_quality": "strong",
+      "unique_residue": "Лимиты «выйти раньше / два часа» родились после факта, не как стоп-объекты дня.",
+      "nearest_overlap": "pass01:c01",
+      "reason": "Иное, чем дрейф: даже при проблеске выбора нечего было выбрать в качестве стопа."
+    },
+    {
+      "candidate_ref": "pass01:c10",
+      "disposition": "KEEP",
+      "standalone_quality": "strong",
+      "unique_residue": "Мама, Свят и nekto — три режима агентности, не одна причина «другие люди».",
+      "nearest_overlap": "pass01:c02",
+      "reason": "Разбирает рамку рассказа. Автор сам различает, что два эпизода мог оборвать."
+    },
+    {
+      "candidate_ref": "pass01:c11",
+      "disposition": "KEEP",
+      "standalone_quality": "strong",
+      "unique_residue": "Горизонт — орбита «опять», эта ночь лишь сэмпл.",
+      "nearest_overlap": "pass01:c14",
+      "reason": "Двойное «опять» и вчерашний сон держат смену единицы времени. В поле нет другого горизонта повтора."
+    },
+    {
+      "candidate_ref": "pass01:c12",
+      "disposition": "KEEP",
+      "standalone_quality": "strong",
+      "unique_residue": "Ребёнок как третий меняет цену ухода.",
+      "nearest_overlap": "pass01:c04",
+      "reason": "Новый якорь после спича. Не роль контейнера: скрытый принципал."
+    },
+    {
+      "candidate_ref": "pass01:c13",
+      "disposition": "BORDERLINE",
+      "standalone_quality": "borderline",
+      "unique_residue": "Этика заботы взяла часы, этика достижения назвала это дрейфом.",
+      "nearest_overlap": "pass01:c06",
+      "reason": "Живой сдвиг ценностей, но часть nekto слабо мапится на заботу; сам кандидат это оговаривает. Без промоушена в AUTO-target."
+    },
+    {
+      "candidate_ref": "pass01:c14",
+      "disposition": "KEEP",
+      "standalone_quality": "strong",
+      "unique_residue": "Самоотчёт в 7 утра — изделие ночи для свидетеля, не побочный отчёт.",
+      "nearest_overlap": "pass01:c11",
+      "reason": "Драматургия исповеди. Обращение и цельная мораль якорят адресата. Не KPI и не спад после еды."
+    }
+  ],
+  "bundles": [
+    {
+      "bundle_id": "B8",
+      "member_refs": ["pass01:c01", "pass01:c11", "pass01:c14"],
+      "bundle_thesis": "Ночь — сэмпл орбиты «опять», произведённый дрейфом без точки выбора и закрытый исповедью; утреннее «do better» завершает виток, а не выводит из него.",
+      "composition_gain": "Порознь дрейф объясняет эту ночь, орбита — повтор, исповедь — зачем текст. Вместе: этот рассказ — как система закрывает цикл, и он не является управлением следующим входом.",
+      "member_roles": {
+        "pass01:c01": "генератор сэмпла: нет точки выбора",
+        "pass01:c11": "горизонт: повтор, не вторник",
+        "pass01:c14": "закрытие: рассказ как обряд"
+      },
+      "member_ablation": {
+        "pass01:c01": "Орбита плюс исповедь не говорят, как именно собран этот виток.",
+        "pass01:c11": "Дрейф плюс рассказ остаются историей одной ночи без прогноза «опять».",
+        "pass01:c14": "Дрейф плюс орбита не объясняют, зачем в 7 утра нужен цельный моральный текст."
+      },
+      "internal_tension": "Если рассказ меняет завтрашний вход, исповедь всё-таки управление, не только координата цикла.",
+      "weakest_link": "Ряд ночей не дан, только риторика «опять» и вчерашний сон; неизвестно, были ли микро-импульсы выбора.",
+      "new_consequence_or_prediction": "После этой исповеди следующая похожая ночь не становится менее вероятной, пока не меняется инвариант входов и не появляется точка выбора до шва."
+    }
+  ],
+  "auto_target": {
+    "target_type": "B",
+    "target_id": "B8"
+  }
+}
