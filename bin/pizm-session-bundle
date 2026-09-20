@@ -80,6 +80,105 @@ def _is_allowlisted_stage_artifact(stage_type: str, filename: str) -> bool:
     elif stage_type == "lever":
         return bool(_LEVER_ALLOWLIST_RE.match(filename))
     return False
+
+def _get_stage_artifacts(
+    label: str,
+    stage_type: str,
+    run_dir: Path,
+    all_stage_specs: list[tuple[str, Path, str]],
+) -> list[Path]:
+    """Return allowlisted artifacts from run_dir specific to the stage label.
+
+    Within a shared run directory:
+    - pass-01-* selects candidates-pass01.* and selection-pass01.*
+    - pass-02-* selects candidates-pass02.* and selection-pass02.*
+    - deep-<target> selects development/review artifacts matching <target> (e.g. B1, B2, P1)
+    - lever-<target> selects lever design/review matching <target>
+    - search-field selects search-field artifacts
+    - portfolio selects portfolio artifacts
+    - comparison selects comparison-review artifacts
+
+    Preserves unsuffixed legacy fallback (candidates.json, development.json, etc.)
+    only when the run directory contains no suffixed artifacts for that category and
+    the requested stage is unambiguous.
+    """
+    raw_allowlisted = [
+        f for f in sorted(run_dir.iterdir())
+        if not f.name.startswith(".") and _is_allowlisted_stage_artifact(stage_type, f.name)
+    ]
+    if not raw_allowlisted:
+        return []
+
+    if stage_type == "explore":
+        pass_match = re.match(r"^pass-([0-9]{2})-", label)
+        if pass_match:
+            pass_num = pass_match.group(1)
+            pass_suffix = f"-pass{pass_num}."
+            pass_files = [f for f in raw_allowlisted if pass_suffix in f.name]
+            if pass_files:
+                return pass_files
+            # Fallback to unsuffixed candidates only if unambiguous:
+            has_any_suffixed = any(re.search(r"candidates-pass[0-9]{2}\.", f.name) for f in raw_allowlisted)
+            if not has_any_suffixed:
+                same_dir_explores = [s for s in all_stage_specs if s[1] == run_dir and s[2] == "explore"]
+                if len(all_stage_specs) == 1 or (len(same_dir_explores) <= 1 and pass_num == "01"):
+                    return [f for f in raw_allowlisted if not re.search(r"candidates-pass[0-9]{2}\.", f.name)]
+            return []
+        return raw_allowlisted
+
+    elif stage_type == "search-field":
+        pass_match = re.match(r"^pass-([0-9]{2})-", label)
+        if pass_match:
+            pass_num = pass_match.group(1)
+            pass_suffix = f"-pass{pass_num}."
+            pass_files = [f for f in raw_allowlisted if pass_suffix in f.name]
+            if pass_files:
+                return pass_files
+            has_any_suffixed = any(re.search(r"search-field-pass[0-9]{2}\.", f.name) for f in raw_allowlisted)
+            if not has_any_suffixed and pass_num == "01":
+                return [f for f in raw_allowlisted if not re.search(r"search-field-pass[0-9]{2}\.", f.name)]
+            return []
+        return raw_allowlisted
+
+    elif stage_type == "deep":
+        if label.startswith("deep-"):
+            target_id = label[len("deep-"):]
+            target_suffix = f"-{target_id}."
+            target_files = [f for f in raw_allowlisted if target_suffix in f.name]
+            if target_files:
+                return target_files
+            # Fallback to unsuffixed development/review only if unambiguous:
+            has_any_target_suffixed = any(
+                re.search(r"(?:development(?:-v2)?|deep-review(?:-v2)?|review)-(?:P[0-9]+|B[0-9]+|DIRECT_SEED)\.", f.name)
+                for f in raw_allowlisted
+            )
+            if not has_any_target_suffixed:
+                same_dir_deeps = [s for s in all_stage_specs if s[1] == run_dir and s[2] == "deep"]
+                if len(same_dir_deeps) <= 1:
+                    return raw_allowlisted
+            return []
+        return raw_allowlisted
+
+    elif stage_type == "lever":
+        if label.startswith("lever-"):
+            target_id = label[len("lever-"):]
+            target_suffix = f"-{target_id}."
+            target_files = [f for f in raw_allowlisted if target_suffix in f.name]
+            if target_files:
+                return target_files
+            has_any_target_suffixed = any(
+                re.search(r"(?:(?:lever-)?design|(?:lever-)?review)-(?:P[0-9]+|B[0-9]+|DIRECT_SEED)\.", f.name)
+                for f in raw_allowlisted
+            )
+            if not has_any_target_suffixed:
+                same_dir_levers = [s for s in all_stage_specs if s[1] == run_dir and s[2] == "lever"]
+                if len(same_dir_levers) <= 1:
+                    return raw_allowlisted
+            return []
+        return raw_allowlisted
+
+    return raw_allowlisted
+
 def _die(msg: str, code: int = 1) -> int:
     print(f"ERROR: {msg}", file=sys.stderr)
     return code
@@ -382,10 +481,8 @@ def create_bundle(
     )
     has_comparison_stage = any(st == "comparison" for _, _, st in stage_specs)
     for label, run_dir, stage_type in stage_specs:
-        allowlisted_files = [
-            f for f in sorted(run_dir.iterdir())
-            if not f.name.startswith(".") and _is_allowlisted_stage_artifact(stage_type, f.name)
-        ]
+        allowlisted_files = _get_stage_artifacts(label, stage_type, run_dir, stage_specs)
+
         allowlisted_names = {f.name for f in allowlisted_files}
 
         # Check required files
@@ -596,10 +693,8 @@ def create_bundle(
             stage_dir.mkdir()
             stage_labels.append(label)
 
-            allowlisted_files = [
-                f for f in sorted(run_dir.iterdir())
-                if not f.name.startswith(".") and _is_allowlisted_stage_artifact(stage_type, f.name)
-            ]
+            allowlisted_files = _get_stage_artifacts(label, stage_type, run_dir, stage_specs)
+
 
             for src in allowlisted_files:
                 fname = src.name

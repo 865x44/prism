@@ -97,13 +97,13 @@ Run fingerprint capture (`model`, `provider`, `model_source`, `pizm_version`, `s
 
 Permit 0–3 clarifying questions only if different answers would materially change search territory, constraints, evidence interpretation, or the next reasoning spend. Existing context or a bounded reasoning check must be consumed first; "more context would help" is insufficient.
 
-- **Default budget**: 0 questions. Proceed directly with available context whenever feasible.
-- **One-Question Scope-Fork Trigger**: Ask **one high-information clarifying question** before committing to Search only when an unresolved, realistic A/B fork exists where different answers would materially redirect the solution family, search territory, load-bearing constraints, evidence interpretation, or reasoning route. Do not ask generic preference questionnaires (e.g. "what are your priorities?"); a preference question is permitted only when the answer directly discriminates between materially different solution families.
+- **Pre-search budget**: default 0 questions; normal pre-search maximum is 1 question. Proceed directly with available context whenever feasible. (The broader 0–3 budget remains compatible with post-Search GATHER_INFORMATION when a newly discovered material route fork surfaces after Search/Portfolio).
+- **One-Question Scope-Fork Trigger**: Ask **one high-information clarifying question** before committing to Search only when an unresolved scope fork has two or more plausible answers whose answers materially redirect the solution family, search territory, load-bearing constraints, evidence interpretation, or reasoning route. Do not ask generic preference questionnaires (e.g. "what are your priorities?"); a preference question is permitted only when the answer directly discriminates between materially different solution families.
 - **Suppression Guards**:
   - Do not ask if the answer is already stated or clearly inferable from existing context.
-  - Do not ask if both plausible branches can be honestly and cheaply covered within the same Search pass.
+  - Do not ask if the materially relevant branches can be honestly and cheaply covered within the same Search pass.
   - Do not silently pick one branch merely to avoid asking when a genuine material fork exists.
-- **Noninteractive Fallback**: In an automated, headless, batch, or noninteractive context where conversational turn-taking cannot occur, do not block or halt execution waiting for clarification. Instead, cover both material branches within the initial search candidate pool when feasible; otherwise, state the assumed branch explicitly and preserve the alternative as a declared material assumption. (This is host reasoning guidance, not a mechanical runtime mode detector.)
+- **Noninteractive Fallback**: In an automated, headless, batch, or noninteractive context where conversational turn-taking cannot occur, do not block or halt execution waiting for clarification. Instead, cover the materially relevant branches within the initial search candidate pool when feasible; otherwise, state the assumed branch explicitly and preserve the alternative as a declared material assumption. (This is host reasoning guidance, not a mechanical runtime mode detector.)
 
 ## Source authority
 

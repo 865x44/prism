@@ -156,6 +156,9 @@ deterministic run.md and run.html rendering (zero model calls)
   - Do not perform an unrequested extra semantic review turn.
   - If any deterministic command succeeds, trust its output and proceed to the next step.
 
+- **Execution Scope & Root Contract**:
+  The displayed `bin/pizm-session-bundle` and `skills/pizm` commands are verified for execution from the Prism repository checkout. An installed host must use the helper and skill root deployed together by the supported installer, must not mix repo and installed locations, and must be synchronized to the label-aware version before executing this flow.
+
 - **Canonical Session Archive Command Template (`create`)**:
   Execute archive creation using this exact recipe for two-bundle competition (zero `--help` calls needed):
   ```bash
@@ -184,10 +187,10 @@ deterministic run.md and run.html rendering (zero model calls)
   Render the readable `run.md` deterministically using `bin/pizm-session-bundle render --run-dir ".ai/pizm/run-$RUN_ID" --task "<task>" --subject-slug "$SUBJECT_SLUG"` (writes the named record `run-<subject-slug>.md`; report that path).
   Render the interactive full-trace `run.html` and resolve the reader link deterministically:
   ```bash
-  $HOME/.local/bin/pizm-session-bundle render-html --run-dir ".ai/pizm/run-$RUN_ID" --task "<task>" --subject-slug "$SUBJECT_SLUG" --provider "$PROVIDER" --model "$MODEL" --model-source "$MODEL_SOURCE" --pizm-version "$PIZM_VERSION" --ensure-reader
+  bin/pizm-session-bundle render-html --run-dir ".ai/pizm/run-$RUN_ID" --task "<task>" --subject-slug "$SUBJECT_SLUG" --provider "$PROVIDER" --model "$MODEL" --model-source "$MODEL_SOURCE" --pizm-version "$PIZM_VERSION" --ensure-reader
   ```
-  - If the local reader server is active, the tool outputs `READER_URL http://127.0.0.1:41144/run/<slug>/`. Present this URL in the final report.
-  - If inactive or on port collision, the tool outputs `READER_OFFLINE file://<path>/run.html (local reader server inactive)`. Present this deterministic `file://` fallback.
+  - If the local reader server is active, the tool outputs `READER_URL http://127.0.0.1:41144/run/<run-id>/`. Present this URL in the final report.
+  - If inactive or on port collision, the tool outputs `READER_OFFLINE file://<path>/run-<subject_slug>.html (local reader server inactive)`. Present this deterministic `file://` fallback.
 - In the final user-facing report, include the reading records:
   ```markdown
   ## Reading & Reader Record

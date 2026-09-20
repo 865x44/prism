@@ -56,6 +56,10 @@ The selector may use these four archetypes as internal reasoning aids to determi
 
 For mixed tasks, infer the dominant objective, preserve explicit non-negotiables, and allow secondary concerns when materially relevant. Do not expose archetype labels to the user unless requested for diagnostics.
 
+### Task-Orientation Consistency Guard
+
+Reuse the same underlying task judgment when emitting existing `task_orientation` (`ANALYTICAL` vs `ACTION_OR_DECISION`) in AUTO mode. Task-value archetypes remain soft non-routing guidance aids and must not independently reclassify the task or act as a second routing authority (e.g. do not construct rigid mappings such as DISCOVERY -> ANALYTICAL or DECISION -> ACTION_OR_DECISION).
+
 ### Non-Negotiables and Anti-Conservatism Guards
 
 - **Non-Negotiables**: A non-negotiable must be explicitly required by the task/source or logically necessary for the requested outcome to count as satisfied. Never promote generic best practices, model preferences, conventionality, or merely desirable properties into hard requirements.
