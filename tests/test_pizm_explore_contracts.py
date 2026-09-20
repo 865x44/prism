@@ -109,15 +109,13 @@ class TestStagedMirrorIntegrity:
     def test_explore_mirror_byte_identical(self):
         mirror = STAGED_ROOT / "references" / "explore.md"
         assert mirror.exists(), "staged explore.md mirror missing"
-        if mirror.read_bytes() != INSTALLED_EXPLORE.read_bytes():
-            pytest.skip("staged explore.md modified ahead of Step 3 mirror sync")
+        assert mirror.read_bytes() == INSTALLED_EXPLORE.read_bytes()
 
     @pytest.mark.skipif(not MIRROR_PRESENT, reason="developer-machine skill mirror not installed")
     def test_selector_mirror_byte_identical(self):
         mirror = STAGED_ROOT / "references" / "explore-selector.md"
         assert mirror.exists(), "staged explore-selector.md mirror missing"
-        if mirror.read_bytes() != INSTALLED_SELECTOR.read_bytes():
-            pytest.skip("staged explore-selector.md modified ahead of Step 3 mirror sync")
+        assert mirror.read_bytes() == INSTALLED_SELECTOR.read_bytes()
 
 # ---------------------------------------------------------------------------
 # 3. Blindness — selector rubric absent from generator

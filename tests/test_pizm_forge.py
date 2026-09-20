@@ -884,8 +884,7 @@ class TestForgeContractText:
         installed = INSTALLED_SKILL_ROOT / "references" / "bonk.md"
         assert staged.exists()
         assert installed.exists()
-        if staged.read_bytes() != installed.read_bytes():
-            pytest.skip("staged bonk.md modified ahead of Step 3 mirror sync")
+        assert staged.read_bytes() == installed.read_bytes()
 
     def test_forge_contract_text_assertions(self):
         forge_text = (STAGED_SKILL_ROOT / "references" / "bonk.md").read_text(encoding="utf-8")

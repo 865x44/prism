@@ -127,8 +127,7 @@ class TestEmbeddedOutline:
 
     @pytest.mark.skipif(not MIRROR_PRESENT, reason="developer-machine skill mirror not installed")
     def test_installed_mirror_carries_same_contract(self, selector_text, installed_selector_text):
-        if installed_selector_text != selector_text:
-            pytest.skip("staged explore-selector.md modified ahead of Step 3 mirror sync")
+        assert installed_selector_text == selector_text
 
 
 # ---------------------------------------------------------------------------
