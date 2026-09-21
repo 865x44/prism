@@ -67,7 +67,30 @@ _V3_FORBIDDEN_ARTIFACT_RE = re.compile(
     r"|comparison-review(?:-v1)?"
     r"|(?:lever-)?design(?:-(?:P[0-9]+|B[0-9]+|DIRECT_SEED))?"
     r"|lever-review(?:-(?:P[0-9]+|B[0-9]+|DIRECT_SEED))?"
-    r"|review)\.json$"
+    r"|review)"
+    r"\.(?:json|sha256|meta\.json)$"
+)
+# PACK terminates at Portfolio curation: no development, Critic, comparison, or
+# LEVER artifact may ride along in a PACK run directory.
+_PACK_FORBIDDEN_ARTIFACT_RE = re.compile(
+    r"^(?:development(?:-v2)?(?:-(?:P[0-9]+|B[0-9]+|DIRECT_SEED))?"
+    r"|deep-review(?:-v2)?(?:-(?:P[0-9]+|B[0-9]+|DIRECT_SEED))?"
+    r"|comparison-review(?:-v1)?"
+    r"|(?:lever-)?design(?:-(?:P[0-9]+|B[0-9]+|DIRECT_SEED))?"
+    r"|lever-review(?:-(?:P[0-9]+|B[0-9]+|DIRECT_SEED))?"
+    r"|review)"
+    r"\.(?:json|sha256|meta\.json)$"
+)
+# The only stage labels a PACK archive may carry (exactly three Search passes,
+# the accumulated search field, and the curation portfolio).
+_PACK_ALLOWED_STAGE_LABELS = frozenset(
+    {
+        "pass-01-normal",
+        "pass-02-residual",
+        "pass-03-rift",
+        "search-field",
+        "portfolio",
+    }
 )
 
 
@@ -203,8 +226,8 @@ def _get_stage_artifacts(
 
     return raw_allowlisted
 
-def _is_bonk_v3_run(stage_specs: list[tuple[str, Path, str]]) -> bool:
-    """True when any stage run directory carries a v3 BONK portfolio record."""
+def _find_portfolio_record(stage_specs: list[tuple[str, Path, str]], predicate) -> dict | None:
+    """First portfolio/selection record in the stage run dirs matching predicate."""
     for _, run_dir, _ in stage_specs:
         for name in ("portfolio.json", "selection.json"):
             p = run_dir / name
@@ -214,17 +237,30 @@ def _is_bonk_v3_run(stage_specs: list[tuple[str, Path, str]]) -> bool:
                 data = json.loads(p.read_text(encoding="utf-8"))
             except (json.JSONDecodeError, OSError):
                 continue
-            if isinstance(data, dict) and data.get("schema_version") == "pizm-portfolio-selection-v3":
-                return True
-    return False
+            if isinstance(data, dict) and predicate(data):
+                return data
+    return None
+
+
+def _find_bonk_v3_portfolio(stage_specs: list[tuple[str, Path, str]]) -> dict | None:
+    """The v3 BONK portfolio record carried by the stage run dirs, if any."""
+    return _find_portfolio_record(
+        stage_specs, lambda d: d.get("schema_version") == "pizm-portfolio-selection-v3"
+    )
+
+
+def _is_pack_run(stage_specs: list[tuple[str, Path, str]]) -> bool:
+    """True when any stage run directory carries a route-PACK portfolio record."""
+    return _find_portfolio_record(stage_specs, lambda d: d.get("route") == "PACK") is not None
 
 
 def _forbidden_v3_artifacts(run_dir: Path) -> list[str]:
     """Sorted review/comparison/lever artifact names a BONK v3 run must not carry.
 
     v3 terminates after the dual/single development handoff: any deep review,
-    comparison review, or LEVER artifact in the run directory means the run is
-    not a v3 run and must fail closed instead of being archived as one.
+    comparison review, or LEVER artifact (JSON or sidecar) in the run directory
+    means the run is not a v3 run and must fail closed instead of being archived
+    as one.
     """
     if not run_dir.is_dir():
         return []
@@ -232,6 +268,31 @@ def _forbidden_v3_artifacts(run_dir: Path) -> list[str]:
         f.name for f in run_dir.iterdir()
         if f.is_file() and _V3_FORBIDDEN_ARTIFACT_RE.fullmatch(f.name)
     )
+
+
+def _forbidden_pack_artifacts(run_dir: Path) -> list[str]:
+    """Sorted development/review/comparison/lever artifact names a PACK run must not carry.
+
+    PACK terminates at Portfolio curation: any development, Critic, comparison,
+    or LEVER artifact (JSON or sidecar) in the run directory contradicts the
+    route's zero-Deep/zero-Critic/zero-LEVER identity and fails the archive closed.
+    """
+    if not run_dir.is_dir():
+        return []
+    return sorted(
+        f.name for f in run_dir.iterdir()
+        if f.is_file() and _PACK_FORBIDDEN_ARTIFACT_RE.fullmatch(f.name)
+    )
+
+
+def _development_target_id(data: dict) -> str | None:
+    """Frozen development target id, tolerating nested and flat shapes."""
+    target = data.get("target")
+    if isinstance(target, dict):
+        t_id = target.get("target_id")
+        return t_id if isinstance(t_id, str) else None
+    t_id = data.get("target_id")
+    return t_id if isinstance(t_id, str) else None
 
 
 def _die(msg: str, code: int = 1) -> int:
@@ -604,7 +665,8 @@ def create_bundle(
         and not any(st in ("portfolio", "search-field", "comparison") for _, _, st in stage_specs)
     )
     has_comparison_stage = any(st == "comparison" for _, _, st in stage_specs)
-    is_bonk_v3_run = _is_bonk_v3_run(stage_specs)
+    v3_portfolio = _find_bonk_v3_portfolio(stage_specs)
+    is_bonk_v3_run = v3_portfolio is not None
     if is_bonk_v3_run:
         # BONK v3 ends after Deep A/B: comparison and LEVER stages are never
         # part of a v3 run, and no review/comparison/lever artifact may ride
@@ -618,6 +680,66 @@ def create_bundle(
                 return _die(
                     f"stage {label}: BONK v3 run must not carry review/comparison/lever "
                     f"artifacts: {', '.join(forbidden)}"
+                )
+        # The archive's Deep stages must be exactly the frozen development
+        # targets: a bundle whose portfolio says B1+B2 must not carry B1+B3.
+        expected_deep = [
+            t.get("target_id")
+            for t in v3_portfolio.get("development_targets") or []
+            if isinstance(t, dict) and isinstance(t.get("target_id"), str)
+        ]
+        actual_deep = [
+            label[len("deep-"):] for label, _, st in stage_specs if st == "deep"
+        ]
+        if sorted(actual_deep) != sorted(expected_deep) or len(actual_deep) != len(expected_deep):
+            return _die(
+                "BONK v3 archive Deep stages must equal the frozen development_targets "
+                f"exactly: expected {sorted(expected_deep)}, got {sorted(actual_deep)}"
+            )
+        for label, run_dir, stage_type in stage_specs:
+            if stage_type != "deep":
+                continue
+            t_id = label[len("deep-"):]
+            for f in _get_stage_artifacts(label, stage_type, run_dir, stage_specs):
+                if not (f.name.startswith("development") and f.name.endswith(".json")):
+                    continue
+                if f.name.endswith(".meta.json"):
+                    continue
+                try:
+                    dev_data = json.loads(f.read_text(encoding="utf-8"))
+                except (json.JSONDecodeError, OSError):
+                    continue
+                if not isinstance(dev_data, dict):
+                    continue
+                actual_target = _development_target_id(dev_data)
+                if actual_target != t_id:
+                    return _die(
+                        f"stage {label}: development artifact {f.name} declares target "
+                        f"{actual_target!r}, expected {t_id!r}"
+                    )
+    elif _is_pack_run(stage_specs):
+        # PACK ends at Portfolio curation: its stage set is exactly the three
+        # Search passes, the accumulated search field, and the portfolio, and
+        # no development/review/comparison/lever artifact may ride along.
+        for label, _, stage_type in stage_specs:
+            if stage_type in ("deep", "comparison", "lever"):
+                return _die(f"stage {label}: PACK run forbids {stage_type} stages")
+        labels = {label for label, _, _ in stage_specs}
+        extra = sorted(labels - _PACK_ALLOWED_STAGE_LABELS)
+        if extra:
+            return _die(f"PACK run carries non-PACK stages: {', '.join(extra)}")
+        missing = sorted(_PACK_ALLOWED_STAGE_LABELS - labels)
+        if missing:
+            return _die(
+                "PACK run requires exactly the three Search passes, the search "
+                f"field, and the portfolio; missing: {', '.join(missing)}"
+            )
+        for label, run_dir, _ in stage_specs:
+            forbidden = _forbidden_pack_artifacts(run_dir)
+            if forbidden:
+                return _die(
+                    f"stage {label}: PACK run must not carry development/review/"
+                    f"comparison/lever artifacts: {', '.join(forbidden)}"
                 )
     for label, run_dir, stage_type in stage_specs:
         allowlisted_files = _get_stage_artifacts(label, stage_type, run_dir, stage_specs)
@@ -2943,8 +3065,8 @@ def _render_bonk_v3_run_md(
                 "## Why these two were developed",
                 "",
                 "Two materially distinct development targets were selected and developed "
-                "independently. They are not contestants: no winner was selected and neither "
-                "is preferred.",
+                "separately — sequentially, without comparison or synthesis. They are not "
+                "contestants: no winner was selected and neither is preferred.",
                 "",
                 "Material structural difference (restated from the frozen portfolio record):",
                 str(portfolio.get("material_difference")).strip(),
@@ -3010,6 +3132,57 @@ def _render_bonk_v3_run_md(
     return 0
 
 
+def _render_pack_preserved_section(assessments: list, cand_index: dict) -> list[str]:
+    """Compact PACK handoff cards for BORDERLINE and MERGE candidates.
+
+    PACK hands off to a stronger model or human. Discarding BORDERLINE candidates
+    and MERGE residues would make the cheap Portfolio the last censor of the
+    field, so both are preserved compactly here. DROP stays count-only.
+    """
+    borderline = sorted(
+        (a for a in assessments if a.get("disposition") == "BORDERLINE"),
+        key=lambda a: _ref_sort_key(a.get("candidate_ref", "")),
+    )
+    merged = sorted(
+        (a for a in assessments if a.get("disposition") == "MERGE"),
+        key=lambda a: _ref_sort_key(a.get("candidate_ref", "")),
+    )
+    lines = [
+        "## Preserved open / merged territory",
+        "",
+        "BORDERLINE candidates stay visible as open territory without promotion, and "
+        "MERGE candidates contribute their unique residue without becoming separate "
+        "perspectives. DROP candidates appear in the curation summary count only.",
+        "",
+    ]
+    if not borderline and not merged:
+        lines.append("(no open or merged territory preserved)")
+        lines.append("")
+        return lines
+
+    for disposition, entries in (("BORDERLINE", borderline), ("MERGE", merged)):
+        for a in entries:
+            ref = a.get("candidate_ref") or ""
+            lines.append(f"### {disposition} — {_c_title(cand_index.get(ref, {}))} (`{ref}`)")
+            quality = a.get("standalone_quality")
+            if quality:
+                lines.append(_bullet("Disposition", f"{disposition} (standalone quality: {quality})"))
+            residue = a.get("unique_residue")
+            if isinstance(residue, str) and residue.strip():
+                lines.append(_bullet("Unique residue", residue.strip()))
+            overlap = a.get("nearest_overlap")
+            if isinstance(overlap, str) and overlap.strip():
+                lines.append(_bullet("Nearest overlap", overlap.strip()))
+            reason = a.get("reason")
+            if isinstance(reason, str) and reason.strip():
+                lines.append(_bullet("Reason", reason.strip()))
+            explanation = a.get("plain_explanation")
+            if isinstance(explanation, str) and explanation.strip():
+                lines.append(_bullet("Plain explanation", explanation.strip()))
+            lines.append("")
+    return lines
+
+
 def _render_pack_run_md(
     run_dir: Path,
     task: str,
@@ -3020,37 +3193,35 @@ def _render_pack_run_md(
         if portfolio.get("route") != "PACK":
             return _die(f"PACK render requires portfolio route=PACK, got {portfolio.get('route')!r}")
 
-        # Load Pass 1 candidates (required)
-        pass1_file = "candidates.json"
+        # PACK is an exact-three-pass route: the packet cannot be rendered from a
+        # partial run. Pass 1 keeps the legacy unsuffixed fallback; passes 2/3 and
+        # the accumulated final search field are mandatory.
+        pass1_file = "candidates-pass01.json"
         if not (run_dir / pass1_file).is_file():
-            if (run_dir / "candidates-pass01.json").is_file():
-                pass1_file = "candidates-pass01.json"
+            if (run_dir / "candidates.json").is_file():
+                pass1_file = "candidates.json"
             else:
-                return _die("missing artifact: candidates.json")
+                return _die("missing artifact: candidates-pass01.json")
         _verify_frozen_sidecar(run_dir, pass1_file)
         pass1_data = _load_frozen_json(run_dir, pass1_file)
 
-        # Load Pass 2 candidates if present
-        pass2_data = None
-        for p2_cand in ("candidates-pass02.json", "search-pass02.json"):
-            if (run_dir / p2_cand).is_file():
-                _verify_frozen_sidecar(run_dir, p2_cand)
-                pass2_data = _load_frozen_json(run_dir, p2_cand)
-                break
+        pass2_file = "candidates-pass02.json"
+        pass3_file = "candidates-pass03.json"
+        field_file = "search-field-pass03.json"
+        for name in (pass2_file, pass3_file, field_file):
+            if not (run_dir / name).is_file():
+                return _die(f"missing artifact: {name}")
 
-        # Load Pass 3 candidates if present
-        pass3_data = None
-        for p3_cand in ("candidates-pass03.json", "search-pass03.json"):
-            if (run_dir / p3_cand).is_file():
-                _verify_frozen_sidecar(run_dir, p3_cand)
-                pass3_data = _load_frozen_json(run_dir, p3_cand)
-                break
+        pass2_data = _load_frozen_json(run_dir, pass2_file)
+        pass3_data = _load_frozen_json(run_dir, pass3_file)
+        # Required presence + parse check only: the packet does not restate the field manifest.
+        _load_frozen_json(run_dir, field_file)
+        for name in (pass2_file, pass3_file, field_file):
+            _verify_frozen_sidecar(run_dir, name)
 
         cand_index = _candidate_index(pass1_data, "pass01")
-        if pass2_data:
-            cand_index.update(_candidate_index(pass2_data, "pass02"))
-        if pass3_data:
-            cand_index.update(_candidate_index(pass3_data, "pass03"))
+        cand_index.update(_candidate_index(pass2_data, "pass02"))
+        cand_index.update(_candidate_index(pass3_data, "pass03"))
 
         p_map = _derive_promoted_p_ids(portfolio)
 
@@ -3074,12 +3245,10 @@ def _render_pack_run_md(
             "",
             "## Run shape",
             "Pass 1 — initial",
+            "Pass 2 — residual",
+            "Pass 3 — rift",
+            "",
         ]
-        if pass2_data:
-            lines.append("Pass 2 — residual")
-        if pass3_data:
-            lines.append("Pass 3 — rift")
-        lines.append("")
 
         lines.append("## Curated Perspectives")
         lines.append("")
@@ -3134,6 +3303,8 @@ def _render_pack_run_md(
                     if parts:
                         lines.append(_bullet("Source-relative epistemics", "; ".join(parts)))
                 lines.append("")
+
+        lines.extend(_render_pack_preserved_section(assessments, cand_index))
 
         bundles_rendered = _render_bundles_section(portfolio, cand_index, p_map)
         if bundles_rendered:

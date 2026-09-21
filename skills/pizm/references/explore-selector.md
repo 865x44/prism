@@ -18,6 +18,8 @@ The judge reasons about, at minimum:
 8. **Composition gain and bundle construction**: Build bundles strictly under the bundle rules below.
 9. **AUTO target nomination**: When `route` is `AUTO`, nominate exactly one target (a promoted perspective or a bundle).
 
+The BONK-specific development selection shape — how a BONK run turns curated candidates into its development targets, and what schema the frozen record uses — is defined by the active BONK pipeline contract. This selector supplies the common curation rubric and reader aids; it does not restate or extend the BONK development-selection schema.
+
 ## Task-Relative Value Lens
 
 The selector evaluates value relative to what the user is trying to achieve, rather than applying a universal novelty-first objective. This is an internal reasoning lens within this single Portfolio evaluation — not a separate stage, not a classifier, not a persisted profile, and not a routing state.
@@ -167,8 +169,8 @@ After dispositions, bundles, and routing are finalized — inside this same Port
 For each assessment that materializes as a visible Perspective card, add `plain_explanation`: 2–4 short sentences (~40–90 words) answering what this Perspective actually claims, what the non-obvious shift/mechanism is, and why it might matter if true. Contract: direct ordinary language; preserve the actual mechanism and non-obvious content; no new claims, evidence, certainty, implications, or reinterpretation. This is a reader aid, not the canonical semantic representation.
 
 Eligible refs only:
-- v1 MANUAL/AUTO: assessments with disposition `KEEP`.
-- v2 BONK: candidate refs present in the frozen `perspectives` mapping.
+- v1 MANUAL/AUTO/PACK: assessments with disposition `KEEP`.
+- v2 BONK and v3 BONK: candidate refs present in the frozen `perspectives` mapping.
 - For a `MERGE` cluster, the explanation belongs to the primary `KEEP` Perspective and explains the canonical KEEP Perspective. Absorbed `MERGE` refs get no separate `plain_explanation`; their extra facets stay in the existing MERGE presentation.
 - Never for `DROP`, `BORDERLINE`, absorbed `MERGE` candidates, or raw candidates.
 
@@ -195,7 +197,7 @@ The judge freezes its decision as one portfolio record conforming to `pizm-portf
 ```json
 {
   "schema_version": "pizm-portfolio-selection-v1",
-  "route": "MANUAL|AUTO",
+  "route": "MANUAL|AUTO|PACK",
   "field_ref": "search-field-pass02.json",
   "field_hash": "...",
   "candidate_assessments": [
@@ -255,10 +257,11 @@ Structurally valid MANUAL example (freezes through checkpoint as-is):
 
 Routing rules and fail-closed couplings:
 - `MANUAL`: `auto_target` may be null (along with `next_reasoning_move`, `next_reasoning_rationale`, `information_request`, and `rival_shadow`). The user chooses what to deepen.
+- `PACK`: curation only, and terminal. All five downstream routing fields — `next_reasoning_move`, `next_reasoning_rationale`, `information_request`, `rival_shadow`, and `auto_target` — MUST be present and null: a missing key is a failure, not a default, and a non-null value fails closed. There is no target, no rival, and no winner. PACK curates the accumulated field and hands it to a stronger downstream model or human.
 - `AUTO`: `next_reasoning_move` must be `DEEP`, `GATHER_INFORMATION`, or `PRESERVE_ONLY`, and `next_reasoning_rationale` is a non-empty string.
   - `DEEP`: exactly one `auto_target` pointing at a promoted perspective (`target_type` `P`) or at a proposed bundle (`target_type` `B`). `information_request` must be null. `rival_shadow` is nullable; when present, it names the live nearest rival (`target_type`, `target_id`, `core_claim`, `why_remains_live`, `differentiator_or_source_anchor`), where target_id must differ from auto_target.target_id and reference a promoted Perspective or defined Bundle (never synthesize a weak rival).
   - `GATHER_INFORMATION`: `auto_target` and `rival_shadow` must be null; `information_request` is non-null with `mode` (`USER_QUESTION` with 1–3 non-empty questions and null suggested observation, or `EXTERNAL_OBSERVATION` with empty questions list and non-empty suggested observation), `missing_information`, and `why_it_changes_route`. In AUTO, this outcome is reserved strictly for a newly discovered material route fork surfaced by Search/RIFT/Portfolio that could not reasonably have been asked before search. If pre-search questions were already asked, prefer 1 additional question, not a routine questionnaire.
-- `field_ref`: Non-empty string reference to the verified final accumulated search-field artifact (e.g. `"search-field-pass02.json"` in two-pass AUTO, or `"search-field.json"` in single-pass; `pass02` represents the final accumulated search field for the current AUTO pipeline, not a hardcoded ceiling for all future trajectories). In multi-pass runs, explicit `field_ref` is required and must reference the final accumulated search field.
+- `field_ref`: Non-empty string reference to the verified final accumulated search-field artifact (e.g. `"search-field-pass02.json"` in two-pass AUTO, or `"search-field.json"` in single-pass; `pass02` represents the final accumulated search field for the current AUTO pipeline, not a hardcoded ceiling for all future trajectories). In multi-pass runs, explicit `field_ref` is required and must reference the final accumulated search field. The exact-three-pass routes require the literal `"search-field-pass03.json"`: `route` `PACK` and schema `pizm-portfolio-selection-v3` fail closed on any other basename, so a portfolio cannot be frozen before the third pass exists.
   - `PRESERVE_ONLY`: `auto_target`, `information_request`, and `rival_shadow` must all be null.
 - Field survival vs reasoning spend: `KEEP`, `BORDERLINE`, `MERGE`, and `DROP` govern field structure; they do not force `DEEP`.
 ## User-Visible Presentation Rules

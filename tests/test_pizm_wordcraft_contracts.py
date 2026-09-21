@@ -177,10 +177,14 @@ class TestAnalyticalReferencesUntouched:
             # (no Critic semantics duplicated or changed).
             # WAVE1-RELEASE-PATCH-20260920 authorizes bounded task-relative
             # explore-selector.md and synchronized explore.md pre-search clarification.
+            # PACK-BONK-REPAIR-20260922 authorizes the route-coherence repair of
+            # pack.md (installed-path recipes, exact-three-pass and archive
+            # topology invariants) plus the matching selector/bonk.md edits.
             allowed_changes = {
                 "skills/pizm/references/wordcraft.md",
                 "skills/pizm/references/auto.md",
                 "skills/pizm/references/bonk.md",
+                "skills/pizm/references/pack.md",
                 "skills/pizm/references/deep.md",
                 "skills/pizm/references/deep-reviewer.md",
                 "skills/pizm/references/deep-compare.md",

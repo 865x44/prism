@@ -168,12 +168,12 @@ def _resolve_bonk_v3_state(
     subject_slug: Optional[str],
     records: Optional[Dict[str, str]],
 ) -> RunState:
-    """BONK v3 state: complete only when every frozen development target is developed.
+    """BONK v3 state: complete only when the developed targets are exactly the frozen ones.
 
     DUAL_BUNDLES completes on exactly the two frozen bundle developments;
-    SINGLE_TARGET completes on exactly the one frozen target. Any missing or
-    unknown development target fails closed as an incomplete Deep stage — v3
-    has no Critic/Comparison stage to wait for.
+    SINGLE_TARGET completes on exactly the one frozen target. A missing target
+    and an unknown/extra development target both fail closed as an incomplete
+    Deep stage — v3 has no Critic/Comparison stage to wait for.
     """
     mode = port_data.get("development_mode")
     raw_targets = port_data.get("development_targets")
@@ -185,9 +185,11 @@ def _resolve_bonk_v3_state(
     present_ids = {
         t_id for t_id in (_development_target_id(d) for d in dev_items) if t_id
     }
-    missing = [t_id for t_id in target_ids if t_id not in present_ids]
+    expected_ids = set(target_ids)
+    mismatched = [t_id for t_id in target_ids if t_id not in present_ids]
+    mismatched += sorted(t_id for t_id in present_ids if t_id not in expected_ids)
 
-    if mode not in ("DUAL_BUNDLES", "SINGLE_TARGET") or not target_ids or missing:
+    if mode not in ("DUAL_BUNDLES", "SINGLE_TARGET") or not target_ids or mismatched:
         return RunState(
             route="BONK",
             artifact_shape="PARTIAL",

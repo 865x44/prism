@@ -29,7 +29,7 @@ INSTALLED_SELECTOR = INSTALLED_ROOT / "references" / "explore-selector.md"
 # Required JSON outline, embedded verbatim in the portfolio contract.
 EXPECTED_OUTLINE = {
     "schema_version": "pizm-portfolio-selection-v1",
-    "route": "MANUAL|AUTO",
+    "route": "MANUAL|AUTO|PACK",
     "field_ref": "search-field-pass02.json",
     "field_hash": "...",
     "candidate_assessments": [
@@ -136,8 +136,40 @@ class TestEmbeddedOutline:
 
 
 class TestRouteSemantics:
-    def test_manual_auto_route_enum(self, selector_text):
-        assert '"MANUAL|AUTO"' in selector_text or "`MANUAL|AUTO`" in selector_text
+    def test_manual_auto_pack_route_enum(self, selector_text):
+        assert '"MANUAL|AUTO|PACK"' in selector_text or "`MANUAL|AUTO|PACK`" in selector_text
+
+    def test_pack_curation_only_routing_rules(self, selector_text):
+        """The v1 PACK route is described with the same fail-closed couplings the checkpoint enforces."""
+        assert re.search(
+            r"(?i)`PACK`: curation only.*five downstream routing fields.*present and null",
+            selector_text,
+            re.DOTALL,
+        )
+        for key in (
+            "next_reasoning_move",
+            "next_reasoning_rationale",
+            "information_request",
+            "rival_shadow",
+            "auto_target",
+        ):
+            assert f"`{key}`" in selector_text
+
+    def test_pack_and_v3_require_literal_final_field(self, selector_text):
+        """Exact-three-pass routes are documented as requiring the literal pass03 field."""
+        assert re.search(
+            r"(?i)exact-three-pass routes require the literal `\"search-field-pass03\.json\"`",
+            selector_text,
+        )
+        assert "`route` `PACK` and schema `pizm-portfolio-selection-v3` fail closed" in selector_text
+
+    def test_bonk_selection_shape_delegated_to_bonk_contract(self, selector_text):
+        """Selector supplies the rubric/reader aids; BONK owns its development-selection shape."""
+        assert (
+            "BONK-specific development selection shape" in selector_text
+            and "defined by the active BONK pipeline contract" in selector_text
+        )
+        assert "does not restate or extend the BONK development-selection schema" in selector_text
 
     def test_manual_null_allowed(self, selector_text):
         assert re.search(r"(?i)MANUAL.*auto_target.*may be null", selector_text, re.DOTALL) or \
@@ -376,6 +408,15 @@ class TestReaderAidFields:
         assert "assessments with disposition `KEEP`" in selector_text
         assert "candidate refs present in the frozen `perspectives` mapping" in selector_text
         assert "Absorbed `MERGE` refs get no separate `plain_explanation`" in selector_text
+
+    def test_reader_aid_eligibility_is_route_complete(self, selector_text):
+        """Every route that can freeze a portfolio has a stated reader-aid eligibility."""
+        assert "v1 MANUAL/AUTO/PACK: assessments with disposition `KEEP`" in selector_text
+        assert (
+            "v2 BONK and v3 BONK: candidate refs present in the frozen `perspectives` mapping"
+            in selector_text
+        )
+        assert "same eligibility as `plain_explanation`" in selector_text
 
     def test_merge_carrier_is_primary_keep(self, selector_text):
         assert "the explanation belongs to the primary `KEEP` Perspective" in selector_text

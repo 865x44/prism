@@ -1423,7 +1423,22 @@ def _validate_portfolio(
         if not isinstance(field_ref, str) or not field_ref.strip():
             raise ValueError(f"{schema_version} requires field_ref")
 
-    if run_dir is not None:
+    # v1 PACK and v3 BONK are exact-three-pass routes: the portfolio may only be
+    # frozen against the accumulated final search field. Requiring the literal
+    # pass03 basename (not merely the highest pass that happens to exist) makes
+    # an early portfolio freeze after pass01/pass02 fail closed.
+    if schema_version == "pizm-portfolio-selection-v3" or route == "PACK":
+        if not isinstance(field_ref, str) or not field_ref.strip():
+            raise ValueError(
+                f"{'route PACK' if route == 'PACK' else schema_version} requires "
+                "field_ref 'search-field-pass03.json'"
+            )
+        if Path(field_ref).name != "search-field-pass03.json":
+            raise ValueError(
+                "field_ref must reference the final search field "
+                f"'search-field-pass03.json', got {field_ref!r}"
+            )
+    elif run_dir is not None:
         pass_field_files = []
         for p in run_dir.glob("search-field-pass*.json"):
             m = re.match(r"^search-field-pass(\d+)\.json$", p.name)

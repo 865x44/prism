@@ -32,6 +32,22 @@ BONK explicitly does not:
 
 The two targets are **not contestants**. They are two high-quality development targets with large useful structural distance. They are never presented to the user as LEFT/RIGHT, winner/rival, or ranked alternatives.
 
+## 2b. Execution Scope & Root Contract
+
+BONK's helper executables and skill root are location-dependent. Resolve them once, before the first freeze, and use the resolved values everywhere:
+
+```text
+$PIZM_CHECKPOINT       repo checkout: bin/pizm-checkpoint
+                       installed host: $HOME/.local/bin/pizm-checkpoint
+$PIZM_SESSION_BUNDLE   repo checkout: bin/pizm-session-bundle
+                       installed host: $HOME/.local/bin/pizm-session-bundle
+$PIZM_SKILL_ROOT       the directory containing the currently loaded Pizm SKILL.md
+                       repo checkout: skills/pizm
+                       installed host: $HOME/.claude/skills/pizm or $HOME/.config/opencode/skills/pizm
+```
+
+An installed host must use the helper and skill root deployed together by the supported installer, must not mix repo and installed locations, and must be synchronized to the label-aware version before executing this flow. Every command recipe below is written with these variables: a displayed `bin/...` or `skills/pizm` path is the repo-checkout value of the same variable, never a separate command.
+
 ---
 
 ## Operational happy path
@@ -72,12 +88,12 @@ No automatic Critic. No automatic Compare. No automatic LEVER. No winner. No syn
 ## 4. Detailed Stage Contracts
 
 ### Stage 0: Run Identity (before any freeze)
-- Derive `subject_slug` from the task subject with the deterministic ASCII rule (`bin/pizm_run_state.py slugify_subject`: lowercase, Cyrillic transliterated, non-alphanumeric → hyphens). Mint one run-id `<subject_slug>-YYYYMMDDtHHMMSSz-<rand4>` (UTC timestamp + 4 lowercase-alphanumeric chars, same shape as `generate_run_id`). Use this run-id for every `--run-id` freeze below (run dir becomes `.ai/pizm/run-<run-id>/`) and for `--slug` at archive time, so run dir, bundle, and reader slug stay aligned. Never use a bare timestamp or short random id.
+- Derive `subject_slug` from the task subject with the deterministic ASCII rule (`pizm_run_state.slugify_subject`: lowercase, Cyrillic transliterated, non-alphanumeric → hyphens). Mint one run-id `<subject_slug>-YYYYMMDDtHHMMSSz-<rand4>` (UTC timestamp + 4 lowercase-alphanumeric chars, same shape as `generate_run_id`). Use this run-id for every `--run-id` freeze below (run dir becomes `.ai/pizm/run-<run-id>/`) and for `--slug` at archive time, so run dir, bundle, and reader slug stay aligned. Never use a bare timestamp or short random id.
 
 ### Stage 1: Search Pass 1 (initial)
 - Run broad initial Search adhering to `references/explore.md` (soft target 12–16 candidates when supported; hard bounds 1..20 candidates, ≤ 192 KiB payload, ≤ 12 KiB per candidate).
-- Freeze the raw pass as `pass01` via `bin/pizm-checkpoint freeze --stage explore --run-id <slug> --artifact-suffix pass01 --input <path>` → creates `candidates-pass01.{json,sha256,meta.json}` (or unsuffixed `candidates.{json,sha256,meta.json}`).
-- Register `pass01` in the append-only search-field manifest conforming to `pizm-search-field-v1` and freeze via `bin/pizm-checkpoint freeze --stage search-field --run-id <slug> --artifact-suffix pass01 --input <path>` → creates `search-field-pass01.{json,sha256,meta.json}`.
+- Freeze the raw pass as `pass01` via `"$PIZM_CHECKPOINT" freeze --stage explore --run-id <slug> --artifact-suffix pass01 --input <path>` → creates `candidates-pass01.{json,sha256,meta.json}` (or unsuffixed `candidates.{json,sha256,meta.json}`).
+- Register `pass01` in the append-only search-field manifest conforming to `pizm-search-field-v1` and freeze via `"$PIZM_CHECKPOINT" freeze --stage search-field --run-id <slug> --artifact-suffix pass01 --input <path>` → creates `search-field-pass01.{json,sha256,meta.json}`.
 - **No judging after Pass 1.** Do not filter, rank, or evaluate candidates at this stage.
 
 ### Stage 2: Search Pass 2 (residual)
@@ -87,12 +103,12 @@ No automatic Critic. No automatic Compare. No automatic LEVER. No winner. No syn
   - Attack attractor lock (avoid returning to favored mechanisms, actor swaps, or stylistic reframings).
   - Seek new load-bearing dimensions, system boundaries, and causal families.
   - Allow honest exhaustion if no new structural territory exists (do not pad).
-- Freeze raw `pass02` via `bin/pizm-checkpoint freeze --stage explore --run-id <slug> --artifact-suffix pass02 --input <path>`.
+- Freeze raw `pass02` via `"$PIZM_CHECKPOINT" freeze --stage explore --run-id <slug> --artifact-suffix pass02 --input <path>`.
 - Update the append-only search-field manifest naming `search-field-pass01.json` as `prior_ref` with its verified `prior_hash`, and freeze with `--artifact-suffix pass02`.
 
 ### Stage 3: Search Pass 3 (rift)
 - Pass 3 consumes the accumulated field from Passes 1 and 2 and searches under the `rift` policy: distant structural shifts, reframed unit of analysis, different causal direction, system boundary, agency location, or time scale.
-- Freeze raw `pass03` via `bin/pizm-checkpoint freeze --stage explore --run-id <slug> --artifact-suffix pass03 --input <path>`.
+- Freeze raw `pass03` via `"$PIZM_CHECKPOINT" freeze --stage explore --run-id <slug> --artifact-suffix pass03 --input <path>`.
 - Update the append-only search-field manifest naming `search-field-pass02.json` as `prior_ref` with its verified `prior_hash`, and freeze with `--artifact-suffix pass03` → creates `search-field-pass03.json`. This is the **final** search field.
 - BONK v3 executes exactly three automatic Search passes. There is no fourth pass and no re-search after the portfolio.
 
@@ -101,7 +117,7 @@ No automatic Critic. No automatic Compare. No automatic LEVER. No winner. No syn
 - Evaluate all accumulated candidates from the three passes categorically (`KEEP | BORDERLINE | MERGE | DROP`) and compose Bundles (`B1, B2, …`) from kept candidates.
 - Freeze one portfolio record conforming to `pizm-portfolio-selection-v3`:
   - `route: "BONK"`, `stage: "portfolio"`.
-  - `field_ref: "search-field-pass03.json"` and `field_hash` matching its frozen SHA-256 sidecar. With three frozen search fields, `field_ref` MUST name the highest pass (`pass03`).
+  - `field_ref: "search-field-pass03.json"` and `field_hash` matching its frozen SHA-256 sidecar. The basename MUST be exactly `search-field-pass03.json`: the checkpoint fails closed on any other name, so a portfolio cannot be frozen before the third pass exists.
   - Canonical `perspectives` mapping (`{"P1": "pass01:c01", "P2": "pass01:c02", "P3": "pass02:c01", …}`) which strictly controls rendered perspective labels and continued P-IDs across passes.
   - `candidate_assessments`, `bundles`, `high_upside` as in the selector contract.
   - **Forbidden under v3** (must be absent, not merely null): `auto_target`, `next_reasoning_move`, `next_reasoning_rationale`, `information_request`, `rival_shadow`, `competition_status`, `recommended_competition`, `single_target`.
@@ -127,14 +143,14 @@ No automatic Critic. No automatic Compare. No automatic LEVER. No winner. No syn
   - Exactly one target, `target_type` `B` (must exist in `bundles`) or `P` (must exist in the `perspectives` mapping).
   - `why_develop` must state explicitly why a second materially distinct target was not defensible.
   - `material_difference` MUST be null or empty.
-- Freeze: `bin/pizm-checkpoint freeze --stage portfolio --run-id <slug> --input <path>`.
+- Freeze: `"$PIZM_CHECKPOINT" freeze --stage portfolio --run-id <slug> --input <path>`.
 - The portfolio freeze reveals **no** next semantic contract. Proceed to Deep A.
 
 ### Stage 5: Deep A and Deep B (sequential)
 - Reveal `references/deep.md`. Each selected target gets one ordinary Deep development under the `pizm-development-v2` contract. Deep remains hypothesis elaboration, not validation.
 - Order follows the frozen `development_targets` array: the first entry is Deep A, the second (when present) is Deep B. This order is deterministic and is preserved by the rendered handoff.
 - **Sequential execution:** develop A → freeze → develop B → freeze.
-- Freeze with `bin/pizm-checkpoint freeze --stage development-v2 --run-id <slug> --target <target_id> --input <path>`. Target identity locks freeze bundle membership (`member_refs`), thesis, mechanism, and boundaries.
+- Freeze with `"$PIZM_CHECKPOINT" freeze --stage development-v2 --run-id <slug> --target <target_id> --input <path>`. Target identity locks freeze bundle membership (`member_refs`), thesis, mechanism, and boundaries.
 - Soft guidance: ~1400–2400 words per target when material supports it.
 
 #### Best-effort separation (same-host limits)
@@ -156,13 +172,13 @@ No automatic Critic. No automatic Compare. No automatic LEVER. No winner. No syn
 - 1. Archive the run with the canonical `create` command (see §5).
 - 2. Render the deterministic development pack:
   ```bash
-  bin/pizm-session-bundle render \
+  "$PIZM_SESSION_BUNDLE" render \
     --run-dir ".ai/pizm/run-$RUN_ID" \
     --task "<original task>" \
     --subject-slug "$SUBJECT_SLUG"
   ```
   This writes `run-<subject-slug>.md` (report that path). The pack contains: original task, exploration coverage (three passes), the curated Perspective/Bundle map, Development Target A and B (frozen identity, full Deep synthesis, mechanism, predictions/observables, boundaries, provisional epistemic census, evidence debt), the frozen material difference, explicit non-claims, and a suggested downstream task.
-- 3. **HTML status:** interactive HTML is NOT supported for BONK v3. Do not invoke `bin/pizm-session-bundle render-html` on a v3 run (the CLI refuses with a stable non-zero error). The Markdown development pack is the primary deliverable.
+- 3. **HTML status:** interactive HTML is NOT supported for BONK v3. Do not invoke `"$PIZM_SESSION_BUNDLE" render-html` on a v3 run (the CLI refuses with a stable non-zero error). The Markdown development pack is the primary deliverable.
 - 4. Report the pack location, the target IDs developed, and the frozen material difference. Do not add a winner, a preference, or a verdict.
 - Output is a pure, byte-identical function of frozen inputs. Deterministic finalization MUST NOT generate a hidden comparison or a third model.
 
@@ -191,14 +207,16 @@ portfolio
 deep-<target_id>
 ```
 
-No BONK v3 run contains `comparison-review` or `lever-*` stages. A v3 archive carrying any deep-review, comparison-review, or LEVER artifact fails closed.
+No BONK v3 run contains `comparison-review` or `lever-*` stages. A v3 archive carrying any deep-review, comparison-review, or LEVER artifact (JSON, `.sha256`, or `.meta.json`) fails closed.
+
+The archive's Deep stages MUST be exactly the frozen `development_targets` — same targets, same count. A missing, extra, duplicate, or wrong-target Deep stage fails closed, and each bundled development artifact must declare the target id its stage names.
 
 ### Canonical archive command (dual)
 ```bash
-bin/pizm-session-bundle create \
+"$PIZM_SESSION_BUNDLE" create \
   --output-root .ai/pizm/bundles \
   --slug "$RUN_ID" \
-  --skill-root skills/pizm \
+  --skill-root "$PIZM_SKILL_ROOT" \
   --stage pass-01-normal=".ai/pizm/run-$RUN_ID" \
   --stage pass-02-residual=".ai/pizm/run-$RUN_ID" \
   --stage pass-03-rift=".ai/pizm/run-$RUN_ID" \

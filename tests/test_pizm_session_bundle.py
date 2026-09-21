@@ -2513,13 +2513,29 @@ class TestPackSessionBundleAndRenderer:
         sha_f.write_text(_sha256_hex(f.read_bytes()), encoding="utf-8")
         return f
 
-    def _setup_pack_shared_run_dir(self, run_dir: Path) -> dict:
+    def _setup_pack_shared_run_dir(self, run_dir: Path, with_borderline: bool = False) -> dict:
+        pass1_candidates = [
+            {"candidate_id": "c01", "title": "Initial Candidate 1", "semantic_core": {"claim": "Core Claim 1", "mechanism": "Mech 1"}},
+            {"candidate_id": "c02", "title": "Initial Candidate 2", "semantic_core": {"claim": "Core Claim 2", "mechanism": "Mech 2"}},
+        ]
+        assessments = [
+            {"candidate_ref": "pass01:c01", "disposition": "KEEP", "standalone_quality": "strong", "unique_residue": "Res1", "nearest_overlap": None, "reason": "Grounding", "plain_explanation": "Plain explanation 1"},
+            {"candidate_ref": "pass01:c02", "disposition": "DROP", "standalone_quality": "weak", "unique_residue": "", "nearest_overlap": "pass01:c01", "reason": "Duplicate concept"},
+            {"candidate_ref": "pass02:c01", "disposition": "MERGE", "standalone_quality": "strong", "unique_residue": "Res2", "nearest_overlap": "pass01:c01", "reason": "Variant"},
+            {"candidate_ref": "pass03:c01", "disposition": "KEEP", "standalone_quality": "strong", "unique_residue": "Res3", "nearest_overlap": None, "reason": "Structural novelty", "plain_explanation": "Plain explanation 3"},
+        ]
+        if with_borderline:
+            pass1_candidates.append(
+                {"candidate_id": "c03", "title": "Borderline Candidate 3",
+                 "semantic_core": {"claim": "Core Claim 3", "mechanism": "Mech 3"}}
+            )
+            assessments.append(
+                {"candidate_ref": "pass01:c03", "disposition": "BORDERLINE", "standalone_quality": "borderline",
+                 "unique_residue": "Res4", "nearest_overlap": "pass01:c01", "reason": "Real residue, weak grounding"}
+            )
         c1 = self._write_artifact(run_dir, "candidates-pass01.json", {
             "schema_version": "pizm-candidates-v1", "stage": "explore", "mode": "NORMAL",
-            "candidates": [
-                {"candidate_id": "c01", "title": "Initial Candidate 1", "semantic_core": {"claim": "Core Claim 1", "mechanism": "Mech 1"}},
-                {"candidate_id": "c02", "title": "Initial Candidate 2", "semantic_core": {"claim": "Core Claim 2", "mechanism": "Mech 2"}},
-            ],
+            "candidates": pass1_candidates,
         })
         c2 = self._write_artifact(run_dir, "candidates-pass02.json", {
             "schema_version": "pizm-candidates-v1", "stage": "explore", "mode": "RESIDUAL",
@@ -2541,12 +2557,7 @@ class TestPackSessionBundleAndRenderer:
             "schema_version": "pizm-portfolio-selection-v1", "stage": "portfolio", "route": "PACK",
             "field_hash": hashlib.sha256((run_dir / "search-field-pass03.json").read_bytes()).hexdigest(),
             "field_ref": "search-field-pass03.json",
-            "candidate_assessments": [
-                {"candidate_ref": "pass01:c01", "disposition": "KEEP", "standalone_quality": "strong", "unique_residue": "Res1", "nearest_overlap": None, "reason": "Grounding", "plain_explanation": "Plain explanation 1"},
-                {"candidate_ref": "pass01:c02", "disposition": "DROP", "standalone_quality": "weak", "unique_residue": "", "nearest_overlap": "pass01:c01", "reason": "Duplicate concept"},
-                {"candidate_ref": "pass02:c01", "disposition": "MERGE", "standalone_quality": "strong", "unique_residue": "Res2", "nearest_overlap": "pass01:c01", "reason": "Variant"},
-                {"candidate_ref": "pass03:c01", "disposition": "KEEP", "standalone_quality": "strong", "unique_residue": "Res3", "nearest_overlap": None, "reason": "Structural novelty", "plain_explanation": "Plain explanation 3"},
-            ],
+            "candidate_assessments": assessments,
             "bundles": [
                 {
                     "bundle_id": "B1",
@@ -2737,6 +2748,145 @@ class TestPackSessionBundleAndRenderer:
         r = run_bundle("render-html", "--run-dir", str(run_dir), "--task", "Analyze trust", "--output", str(out_html))
         assert r.returncode != 0
         assert "PACK HTML is not supported in Wave A; use research-pack.md" in r.stderr
+
+    def _pack_create(self, workspace, tmp_path, run_dir, slug, labels, count=4):
+        acc_file = tmp_path / f"acc_pack_{slug}.json"
+        acc_file.write_text(json.dumps({
+            "host_inference_count": count, "model_repair_count": 0,
+            "checkpoint_retry_count": 0, "semantic_stage_count": count,
+        }), encoding="utf-8")
+        argv = [
+            "create",
+            "--output-root", str(workspace["output"]),
+            "--slug", slug,
+            "--skill-root", str(workspace["skill"]),
+        ]
+        for label in labels:
+            argv += ["--stage", f"{label}={run_dir}"]
+        argv += ["--accounting", str(acc_file)]
+        return run_bundle(*argv)
+
+    PACK_STAGES = ("pass-01-normal", "pass-02-residual", "pass-03-rift", "search-field", "portfolio")
+
+    def test_pack_rejects_deep_comparison_and_lever_stages(self, workspace, tmp_path):
+        """PACK carries zero Deep/Critic/Comparison/LEVER stages; asking for one fails closed."""
+        run_dir = tmp_path / "pack_bad_stage_run"
+        run_dir.mkdir()
+        self._setup_pack_shared_run_dir(run_dir)
+
+        r_deep = self._pack_create(workspace, tmp_path, run_dir, "pack-bad-deep",
+                                   self.PACK_STAGES + ("deep-B1",))
+        assert r_deep.returncode != 0
+        assert "PACK run forbids deep stages" in r_deep.stderr
+
+        r_comp = self._pack_create(workspace, tmp_path, run_dir, "pack-bad-comp",
+                                   self.PACK_STAGES + ("comparison-review",))
+        assert r_comp.returncode != 0
+        assert "PACK run forbids comparison stages" in r_comp.stderr
+
+        r_lever = self._pack_create(workspace, tmp_path, run_dir, "pack-bad-lever",
+                                    self.PACK_STAGES + ("lever-B1",))
+        assert r_lever.returncode != 0
+        assert "PACK run forbids lever stages" in r_lever.stderr
+
+    def test_pack_requires_exact_stage_set(self, workspace, tmp_path):
+        """A PACK archive carries exactly the three Search passes, field, and portfolio."""
+        run_dir = tmp_path / "pack_stage_set_run"
+        run_dir.mkdir()
+        self._setup_pack_shared_run_dir(run_dir)
+
+        r_missing = self._pack_create(
+            workspace, tmp_path, run_dir, "pack-missing-stage",
+            ("pass-01-normal", "pass-03-rift", "search-field", "portfolio"),
+        )
+        assert r_missing.returncode != 0
+        assert "missing: pass-02-residual" in r_missing.stderr
+
+        r_extra = self._pack_create(
+            workspace, tmp_path, run_dir, "pack-extra-stage",
+            self.PACK_STAGES + ("pass-04-normal",),
+        )
+        assert r_extra.returncode != 0
+        assert "carries non-PACK stages: pass-04-normal" in r_extra.stderr
+
+    def test_pack_rejects_stray_development_or_review_artifact(self, workspace, tmp_path):
+        """A development/review/comparison/lever artifact in a PACK run dir fails closed."""
+        run_dir = tmp_path / "pack_stray_run"
+        run_dir.mkdir()
+        self._setup_pack_shared_run_dir(run_dir)
+        (run_dir / "development-v2-B1.json").write_text(json.dumps({"target_id": "B1"}), encoding="utf-8")
+
+        r = self._pack_create(workspace, tmp_path, run_dir, "pack-stray-dev", self.PACK_STAGES)
+        assert r.returncode != 0
+        assert "PACK run must not carry development/review/comparison/lever artifacts" in r.stderr
+        assert "development-v2-B1.json" in r.stderr
+
+    def test_pack_rejects_stray_sidecars_only(self, workspace, tmp_path):
+        """Orphan development/review sidecars without their JSON also fail closed."""
+        run_dir = tmp_path / "pack_stray_sidecar_run"
+        run_dir.mkdir()
+        self._setup_pack_shared_run_dir(run_dir)
+        for name in ("development-v2-B1.sha256", "development-v2-B1.meta.json",
+                     "deep-review-v2-B1.sha256", "comparison-review-v1.meta.json"):
+            (run_dir / name).write_text("orphan sidecar", encoding="utf-8")
+
+        r = self._pack_create(workspace, tmp_path, run_dir, "pack-stray-sidecars", self.PACK_STAGES)
+        assert r.returncode != 0
+        assert "PACK run must not carry development/review/comparison/lever artifacts" in r.stderr
+        for name in ("development-v2-B1.sha256", "development-v2-B1.meta.json",
+                     "deep-review-v2-B1.sha256", "comparison-review-v1.meta.json"):
+            assert name in r.stderr
+
+    def test_pack_renderer_requires_all_three_passes(self, tmp_path):
+        """A partial PACK run cannot render a packet: pass02/pass03/final field are mandatory."""
+        for missing in ("candidates-pass02.json", "candidates-pass03.json", "search-field-pass03.json"):
+            run_dir = tmp_path / f"pack_missing_{missing.replace('.', '_')}"
+            run_dir.mkdir()
+            self._setup_pack_shared_run_dir(run_dir)
+            (run_dir / missing).unlink()
+            out = tmp_path / f"pack-missing-{missing}.md"
+            r = run_bundle("render", "--run-dir", str(run_dir), "--task", "Analyze trust", "--output", str(out))
+            assert r.returncode != 0, f"{missing} unexpectedly rendered"
+            assert f"missing artifact: {missing}" in r.stderr
+
+    def test_pack_packet_preserves_borderline_and_merge_territory(self, tmp_path):
+        """BORDERLINE cards and MERGE residues reach the handoff; DROP stays count-only."""
+        run_dir = tmp_path / "pack_preserved_run"
+        run_dir.mkdir()
+        self._setup_pack_shared_run_dir(run_dir, with_borderline=True)
+
+        out1 = tmp_path / "pack-preserved-1.md"
+        out2 = tmp_path / "pack-preserved-2.md"
+        r1 = run_bundle("render", "--run-dir", str(run_dir), "--task", "Analyze trust", "--output", str(out1))
+        assert r1.returncode == 0, r1.stderr
+        r2 = run_bundle("render", "--run-dir", str(run_dir), "--task", "Analyze trust", "--output", str(out2))
+        assert r2.returncode == 0, r2.stderr
+        assert out1.read_bytes() == out2.read_bytes()
+
+        text = out1.read_text(encoding="utf-8")
+        assert "## Preserved open / merged territory" in text
+        # The preserved territory sits between the curated cards and the bundles.
+        assert text.index("## Curated Perspectives") < text.index("## Preserved open / merged territory")
+        assert text.index("## Preserved open / merged territory") < text.index("## Bundles")
+
+        # BORDERLINE card is preserved (open territory, not a promoted perspective)
+        assert "### BORDERLINE — Borderline Candidate 3 (`pass01:c03`)" in text
+        assert "BORDERLINE (standalone quality: borderline)" in text
+        assert "Res4" in text
+        assert "Real residue, weak grounding" in text
+
+        # MERGE residue and its nearest overlap are preserved
+        assert "### MERGE — Residual Candidate 1 (`pass02:c01`)" in text
+        assert "Res2" in text
+        assert "Nearest overlap: pass01:c01" in text
+        assert "Variant" in text
+
+        # DROP stays count-only: no body, no reason text
+        assert "Initial Candidate 2" not in text
+        assert "Duplicate concept" not in text
+        assert "- DROP: 1" in text
+        assert "- BORDERLINE: 1" in text
+        assert "- MERGE: 1" in text
 
 
 class TestBonkV3ArchiveAndRenderer:
@@ -2999,6 +3149,88 @@ class TestBonkV3ArchiveAndRenderer:
         )
         assert r.returncode != 0
         assert "must not carry review/comparison/lever artifacts" in r.stderr
+
+    def test_v3_rejects_sidecar_only_forbidden_artifacts(self, workspace, tmp_path):
+        """Orphan review/comparison/lever sidecars without their JSON still fail closed."""
+        run_dir = tmp_path / "v3_sidecar_run"
+        self._setup_v3_run_dir(run_dir)
+        for name in ("deep-review-v2-B1.sha256", "deep-review-v2-B1.meta.json",
+                     "comparison-review-v1.sha256", "review.meta.json"):
+            (run_dir / name).write_text("orphan sidecar", encoding="utf-8")
+        acc = self._accounting(tmp_path, 6)
+        r = run_bundle(
+            "create",
+            "--output-root", str(workspace["output"]),
+            "--slug", "v3-orphan-sidecars",
+            "--skill-root", str(workspace["skill"]),
+            "--stage", f"pass-01-normal={run_dir}",
+            "--stage", f"pass-02-residual={run_dir}",
+            "--stage", f"pass-03-rift={run_dir}",
+            "--stage", f"search-field={run_dir}",
+            "--stage", f"portfolio={run_dir}",
+            "--stage", f"deep-B1={run_dir}",
+            "--stage", f"deep-B2={run_dir}",
+            "--accounting", str(acc),
+        )
+        assert r.returncode != 0
+        assert "must not carry review/comparison/lever artifacts" in r.stderr
+        for name in ("deep-review-v2-B1.sha256", "deep-review-v2-B1.meta.json",
+                     "comparison-review-v1.sha256", "review.meta.json"):
+            assert name in r.stderr
+
+    def _v3_create(self, workspace, tmp_path, run_dir, slug, deep_labels, count=6):
+        acc = self._accounting(tmp_path, count)
+        argv = [
+            "create",
+            "--output-root", str(workspace["output"]),
+            "--slug", slug,
+            "--skill-root", str(workspace["skill"]),
+            "--stage", f"pass-01-normal={run_dir}",
+            "--stage", f"pass-02-residual={run_dir}",
+            "--stage", f"pass-03-rift={run_dir}",
+            "--stage", f"search-field={run_dir}",
+            "--stage", f"portfolio={run_dir}",
+        ]
+        for label in deep_labels:
+            argv += ["--stage", f"deep-{label}={run_dir}"]
+        argv += ["--accounting", str(acc)]
+        return run_bundle(*argv)
+
+    def test_v3_rejects_extra_deep_target_not_in_portfolio(self, workspace, tmp_path):
+        """Portfolio says B1+B2; archiving B1+B3 is a provenance mismatch."""
+        run_dir = tmp_path / "v3_extra_deep_run"
+        self._setup_v3_run_dir(run_dir, targets_developed=("B1", "B2", "B3"))
+        r = self._v3_create(workspace, tmp_path, run_dir, "v3-extra-deep", ("B1", "B3"))
+        assert r.returncode != 0
+        assert "must equal the frozen development_targets exactly" in r.stderr
+
+    def test_v3_rejects_missing_deep_target(self, workspace, tmp_path):
+        """A dual portfolio cannot be archived with only one of its two targets."""
+        run_dir = tmp_path / "v3_missing_deep_run"
+        self._setup_v3_run_dir(run_dir)
+        r = self._v3_create(workspace, tmp_path, run_dir, "v3-missing-deep", ("B1",))
+        assert r.returncode != 0
+        assert "must equal the frozen development_targets exactly" in r.stderr
+
+    def test_v3_rejects_single_target_run_with_second_deep(self, workspace, tmp_path):
+        """SINGLE_TARGET archives exactly one Deep; a second target fails closed."""
+        run_dir = tmp_path / "v3_single_extra_run"
+        self._setup_v3_run_dir(run_dir, mode="SINGLE_TARGET", target_order=("B1",),
+                               targets_developed=("B1", "B2"))
+        r = self._v3_create(workspace, tmp_path, run_dir, "v3-single-extra", ("B1", "B2"), count=6)
+        assert r.returncode != 0
+        assert "must equal the frozen development_targets exactly" in r.stderr
+
+    def test_v3_rejects_development_artifact_with_wrong_target_id(self, workspace, tmp_path):
+        """development-v2-B1.json declaring B2 must not be archived as the deep-B1 stage."""
+        run_dir = tmp_path / "v3_wrong_content_run"
+        self._setup_v3_run_dir(run_dir)
+        self._write_artifact(
+            run_dir, "development-v2-B1.json", self._v3_development("B2", "Mislabelled thesis")
+        )
+        r = self._v3_create(workspace, tmp_path, run_dir, "v3-wrong-content", ("B1", "B2"))
+        assert r.returncode != 0
+        assert "declares target 'B2', expected 'B1'" in r.stderr
 
     def test_v3_renderer_order_determinism_and_contract(self, tmp_path):
         """Plan tests 8, 9, 11 + delta: renderer order follows development_targets."""

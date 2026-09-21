@@ -706,6 +706,7 @@ def _devs(*target_ids):
         (("B1",), "PARTIAL", None, "Deep"),
         (("B2",), "PARTIAL", None, "Deep"),
         (("B1", "B3"), "PARTIAL", None, "Deep"),
+        (("B1", "B2", "B3"), "PARTIAL", None, "Deep"),
         ((), "PARTIAL", None, "Deep"),
     ],
 )
@@ -730,7 +731,8 @@ def test_state_resolution_bonk_v3_dual_is_target_matched(
     "present,expected_shape,expected_outcome,expected_missing",
     [
         (("P2",), "SINGLE_DEVELOPMENT", "SINGLE_TARGET", None),
-        (("P2", "P3"), "SINGLE_DEVELOPMENT", "SINGLE_TARGET", None),
+        (("P2", "P3"), "PARTIAL", None, "Deep"),
+        (("P3",), "PARTIAL", None, "Deep"),
         (("P9",), "PARTIAL", None, "Deep"),
         ((), "PARTIAL", None, "Deep"),
     ],
@@ -738,7 +740,11 @@ def test_state_resolution_bonk_v3_dual_is_target_matched(
 def test_state_resolution_bonk_v3_single_is_target_matched(
     present, expected_shape, expected_outcome, expected_missing
 ):
-    """Only the exact selected target completes a v3 single-target run."""
+    """Only the exact selected target completes a v3 single-target run.
+
+    An extra development target (P3 alongside the frozen P2) is not completion:
+    unrelated development does not close a v3 run.
+    """
     state = pizm_run_state.resolve_run_state(
         portfolio=_v3_portfolio("SINGLE_TARGET", (("P", "P2"),)),
         developments=_devs(*present),

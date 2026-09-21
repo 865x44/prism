@@ -1506,10 +1506,62 @@ def test_portfolio_manual_freeze_success(workspace):
     # Contract map: manual portfolio does not reveal selector
     assert "NEXT CONTRACT" not in result.stdout
 
-def test_portfolio_pack_freeze_success(workspace):
-    project, skill = workspace
+def _seed_pack_final_field(project, run_id):
+    """Frozen search-field-pass03.json (+sha sidecar) for route-PACK portfolio tests.
+
+    Returns (field_ref, field_hash) so a test can bind a PACK portfolio to the
+    selector-described final-field shape.
+    """
+    run_dir = project / ".ai" / "pizm" / f"run-{run_id}"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    data = {
+        "schema_version": "pizm-search-field-v1",
+        "stage": "search-field",
+        "field_id": "sf3",
+        "passes": [
+            {"pass_id": "pass01", "candidates_ref": "candidates-pass01.json", "frozen_hash": "a" * 64},
+            {"pass_id": "pass02", "candidates_ref": "candidates-pass02.json", "frozen_hash": "b" * 64},
+            {"pass_id": "pass03", "candidates_ref": "candidates-pass03.json", "frozen_hash": "c" * 64},
+        ],
+        "entries": ["pass01:c01", "pass01:c02"],
+    }
+    raw = json.dumps(data, indent=2).encode("utf-8")
+    (run_dir / "search-field-pass03.json").write_bytes(raw)
+    digest = hashlib.sha256(raw).hexdigest()
+    (run_dir / "search-field-pass03.sha256").write_text(digest, encoding="utf-8")
+    (run_dir / "search-field-pass03.meta.json").write_text('{"stage":"search-field"}', encoding="utf-8")
+    return "search-field-pass03.json", digest
+
+
+def _pack_portfolio(project, run_id):
+    """v1 PACK portfolio shaped exactly as explore-selector.md describes it.
+
+    Includes the reader aids the selector lists as eligible for v1 PACK (a
+    `plain_explanation` on the KEEP assessment and a `high_upside` entry over the
+    promoted perspective ref), so freezing this payload pins PACK route
+    acceptance through the described shape rather than through prose.
+    """
     data = valid_portfolio()
     data["route"] = "PACK"
+    field_ref, field_hash = _seed_pack_final_field(project, run_id)
+    data["field_ref"] = field_ref
+    data["field_hash"] = field_hash
+    data["candidate_assessments"][0]["plain_explanation"] = (
+        "Waiting time behaves like a batching incentive. Cutting queue time shrinks batches."
+    )
+    data["high_upside"] = [
+        {
+            "ref": "pass01:c01",
+            "why": "Could change batching policy team-wide.",
+            "risk": "Single-context observation.",
+        }
+    ]
+    return data
+
+
+def test_portfolio_pack_freeze_success(workspace):
+    project, skill = workspace
+    data = _pack_portfolio(project, "pack-run-1")
     inp = write_json(project / "portfolio_pack.json", data)
     result = run_ck(
         "freeze", "--stage", "portfolio", "--run-id", "pack-run-1",
@@ -1529,108 +1581,173 @@ def test_portfolio_pack_freeze_success(workspace):
 
 def test_portfolio_pack_rejects_non_null_routing_fields(workspace):
     project, skill = workspace
-    base = valid_portfolio()
-    base["route"] = "PACK"
+
+    def attempt(run_id, overrides):
+        data = _pack_portfolio(project, run_id)
+        data.update(overrides)
+        inp = write_json(project / f"pack_bad_{run_id}.json", data)
+        return run_ck(
+            "freeze", "--stage", "portfolio", "--run-id", run_id, "--input", inp,
+            "--project-root", str(project), "--skill-root", str(skill),
+        )
 
     # Non-null auto_target
-    d1 = dict(base, auto_target={"target_type": "P", "target_id": "P1"})
-    inp1 = write_json(project / "pack_bad1.json", d1)
-    r1 = run_ck("freeze", "--stage", "portfolio", "--run-id", "pack-bad-1", "--input", inp1, "--project-root", str(project), "--skill-root", str(skill))
+    r1 = attempt("pack-bad-1", {"auto_target": {"target_type": "P", "target_id": "P1"}})
     assert r1.returncode != 0
     assert "route PACK requires auto_target to be null" in r1.stderr
 
     # Non-null next_reasoning_move
-    d2 = dict(base, next_reasoning_move="DEEP")
-    inp2 = write_json(project / "pack_bad2.json", d2)
-    r2 = run_ck("freeze", "--stage", "portfolio", "--run-id", "pack-bad-2", "--input", inp2, "--project-root", str(project), "--skill-root", str(skill))
+    r2 = attempt("pack-bad-2", {"next_reasoning_move": "DEEP"})
     assert r2.returncode != 0
     assert "route PACK requires next_reasoning_move to be null" in r2.stderr
 
     # Non-null next_reasoning_rationale
-    d3 = dict(base, next_reasoning_rationale="Rationale")
-    inp3 = write_json(project / "pack_bad3.json", d3)
-    r3 = run_ck("freeze", "--stage", "portfolio", "--run-id", "pack-bad-3", "--input", inp3, "--project-root", str(project), "--skill-root", str(skill))
+    r3 = attempt("pack-bad-3", {"next_reasoning_rationale": "Rationale"})
     assert r3.returncode != 0
     assert "route PACK requires next_reasoning_rationale to be null" in r3.stderr
 
     # Non-null information_request
-    d4 = dict(base, information_request={"mode": "USER_QUESTION"})
-    inp4 = write_json(project / "pack_bad4.json", d4)
-    r4 = run_ck("freeze", "--stage", "portfolio", "--run-id", "pack-bad-4", "--input", inp4, "--project-root", str(project), "--skill-root", str(skill))
+    r4 = attempt("pack-bad-4", {"information_request": {"mode": "USER_QUESTION"}})
     assert r4.returncode != 0
     assert "route PACK requires information_request to be null" in r4.stderr
 
     # Non-null rival_shadow
-    d5 = dict(base, rival_shadow={"target_type": "P", "target_id": "P2"})
-    inp5 = write_json(project / "pack_bad5.json", d5)
-    r5 = run_ck("freeze", "--stage", "portfolio", "--run-id", "pack-bad-5", "--input", inp5, "--project-root", str(project), "--skill-root", str(skill))
+    r5 = attempt("pack-bad-5", {"rival_shadow": {"target_type": "P", "target_id": "P2"}})
     assert r5.returncode != 0
     assert "route PACK requires rival_shadow to be null" in r5.stderr
 
 
 def test_portfolio_pack_rejects_missing_routing_fields(workspace):
     project, skill = workspace
-    base = valid_portfolio()
-    base["route"] = "PACK"
+
+    def attempt(run_id, drop_key):
+        data = _pack_portfolio(project, run_id)
+        del data[drop_key]
+        inp = write_json(project / f"pack_miss_{run_id}.json", data)
+        return run_ck(
+            "freeze", "--stage", "portfolio", "--run-id", run_id, "--input", inp,
+            "--project-root", str(project), "--skill-root", str(skill),
+        )
 
     # Missing auto_target
-    d1 = dict(base)
-    del d1["auto_target"]
-    inp1 = write_json(project / "pack_miss1.json", d1)
-    r1 = run_ck("freeze", "--stage", "portfolio", "--run-id", "pack-miss-1", "--input", inp1, "--project-root", str(project), "--skill-root", str(skill))
+    r1 = attempt("pack-miss-1", "auto_target")
     assert r1.returncode != 0
     assert "route PACK requires auto_target to be present" in r1.stderr
 
     # Missing next_reasoning_move
-    d2 = dict(base)
-    del d2["next_reasoning_move"]
-    inp2 = write_json(project / "pack_miss2.json", d2)
-    r2 = run_ck("freeze", "--stage", "portfolio", "--run-id", "pack-miss-2", "--input", inp2, "--project-root", str(project), "--skill-root", str(skill))
+    r2 = attempt("pack-miss-2", "next_reasoning_move")
     assert r2.returncode != 0
     assert "route PACK requires next_reasoning_move to be present" in r2.stderr
 
 
-def test_portfolio_pack_highest_pass_field_ref_enforced(workspace):
-    """When pass01, pass02, pass03 exist, field_ref=pass02 is rejected and pass03 is accepted."""
+def test_portfolio_pack_requires_exact_pass03_field_ref(workspace):
+    """Route PACK is an exact-three-pass route: only search-field-pass03.json is accepted.
+
+    A portfolio frozen against pass01/pass02 (the highest pass that happens to
+    exist) must fail closed, and a portfolio with no field_ref at all must fail
+    closed even when no pass file exists yet.
+    """
+    project, skill = workspace
+
+    # 1. No field_ref, no frozen field at all -> fail closed
+    data = valid_portfolio()
+    data["route"] = "PACK"
+    inp0 = write_json(project / "pack_no_ref.json", data)
+    r0 = run_ck("freeze", "--stage", "portfolio", "--run-id", "pack-no-ref",
+                "--input", inp0, "--project-root", str(project), "--skill-root", str(skill))
+    assert r0.returncode != 0
+    assert "route PACK requires field_ref 'search-field-pass03.json'" in r0.stderr
+
+    # 2. Only pass01/pass02 frozen: pass02 is the highest existing pass, still rejected
+    run_id = "pack-early-freeze"
+    run_dir = project / ".ai" / "pizm" / f"run-{run_id}"
+    run_dir.mkdir(parents=True)
+    for pass_num, digest_char in (("01", "a"), ("02", "b")):
+        sf = {
+            "schema_version": "pizm-search-field-v1", "stage": "search-field",
+            "field_id": f"sf{pass_num}", "passes": [],
+            "entries": [f"pass{pass_num}:c01"],
+        }
+        raw = json.dumps(sf).encode("utf-8")
+        (run_dir / f"search-field-pass{pass_num}.json").write_bytes(raw)
+        (run_dir / f"search-field-pass{pass_num}.sha256").write_text(
+            hashlib.sha256(raw).hexdigest(), encoding="utf-8"
+        )
+    early = valid_portfolio()
+    early["route"] = "PACK"
+    early["field_ref"] = "search-field-pass02.json"
+    early["field_hash"] = (run_dir / "search-field-pass02.sha256").read_text(encoding="utf-8").strip()
+    inp_early = write_json(project / "pack_early.json", early)
+    r_early = run_ck("freeze", "--stage", "portfolio", "--run-id", run_id,
+                     "--input", inp_early, "--project-root", str(project), "--skill-root", str(skill))
+    assert r_early.returncode != 0
+    assert "field_ref must reference the final search field 'search-field-pass03.json'" in r_early.stderr
+
+    # 3. pass03 present and bound -> accepted
+    ok = _pack_portfolio(project, "pack-final-ok")
+    inp_ok = write_json(project / "pack_ok.json", ok)
+    r_ok = run_ck("freeze", "--stage", "portfolio", "--run-id", "pack-final-ok",
+                  "--input", inp_ok, "--project-root", str(project), "--skill-root", str(skill))
+    assert r_ok.returncode == 0, r_ok.stderr
+    assert "FREEZE_OK" in r_ok.stdout
+
+
+def test_portfolio_pack_field_ref_must_be_pass03_artifact(workspace):
+    """field_ref naming pass03 but missing the frozen artifact fails closed."""
+    project, skill = workspace
+    run_id = "pack-missing-field"
+    (project / ".ai" / "pizm" / f"run-{run_id}").mkdir(parents=True)
+    data = valid_portfolio()
+    data["route"] = "PACK"
+    data["field_ref"] = "search-field-pass03.json"
+    inp = write_json(project / "pack_missing_field.json", data)
+    r = run_ck("freeze", "--stage", "portfolio", "--run-id", run_id,
+               "--input", inp, "--project-root", str(project), "--skill-root", str(skill))
+    assert r.returncode != 0
+    assert "field_ref references missing file" in r.stderr
+
+
+def test_portfolio_pack_rejects_non_final_pass_field_ref(workspace):
+    """With pass01..pass03 frozen, only search-field-pass03.json is accepted."""
     project, skill = workspace
     run_id = "pack-field-ref-test"
     run_dir = project / ".ai" / "pizm" / f"run-{run_id}"
     run_dir.mkdir(parents=True)
 
-    sf1 = {"schema_version": "pizm-search-field-v1", "stage": "search-field", "field_id": "sf1", "passes": [], "entries": []}
-    sf1_raw = json.dumps(sf1).encode("utf-8")
-    (run_dir / "search-field-pass01.json").write_bytes(sf1_raw)
-    (run_dir / "search-field-pass01.sha256").write_text(hashlib.sha256(sf1_raw).hexdigest())
-    (run_dir / "search-field-pass01.meta.json").write_text('{"stage":"search-field"}')
-
-    sf2 = {"schema_version": "pizm-search-field-v1", "stage": "search-field", "field_id": "sf2", "passes": [], "entries": []}
-    sf2_raw = json.dumps(sf2).encode("utf-8")
-    sf2_hash = hashlib.sha256(sf2_raw).hexdigest()
-    (run_dir / "search-field-pass02.json").write_bytes(sf2_raw)
-    (run_dir / "search-field-pass02.sha256").write_text(sf2_hash)
-    (run_dir / "search-field-pass02.meta.json").write_text('{"stage":"search-field"}')
-
-    sf3 = {"schema_version": "pizm-search-field-v1", "stage": "search-field", "field_id": "sf3", "passes": [], "entries": []}
-    sf3_raw = json.dumps(sf3).encode("utf-8")
-    sf3_hash = hashlib.sha256(sf3_raw).hexdigest()
-    (run_dir / "search-field-pass03.json").write_bytes(sf3_raw)
-    (run_dir / "search-field-pass03.sha256").write_text(sf3_hash)
-    (run_dir / "search-field-pass03.meta.json").write_text('{"stage":"search-field"}')
+    hashes = {}
+    for pass_num in ("01", "02", "03"):
+        sf = {
+            "schema_version": "pizm-search-field-v1", "stage": "search-field",
+            "field_id": f"sf{pass_num}", "passes": [], "entries": [],
+        }
+        raw = json.dumps(sf).encode("utf-8")
+        hashes[pass_num] = hashlib.sha256(raw).hexdigest()
+        (run_dir / f"search-field-pass{pass_num}.json").write_bytes(raw)
+        (run_dir / f"search-field-pass{pass_num}.sha256").write_text(hashes[pass_num])
+        (run_dir / f"search-field-pass{pass_num}.meta.json").write_text('{"stage":"search-field"}')
 
     data = valid_portfolio()
     data["route"] = "PACK"
 
-    # 1. field_ref = search-field-pass02.json -> reject
+    # 1. field_ref = search-field-pass01.json -> reject
+    data["field_ref"] = "search-field-pass01.json"
+    data["field_hash"] = hashes["01"]
+    inp_bad1 = write_json(project / "port_bad_ref1.json", data)
+    r_bad1 = run_ck("freeze", "--stage", "portfolio", "--run-id", run_id, "--input", inp_bad1, "--project-root", str(project), "--skill-root", str(skill))
+    assert r_bad1.returncode != 0
+    assert "field_ref must reference the final search field 'search-field-pass03.json'" in r_bad1.stderr
+
+    # 2. field_ref = search-field-pass02.json -> reject
     data["field_ref"] = "search-field-pass02.json"
-    data["field_hash"] = sf2_hash
+    data["field_hash"] = hashes["02"]
     inp_bad = write_json(project / "port_bad_ref.json", data)
     r_bad = run_ck("freeze", "--stage", "portfolio", "--run-id", run_id, "--input", inp_bad, "--project-root", str(project), "--skill-root", str(skill))
     assert r_bad.returncode != 0
     assert "field_ref must reference the final search field 'search-field-pass03.json'" in r_bad.stderr
 
-    # 2. field_ref = search-field-pass03.json -> accept
+    # 3. field_ref = search-field-pass03.json -> accept
     data["field_ref"] = "search-field-pass03.json"
-    data["field_hash"] = sf3_hash
+    data["field_hash"] = hashes["03"]
     inp_ok = write_json(project / "port_ok_ref.json", data)
     r_ok = run_ck("freeze", "--stage", "portfolio", "--run-id", run_id, "--input", inp_ok, "--project-root", str(project), "--skill-root", str(skill))
     assert r_ok.returncode == 0, r_ok.stderr
@@ -3588,6 +3705,19 @@ def test_portfolio_v3_field_ref_must_be_final_pass(workspace):
     ok = valid_portfolio_v3(run_dir)
     result = _freeze_v3(project, skill, ok, run_id)
     assert result.returncode == 0, result.stderr
+
+
+def test_portfolio_v3_rejects_early_freeze_before_pass03(workspace):
+    """A v3 portfolio cannot be frozen while pass03 does not exist yet."""
+    project, skill = workspace
+    run_id = "v3-early-freeze"
+    run_dir = _v3_run_with_fields(project, run_id, passes=(1, 2))
+
+    data = valid_portfolio_v3(run_dir, field_name="search-field-pass02.json")
+    result = _freeze_v3(project, skill, data, run_id)
+    assert result.returncode != 0
+    assert "field_ref must reference the final search field 'search-field-pass03.json'" in result.stderr
+    assert not (run_dir / "portfolio.json").exists()
 
 
 def test_portfolio_v3_reuses_shared_bundle_and_upside_validation(workspace):
