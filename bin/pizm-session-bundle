@@ -265,6 +265,25 @@ def _is_pack_run(stage_specs: list[tuple[str, Path, str]]) -> bool:
     return _find_portfolio_record(stage_specs, lambda d: d.get("route") == "PACK") is not None
 
 
+def _require_single_run_dir(
+    stage_specs: list[tuple[str, Path, str]], route: str
+) -> str | None:
+    """PACK and BONK v3 archive one coherent portable run: one physical run dir.
+
+    Every stage must point into the same run directory. Paths are compared after
+    ``resolve()`` so a symlinked alias of one directory is still one directory
+    (no textual spelling requirement). Legacy, manual, AUTO, and v2 bundling keep
+    their multi-directory behavior; only these two automatic routes fail closed.
+    """
+    run_dirs = {run_dir.resolve() for _, run_dir, _ in stage_specs}
+    if len(run_dirs) != 1:
+        return (
+            f"{route} run must bundle exactly one run directory; got "
+            f"{len(run_dirs)}: {', '.join(sorted(str(d) for d in run_dirs))}"
+        )
+    return None
+
+
 def _forbidden_v3_artifacts(run_dir: Path) -> list[str]:
     """Sorted review/comparison/lever artifact names a BONK v3 run must not carry.
 
@@ -687,6 +706,9 @@ def create_bundle(
     v3_portfolio = _find_bonk_v3_portfolio(stage_specs)
     is_bonk_v3_run = v3_portfolio is not None
     if is_bonk_v3_run:
+        multi_run_dir = _require_single_run_dir(stage_specs, "BONK v3")
+        if multi_run_dir:
+            return _die(multi_run_dir)
         # BONK v3 ends after Deep A/B: comparison and LEVER stages are never
         # part of a v3 run, and no review/comparison/lever artifact may ride
         # along in a v3 run directory.
@@ -786,6 +808,9 @@ def create_bundle(
                         "which is absent from the frozen portfolio perspectives mapping"
                     )
     elif _is_pack_run(stage_specs):
+        multi_run_dir = _require_single_run_dir(stage_specs, "PACK")
+        if multi_run_dir:
+            return _die(multi_run_dir)
         # PACK ends at Portfolio curation: its stage set is exactly the three
         # Search passes, the accumulated search field, and the portfolio, and
         # no development/review/comparison/lever artifact may ride along.
@@ -2194,6 +2219,28 @@ def _render_final_section(auto_target: dict, development: dict, review: dict,
     return "\n".join(lines).rstrip("\n")
 
 
+_SEARCH_PASS_POLICIES = {1: "initial", 2: "residual", 3: "rift"}
+
+
+def _render_pass_coverage(pass_num: int, candidates_data: dict) -> list[str]:
+    """Deterministic per-pass coverage line(s): found count or honest exhaustion.
+
+    Pure function of the frozen pass artifact: an exhausted pass states the
+    zero it actually found and restates its own reason verbatim in place of a
+    fabricated count, so the handoff carries the pass's marginal value.
+    """
+    policy = _SEARCH_PASS_POLICIES[pass_num]
+    cands = [c for c in candidates_data.get("candidates") or [] if isinstance(c, dict)]
+    if cands:
+        return [f"Pass {pass_num} — {policy}: {len(cands)} candidates"]
+    reason = candidates_data.get("exhaustion_reason")
+    return [f"Pass {pass_num} — {policy}: exhausted"] + (
+        [f"Reason: {reason.strip()}"]
+        if isinstance(reason, str) and reason.strip()
+        else []
+    )
+
+
 def _render_search_pass(candidates_data: dict, pass_num: int) -> str:
     lines = [f"## Search Pass {pass_num}", ""]
     mode = candidates_data.get("mode")
@@ -3104,9 +3151,11 @@ def _render_bonk_v3_run_md(
         sections = ["# Pizm BONK Development Pack", "## Original task\n\n" + (task.strip() or "(no task provided)")]
         sections.append(
             "## Exploration coverage\n\n"
-            "Pass 1 — initial\n"
-            "Pass 2 — residual\n"
-            "Pass 3 — rift"
+            + "\n".join(
+                line
+                for pass_num, pass_data in ((1, pass1_data), (2, pass2_data), (3, pass3_data))
+                for line in _render_pass_coverage(pass_num, pass_data)
+            )
         )
 
         promoted = sorted(
@@ -3239,7 +3288,7 @@ def _render_pack_preserved_section(assessments: list, cand_index: dict) -> list[
     for disposition, entries in (("BORDERLINE", borderline), ("MERGE", merged)):
         for a in entries:
             ref = a.get("candidate_ref") or ""
-            lines.append(f"### {disposition} — {_c_title(cand_index.get(ref, {}))} (`{ref}`)")
+            lines.append(f"### {disposition} — {_c_title(_candidate_by_ref(ref, cand_index))} (`{ref}`)")
             quality = a.get("standalone_quality")
             if quality:
                 lines.append(_bullet("Disposition", f"{disposition} (standalone quality: {quality})"))
@@ -3313,6 +3362,29 @@ def _render_pack_run_md(
         bundles_list = [b for b in portfolio.get("bundles") or [] if isinstance(b, dict)]
         bundle_count = len(bundles_list)
 
+        # Fail closed on every ref the packet resolves against the frozen field:
+        # an unknown ref must never degrade into a placeholder title or a silent
+        # drop, whatever the disposition that hides it from the body (DROP stays
+        # count-only, so its refs are validated here rather than at render time).
+        # A missing overlap stays null and is simply not validated.
+        for a in assessments:
+            _candidate_by_ref(a.get("candidate_ref"), cand_index)
+            overlap = a.get("nearest_overlap")
+            if isinstance(overlap, str) and overlap.strip():
+                _candidate_by_ref(overlap, cand_index)
+        for ref in (portfolio.get("perspectives") or {}).values():
+            _candidate_by_ref(ref, cand_index)
+        for b in bundles_list:
+            for m in b.get("member_refs") or []:
+                _candidate_by_ref(m, cand_index)
+            for m in (b.get("member_roles") or {}):
+                _candidate_by_ref(m, cand_index)
+            for m in (b.get("member_ablation") or {}):
+                _candidate_by_ref(m, cand_index)
+        for entry in portfolio.get("high_upside") or []:
+            if isinstance(entry, dict):
+                _candidate_by_ref(entry.get("ref"), cand_index)
+
         lines = [
             "# Pizm Research Pack",
             "",
@@ -3320,11 +3392,10 @@ def _render_pack_run_md(
             task or "(no task provided)",
             "",
             "## Run shape",
-            "Pass 1 — initial",
-            "Pass 2 — residual",
-            "Pass 3 — rift",
-            "",
         ]
+        for pass_num, pass_data in ((1, pass1_data), (2, pass2_data), (3, pass3_data)):
+            lines.extend(_render_pass_coverage(pass_num, pass_data))
+        lines.append("")
 
         lines.append("## Curated Perspectives")
         lines.append("")
@@ -3339,7 +3410,7 @@ def _render_pack_run_md(
             for a in kept_assessments:
                 ref = a.get("candidate_ref") or ""
                 p_id = p_map.get(ref, "?")
-                cand = cand_index.get(ref, {})
+                cand = _candidate_by_ref(ref, cand_index)
                 title = _c_title(cand)
                 lines.append(f"### {p_id} — {title} (`{ref}`)")
                 explanation = a.get("plain_explanation")
@@ -3397,7 +3468,7 @@ def _render_pack_run_md(
                 ref = entry.get("ref", "")
                 pid = p_map.get(ref, "")
                 label = pid if pid else ref
-                title = _c_title(cand_index.get(ref, {}))
+                title = _c_title(_candidate_by_ref(ref, cand_index))
                 lines.append(f"- **{label}** — {title} (`{ref}`)")
                 why = entry.get("why")
                 if isinstance(why, str) and why.strip():

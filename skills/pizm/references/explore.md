@@ -45,7 +45,7 @@ In staged execution, Search operates as a generator: it produces a structured ca
 
 Every Search pass runs exactly one deliberate search policy: `initial`, `residual`, or `rift`. The policy names how this pass searches; it is not a quality grade. Candidate count is never a quality metric, and no policy has a fixed quota.
 
-Legacy mode strings remain parseable on read for compatibility: `NORMAL` = initial policy, `360` = residual policy (deprecated alias retained for one release), `RIFT` = rift policy. "Breadth" is superseded terminology and is not a user mode.
+Legacy mode strings remain parseable on read for compatibility: `NORMAL` = initial policy, `360` = residual policy (the `/pizm 360` alias is deprecated; the `360` wire value is the residual encoding and stays accepted until a `RESIDUAL` value ships), `RIFT` = rift policy. "Breadth" is superseded terminology and is not a user mode.
 
 Mode value written into a frozen artifact: every pass writes the accepted string for its policy — `initial` → `NORMAL`, `residual` → `360`, `rift` → `RIFT`. Only these three strings are accepted; `RESIDUAL` is not an accepted value and fails closed at freeze. Archive stage labels (`pass-NN-normal`, `pass-NN-residual`, `pass-NN-rift`) name the policy for archive topology; they are not the JSON `mode` value.
 
@@ -99,7 +99,7 @@ For each residual candidate, populate `difference_from_prior` along with the sem
 
 ### 360
 
-Deprecated compatibility alias. Retained for one release solely as a compatibility alias. A request for 360 executes the residual search policy (`Search(residual)`) above; the mode string stays accepted on read. Removal is deferred to a later plan. A 360 request never runs implicitly, is not a distinct semantic pipeline, and never means "a larger NORMAL".
+Deprecated compatibility alias. `/pizm 360` is a deprecated user-facing command alias that may be removed; the `pizm-candidates-v1` wire value `"360"` is not an alias to phase out but the current compatibility encoding for the residual search policy, and it stays accepted on read until a `RESIDUAL` wire value ships. A request for 360 executes the residual search policy (`Search(residual)`) above. A 360 request never runs implicitly, is not a distinct semantic pipeline, and never means "a larger NORMAL".
 ### RIFT
 
 Manual rift starts solely from an explicit `/pizm rift` user request. AUTO incorporates the RIFT search policy as its mandatory second Search pass before Portfolio; BONK uses residual search.
@@ -226,5 +226,5 @@ return_path: RIFT-only via rift_extras
 default_frame: derived from visible framing + structural_shift (not stored)
 blind_spot: represented by what_becomes_visible + difference_from_prior
 operator provenance: represented by mode + rift_extras.source_structure (no invented IDs)
-search-policy naming: initial|residual|rift; legacy mode strings NORMAL|360|RIFT stay parseable on read (360 = deprecated alias of residual)
+search-policy naming: initial|residual|rift; legacy mode strings NORMAL|360|RIFT stay parseable on read (360 = the current wire encoding of residual; the /pizm 360 command alias is deprecated)
 -->

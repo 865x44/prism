@@ -2761,7 +2761,11 @@ class TestPackSessionBundleAndRenderer:
         assert render.returncode == 0, render.stderr
         text = out_md.read_text(encoding="utf-8")
         assert "### P1 — Initial One (`pass01:c01`)" in text
-        assert "Pass 3 — rift" in text
+        assert "Pass 1 — initial: 2 candidates" in text
+        assert "Pass 2 — residual: 1 candidates" in text
+        # The exhausted pass reports its zero and restates its own reason.
+        assert "Pass 3 — rift: exhausted" in text
+        assert "Reason: No materially distinct grounded frame remained for a rift pass." in text
 
     def test_pack_bundle_pass_isolation_no_cross_leakage(self, workspace, tmp_path):
         """PACK shared run-dir archive isolates pass01, pass02, pass03 without cross-pass leakage."""
@@ -2883,6 +2887,12 @@ class TestPackSessionBundleAndRenderer:
         assert "## Deep" not in text
         assert "## Critic" not in text
 
+        # 2b. Run shape reports the per-pass coverage count, not a bare pass list
+        assert "## Run shape" in text
+        assert "Pass 1 — initial: 2 candidates" in text
+        assert "Pass 2 — residual: 1 candidates" in text
+        assert "Pass 3 — rift: 1 candidates" in text
+
         # 3. Promoted Perspectives and valid Bundles rendered
         assert "## Curated Perspectives" in text
         assert "P1 — Initial Candidate 1 (`pass01:c01`)" in text
@@ -2917,6 +2927,66 @@ class TestPackSessionBundleAndRenderer:
         assert "Winner" not in text
         assert "auto_target" not in text
 
+    def test_pack_renderer_fails_closed_on_unknown_refs(self, tmp_path):
+        """Every ref the packet resolves must exist in the frozen field.
+
+        A DROP assessment is count-only in the body, so an unresolvable ref
+        there would otherwise survive the render silently; the packet validates
+        assessments, perspectives, bundle members and roles, and high-upside
+        refs against the frozen candidate index instead of degrading to a
+        placeholder title or dropping the entry.
+        """
+        def unknown_drop_ref(portfolio):
+            portfolio["candidate_assessments"][1]["candidate_ref"] = "pass01:c99"
+
+        def unknown_drop_overlap(portfolio):
+            portfolio["candidate_assessments"][1]["nearest_overlap"] = "pass02:c99"
+
+        def unknown_bundle_member(portfolio):
+            portfolio["bundles"][0]["member_refs"] = ["pass01:c01", "pass03:c99"]
+
+        def unknown_bundle_role(portfolio):
+            portfolio["bundles"][0]["member_roles"] = {"pass01:c99": "role"}
+
+        def unknown_perspective(portfolio):
+            portfolio["perspectives"] = {"P1": "pass01:c01", "P2": "pass02:c99"}
+
+        def unknown_high_upside(portfolio):
+            portfolio["high_upside"] = [{"ref": "pass03:c99", "why": "why", "risk": "risk"}]
+
+        for name, mutate in (
+            ("assessment", unknown_drop_ref),
+            ("overlap", unknown_drop_overlap),
+            ("bundle-member", unknown_bundle_member),
+            ("bundle-role", unknown_bundle_role),
+            ("perspective", unknown_perspective),
+            ("high-upside", unknown_high_upside),
+        ):
+            run_dir = tmp_path / f"pack_bad_ref_{name.replace('-', '_')}"
+            run_dir.mkdir()
+            self._setup_pack_shared_run_dir(run_dir)
+            portfolio = json.loads((run_dir / "portfolio.json").read_text(encoding="utf-8"))
+            mutate(portfolio)
+            self._write_artifact(run_dir, "portfolio.json", portfolio)
+
+            out = tmp_path / f"pack-bad-ref-{name}.md"
+            r = run_bundle("render", "--run-dir", str(run_dir), "--task", "Analyze trust", "--output", str(out))
+            assert r.returncode != 0, f"{name} rendered instead of failing closed"
+            assert "unknown candidate ref" in r.stderr, (name, r.stderr)
+            assert not out.exists(), f"{name} left a partial packet behind"
+
+        # An absent overlap stays null: absence is not an unknown ref.
+        null_overlap_dir = tmp_path / "pack_null_overlap_run"
+        null_overlap_dir.mkdir()
+        self._setup_pack_shared_run_dir(null_overlap_dir)
+        null_out = tmp_path / "pack-null-overlap.md"
+        r_null = run_bundle(
+            "render", "--run-dir", str(null_overlap_dir), "--task", "Analyze trust",
+            "--output", str(null_out),
+        )
+        assert r_null.returncode == 0, r_null.stderr
+        assert "### P1 — Initial Candidate 1 (`pass01:c01`)" in null_out.read_text(encoding="utf-8")
+
     def test_pack_html_unsupported_refusal(self, tmp_path):
         """pizm-session-bundle render-html on a PACK run refuses with non-zero exit and stable error."""
         run_dir = tmp_path / "pack_html_run"
@@ -2946,6 +3016,24 @@ class TestPackSessionBundleAndRenderer:
         return run_bundle(*argv)
 
     PACK_STAGES = ("pass-01-normal", "pass-02-residual", "pass-03-rift", "search-field", "portfolio")
+
+    def _pack_create_stages(self, workspace, tmp_path, slug, stage_dirs, count=4):
+        """create a PACK archive with an explicit run dir per stage label."""
+        acc_file = tmp_path / f"acc_pack_{slug}.json"
+        acc_file.write_text(json.dumps({
+            "host_inference_count": count, "model_repair_count": 0,
+            "checkpoint_retry_count": 0, "semantic_stage_count": count,
+        }), encoding="utf-8")
+        argv = [
+            "create",
+            "--output-root", str(workspace["output"]),
+            "--slug", slug,
+            "--skill-root", str(workspace["skill"]),
+        ]
+        for label, run_dir in stage_dirs:
+            argv += ["--stage", f"{label}={run_dir}"]
+        argv += ["--accounting", str(acc_file)]
+        return run_bundle(*argv)
 
     def test_pack_rejects_deep_comparison_and_lever_stages(self, workspace, tmp_path):
         """PACK carries zero Deep/Critic/Comparison/LEVER stages; asking for one fails closed."""
@@ -3015,6 +3103,48 @@ class TestPackSessionBundleAndRenderer:
         for name in ("development-v2-B1.sha256", "development-v2-B1.meta.json",
                      "deep-review-v2-B1.sha256", "comparison-review-v1.meta.json"):
             assert name in r.stderr
+
+    def test_pack_rejects_stages_split_across_run_dirs(self, workspace, tmp_path):
+        """A PACK archive is one coherent portable run, not a mix of two runs.
+
+        Search passes frozen in run A and the field/portfolio frozen in run B
+        would still satisfy the exact-stage-set and hash guards, so the route
+        must fail closed on the physical run-dir identity itself.
+        """
+        run_a = tmp_path / "pack_split_a"
+        run_b = tmp_path / "pack_split_b"
+        run_a.mkdir()
+        run_b.mkdir()
+        self._setup_pack_shared_run_dir(run_a)
+        for name in ("search-field-pass03.json", "search-field-pass03.sha256",
+                     "portfolio.json", "portfolio.sha256"):
+            (run_a / name).rename(run_b / name)
+
+        r = self._pack_create_stages(workspace, tmp_path, "pack-split-dirs", [
+            ("pass-01-normal", run_a), ("pass-02-residual", run_a), ("pass-03-rift", run_a),
+            ("search-field", run_b), ("portfolio", run_b),
+        ])
+        assert r.returncode != 0
+        assert "PACK run must bundle exactly one run directory" in r.stderr
+        assert "got 2" in r.stderr
+        assert not (workspace["output"] / "session-pack-split-dirs").exists()
+
+    def test_pack_accepts_one_run_dir_reached_through_a_symlink(self, workspace, tmp_path):
+        """Identity is the resolved directory, not the textual spelling of each stage path."""
+        run_dir = tmp_path / "pack_alias_run"
+        run_dir.mkdir()
+        self._setup_pack_shared_run_dir(run_dir)
+        alias = tmp_path / "pack_alias_link"
+        alias.symlink_to(run_dir, target_is_directory=True)
+
+        r = self._pack_create_stages(workspace, tmp_path, "pack-alias-dirs", [
+            ("pass-01-normal", run_dir), ("pass-02-residual", alias), ("pass-03-rift", run_dir),
+            ("search-field", alias), ("portfolio", run_dir),
+        ])
+        assert r.returncode == 0, r.stderr
+        bundle = workspace["output"] / "session-pack-alias-dirs"
+        assert (bundle / "pass-02-residual" / "candidates-pass02.json").is_file()
+        assert (bundle / "portfolio" / "portfolio.json").is_file()
 
     def test_pack_renderer_requires_all_three_passes(self, tmp_path):
         """A partial PACK run cannot render a packet: pass02/pass03/final field are mandatory."""
@@ -3380,6 +3510,123 @@ class TestBonkV3ArchiveAndRenderer:
         argv += ["--accounting", str(acc)]
         return run_bundle(*argv)
 
+    def _setup_v3_exhausted_run_dir(self, run_dir: Path):
+        """Coherent v3 run whose final rift pass honestly found nothing.
+
+        Search pass 3 is empty, so every ref in the field, portfolio, and
+        development artifacts resolves through pass 1 and pass 2 only.
+        """
+        run_dir.mkdir(parents=True, exist_ok=True)
+        self._write_artifact(run_dir, "candidates-pass01.json", {
+            "schema_version": "pizm-candidates-v1", "stage": "explore", "mode": "NORMAL",
+            "candidates": [
+                {"candidate_id": "c01", "title": "Pass1 Candidate 1",
+                 "semantic_core": {"claim": "Claim p1", "mechanism": "Mech p1"}},
+                {"candidate_id": "c02", "title": "Pass1 Candidate 2",
+                 "semantic_core": {"claim": "Claim p1b", "mechanism": "Mech p1b"}},
+            ],
+        })
+        self._write_artifact(run_dir, "candidates-pass02.json", {
+            "schema_version": "pizm-candidates-v1", "stage": "explore", "mode": "360",
+            "candidates": [
+                {"candidate_id": "c01", "title": "Pass2 Candidate 1",
+                 "semantic_core": {"claim": "Claim p2", "mechanism": "Mech p2"}},
+            ],
+        })
+        self._write_artifact(run_dir, "candidates-pass03.json", {
+            "schema_version": "pizm-candidates-v1", "stage": "explore", "mode": "RIFT",
+            "candidates": [],
+            "exhaustion_reason": "No additional grounded frame remained for a rift pass.",
+        })
+        self._write_artifact(run_dir, "search-field-pass03.json", {
+            "schema_version": "pizm-search-field-v1", "stage": "search-field", "field_id": "sf3",
+            "passes": [], "entries": ["pass01:c01", "pass01:c02", "pass02:c01"],
+        })
+        bundles = [self._v3_bundle("B1", ["pass01:c01", "pass02:c01"]),
+                   self._v3_bundle("B2", ["pass01:c02", "pass02:c01"])]
+        self._write_artifact(run_dir, "portfolio.json", {
+            "schema_version": "pizm-portfolio-selection-v3", "stage": "portfolio", "route": "BONK",
+            "field_ref": "search-field-pass03.json",
+            "field_hash": _sha256_hex((run_dir / "search-field-pass03.json").read_bytes()),
+            "candidate_assessments": [
+                {"candidate_ref": ref, "disposition": "KEEP", "standalone_quality": "strong",
+                 "unique_residue": f"residue of {ref}", "nearest_overlap": None, "reason": "grounded"}
+                for ref in ("pass01:c01", "pass01:c02", "pass02:c01")
+            ],
+            "bundles": bundles,
+            "perspectives": {"P1": "pass01:c01", "P2": "pass01:c02", "P3": "pass02:c01"},
+            "high_upside": [],
+            "development_mode": "DUAL_BUNDLES",
+            "development_targets": [
+                {"target_type": "B", "target_id": "B1", "why_develop": "develop B1"},
+                {"target_type": "B", "target_id": "B2", "why_develop": "develop B2"},
+            ],
+            "material_difference": "B1 changes the causal mechanism; B2 shifts the system boundary.",
+        })
+        for b in bundles:
+            self._write_artifact(
+                run_dir, f"development-v2-{b['bundle_id']}.json",
+                self._v3_development(b["bundle_id"], f"Developed thesis for {b['bundle_id']}",
+                                     b["member_refs"]),
+            )
+
+    def test_v3_rejects_search_and_development_split_across_run_dirs(self, workspace, tmp_path):
+        """A v3 pack is one coherent run: passes from run A and development from run B fail closed."""
+        run_a = tmp_path / "v3_split_a"
+        run_b = tmp_path / "v3_split_b"
+        self._setup_v3_run_dir(run_a)
+        run_b.mkdir()
+        for name in ("portfolio.json", "portfolio.sha256",
+                     "development-v2-B1.json", "development-v2-B1.sha256",
+                     "development-v2-B2.json", "development-v2-B2.sha256"):
+            (run_a / name).rename(run_b / name)
+
+        acc = self._accounting(tmp_path, 6)
+        argv = [
+            "create",
+            "--output-root", str(workspace["output"]),
+            "--slug", "v3-split-dirs",
+            "--skill-root", str(workspace["skill"]),
+        ]
+        for label, run_dir in (
+            ("pass-01-normal", run_a), ("pass-02-residual", run_a), ("pass-03-rift", run_a),
+            ("search-field", run_a), ("portfolio", run_b), ("deep-B1", run_b), ("deep-B2", run_b),
+        ):
+            argv += ["--stage", f"{label}={run_dir}"]
+        argv += ["--accounting", str(acc)]
+        r = run_bundle(*argv)
+        assert r.returncode != 0
+        assert "BONK v3 run must bundle exactly one run directory" in r.stderr
+        assert "got 2" in r.stderr
+        assert not (workspace["output"] / "session-v3-split-dirs").exists()
+
+    def test_v3_exhausted_final_pass_archives_and_reports_coverage(self, workspace, tmp_path):
+        """An exhausted rift pass still freezes, archives, and states its own limit in the pack."""
+        run_dir = tmp_path / "v3_exhausted_run"
+        self._setup_v3_exhausted_run_dir(run_dir)
+
+        r = self._v3_create(workspace, tmp_path, run_dir, "v3-exhausted", ("B1", "B2"))
+        assert r.returncode == 0, r.stderr
+        bundle = workspace["output"] / "session-v3-exhausted"
+        assert (bundle / "pass-03-rift" / "candidates-pass03.json").is_file()
+        assert json.loads(
+            (bundle / "manifest.json").read_text(encoding="utf-8")
+        )["accounting"]["semantic_stage_count"] == 6
+
+        out = tmp_path / "v3-exhausted.md"
+        render = run_bundle(
+            "render", "--run-dir", str(run_dir), "--task", "Exhausted v3 task", "--output", str(out),
+        )
+        assert render.returncode == 0, render.stderr
+        text = out.read_text(encoding="utf-8")
+        assert "## Exploration coverage" in text
+        assert "Pass 1 — initial: 2 candidates" in text
+        assert "Pass 2 — residual: 1 candidates" in text
+        assert "Pass 3 — rift: exhausted" in text
+        assert "Reason: No additional grounded frame remained for a rift pass." in text
+        # An exhausted pass invents no candidate and leaves the accumulated field alone.
+        assert "pass03:" not in text
+
     def test_v3_rejects_extra_deep_target_not_in_portfolio(self, workspace, tmp_path):
         """Portfolio says B1+B2; archiving B1+B3 is a provenance mismatch."""
         run_dir = tmp_path / "v3_extra_deep_run"
@@ -3527,7 +3774,10 @@ class TestBonkV3ArchiveAndRenderer:
         text = out1.read_text(encoding="utf-8")
         assert text.startswith("# Pizm BONK Development Pack\n")
         assert "## Original task" in text
-        assert "Pass 1 — initial" in text and "Pass 2 — residual" in text and "Pass 3 — rift" in text
+        assert "## Exploration coverage" in text
+        assert "Pass 1 — initial: 1 candidates" in text
+        assert "Pass 2 — residual: 1 candidates" in text
+        assert "Pass 3 — rift: 1 candidates" in text
         assert "## Curated field" in text
         assert "## Bundles" in text
         assert "### B1 — P1 + P2" in text and "### B2 — P3 + P2" in text

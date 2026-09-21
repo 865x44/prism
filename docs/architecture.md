@@ -24,7 +24,7 @@ Information Gathering unifies clarifying questions and probe-like decisions dire
 
 Every Search pass executes exactly one search policy:
 
-1. **`initial` (NORMAL)**: Broad structural divergence across the problem space. When supported by source material, target is roughly 12–16 compact candidate seeds. Hard safety bounds: 1..20 candidates, $\le 192\text{ KiB}$ total candidate payload, $\le 12\text{ KiB}$ per candidate.
+1. **`initial` (NORMAL)**: Broad structural divergence across the problem space. When supported by source material, target is roughly 12–16 compact candidate seeds. Hard safety bounds: `NORMAL` 1..20 candidates; `360`/`RIFT` 0..20, where 0 is allowed only with a non-empty `exhaustion_reason`; $\le 192\text{ KiB}$ total candidate payload, $\le 12\text{ KiB}$ per candidate.
 2. **`residual` (360)**: Novelty search directed explicitly away from accumulated prior perspectives and developed directions. Identifies uncharted territory against the registered search field. (*Note: `360` is a deprecated compatibility alias for the residual search policy*).
 3. **`rift` (RIFT)**: Distant, non-obvious structural reframings that strictly preserve the underlying operational mechanism of the source while rejecting decorative or metaphorical analogies. Explicit in manual use (`/pizm rift`); the mandatory final Search policy inside PACK and BONK (`Search(rift)` as `pass03`); the mandatory second Search policy inside AUTO (`Search(rift)` as `pass02`).
 *Terminology note: "Breadth" is superseded terminology and is not a user mode. "MAX" is superseded and eliminated as a product route.*
@@ -297,7 +297,7 @@ Context slicing and payload bounds serve as execution and performance optimizati
 ### Payload Bounds
 
 Deterministic payload bounds are enforced across all stages:
-- **Search (Explore)**: $1..20$ candidates, total payload $\le 196{,}608\text{ bytes}$ ($192\text{ KiB}$), single candidate $\le 12{,}288\text{ bytes}$ ($12\text{ KiB}$).
+- **Search (Explore)**: `NORMAL` $1..20$ candidates; `360`/`RIFT` $0..20$ (0 only with a non-empty `exhaustion_reason`); total payload $\le 196{,}608\text{ bytes}$ ($192\text{ KiB}$), single candidate $\le 12{,}288\text{ bytes}$ ($12\text{ KiB}$).
 - **Deep Development**: $\le 196{,}608\text{ bytes}$ ($192\text{ KiB}$).
 - **Critic Review**: $\le 131{,}072\text{ bytes}$ ($128\text{ KiB}$).
 - **Comparative Review**: $\le 131{,}072\text{ bytes}$ ($128\text{ KiB}$).

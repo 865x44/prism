@@ -68,6 +68,8 @@ Manual **Critic** and **LEVER** remain available as advanced/manual/experimental
 
 This is out of scope for the current change: manual runs have no persistent session identity yet and rely on host conversation/session export.
 
+> The frozen search field hash-pins every `candidates` artifact but does not prove that the field's `entries` list is the exact union of the candidates those artifacts actually declare: a manifest can name a `passNN:cNN` that exists in no pass, or omit one that does, and `_validate_search_field` will not notice. Portfolio refs are likewise only validated syntactically at freeze (shape, not membership in a candidate index), so the deterministic renderer is currently the first place a dangling ref fails closed. Closing this properly means deciding the candidate-ID grammar (generated `cNN` versus arbitrary strings), whether `entries` must be the exact union of every pass's candidates, and how already-frozen legacy manifests are read forward — a schema-completeness redesign rather than a bounded repair. Recorded as post-merge debt; the current renderers fail closed on unresolvable refs instead.
+
 ### Optional Creative Operation
 - **WORDCRAFT (`/pizm wordcraft <text>`)**: Generates memorable, quotable, and coined language (words, derived forms, compounds, metaphors, aphorisms, punchlines) from direct text or accessible Pizm perspectives/bundles. Executes on the current host model in a single prompt-only pass with qualitative context-first selection and an explicit `NO WINNER` path when the source text is already stronger. WORDCRAFT is strictly optional and is not part of analytical readiness or the PACK/BONK/AUTO pipelines.
 ---
