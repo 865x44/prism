@@ -22,12 +22,14 @@ Covers:
 """
 import hashlib
 import json
+import importlib.util
 import os
 import re
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
+from importlib.machinery import SourceFileLoader
 
 import pytest
 
@@ -38,6 +40,11 @@ SAMPLE_DIR = REPO_ROOT / "prism-runs" / "session-sample-offline-20260824"
 
 def _sha256_hex(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
+_bundle_loader = SourceFileLoader("pizm_session_bundle", BUNDLE_CLI)
+_bundle_spec = importlib.util.spec_from_loader("pizm_session_bundle", _bundle_loader)
+_bundle_mod = importlib.util.module_from_spec(_bundle_spec)
+_bundle_loader.exec_module(_bundle_mod)
+_compute_semantic_stage_count = _bundle_mod._compute_semantic_stage_count
 
 
 def run_bundle(*args, cwd=None):
@@ -1536,7 +1543,7 @@ class TestForgeV2ArchiveCollection:
 
         # Verify 6 accounting counters in manifest
         manifest = json.loads((bundle / "manifest.json").read_text())
-        assert manifest["accounting"]["semantic_stage_count"] == 7
+        assert manifest["accounting"]["semantic_stage_count"] == 6
         assert manifest["accounting"]["candidate_bytes"] == len(c1_bytes) + len(c2_bytes)
         assert manifest["accounting"]["development_bytes"] == len(db1_bytes) + len(db2_bytes)
 
@@ -2082,7 +2089,7 @@ class TestSharedRunDirLabelAwareBundling:
             f"development_bytes double-counted: expected {b1_size + b2_size}, got {manifest['accounting']['development_bytes']}"
         )
         assert manifest["accounting"]["candidate_bytes"] == c1.stat().st_size + c2.stat().st_size
-        assert manifest["accounting"]["semantic_stage_count"] == 7
+        assert manifest["accounting"]["semantic_stage_count"] == 8
 
     def test_shared_run_dir_bonk_comparison_lever_isolation(self, workspace, tmp_path):
         """BONK + LEVER shared run-dir: comparison-review and lever-B1 isolate each other's artifacts and sidecars."""
@@ -2251,3 +2258,937 @@ class TestSharedRunDirLabelAwareBundling:
         )
         assert manifest["accounting"]["candidate_bytes"] == c1.stat().st_size + c2.stat().st_size
         assert manifest["accounting"]["semantic_stage_count"] == 8
+
+
+# ---------------------------------------------------------------------------
+# Semantic Stage Count Regressions (Wave 0 Artifact-Aware Counting)
+# ---------------------------------------------------------------------------
+
+
+class TestSemanticStageCountRegressions:
+    """Verifies all 8 required semantic_stage_count regressions under the artifact-aware derivation."""
+
+    def _write_artifact(self, dir_path: Path, filename: str, content: dict) -> Path:
+        f = dir_path / filename
+        f.write_text(json.dumps(content, indent=2), encoding="utf-8")
+        sha_f = dir_path / (filename.rsplit(".", 1)[0] + ".sha256")
+        sha_f.write_text(_sha256_hex(f.read_bytes()), encoding="utf-8")
+        return f
+
+    def test_regression_auto_search2_portfolio_deep_critic_is_5(self, workspace, tmp_path):
+        """AUTO Search×2 + Portfolio + Deep + Critic = 5."""
+        run_dir = tmp_path / "auto_run"
+        run_dir.mkdir()
+        self._write_artifact(run_dir, "candidates-pass01.json", {
+            "schema_version": "pizm-candidates-v1", "stage": "explore", "mode": "NORMAL", "candidates": [{"candidate_id": "c01"}],
+        })
+        self._write_artifact(run_dir, "candidates-pass02.json", {
+            "schema_version": "pizm-candidates-v1", "stage": "explore", "mode": "RIFT", "candidates": [{"candidate_id": "c02"}],
+        })
+        self._write_artifact(run_dir, "search-field-pass02.json", {
+            "schema_version": "pizm-search-field-v1", "stage": "search-field", "field_id": "sf2", "passes": [], "entries": [],
+        })
+        self._write_artifact(run_dir, "portfolio.json", {
+            "schema_version": "pizm-portfolio-selection-v1", "stage": "portfolio", "route": "AUTO",
+            "auto_target": {"target_type": "P", "target_id": "P1"}, "next_reasoning_move": "DEEP",
+        })
+        self._write_artifact(run_dir, "development-v2-P1.json", {
+            "schema_version": "pizm-development-v2", "stage": "development-v2", "target": {"target_type": "P", "target_id": "P1"},
+        })
+        self._write_artifact(run_dir, "deep-review-v2-P1.json", {
+            "schema_version": "pizm-deep-review-v2", "stage": "deep-review-v2", "terminal_state": "MODEL_READY",
+        })
+        acc_file = tmp_path / "acc.json"
+        acc_file.write_text(json.dumps({"host_inference_count": 5, "model_repair_count": 0, "checkpoint_retry_count": 0, "semantic_stage_count": 5}), encoding="utf-8")
+
+        r = run_bundle(
+            "create",
+            "--output-root", str(workspace["output"]),
+            "--slug", "auto-5-test",
+            "--skill-root", str(workspace["skill"]),
+            "--stage", f"pass-01-normal={run_dir}",
+            "--stage", f"pass-02-rift={run_dir}",
+            "--stage", f"search-field={run_dir}",
+            "--stage", f"portfolio={run_dir}",
+            "--stage", f"deep-P1={run_dir}",
+            "--accounting", str(acc_file),
+        )
+        assert r.returncode == 0, r.stderr
+        manifest = json.loads((workspace["output"] / "session-auto-5-test" / "manifest.json").read_text(encoding="utf-8"))
+        assert manifest["accounting"]["semantic_stage_count"] == 5
+
+    def test_regression_auto_plus_lever_is_7(self, workspace, tmp_path):
+        """AUTO + LEVER = 7."""
+        run_dir = tmp_path / "auto_lever_run"
+        run_dir.mkdir()
+        self._write_artifact(run_dir, "candidates-pass01.json", {"schema_version": "pizm-candidates-v1", "stage": "explore", "mode": "NORMAL", "candidates": [{"candidate_id": "c01"}]})
+        self._write_artifact(run_dir, "candidates-pass02.json", {"schema_version": "pizm-candidates-v1", "stage": "explore", "mode": "RIFT", "candidates": [{"candidate_id": "c02"}]})
+        self._write_artifact(run_dir, "search-field-pass02.json", {"schema_version": "pizm-search-field-v1", "stage": "search-field", "field_id": "sf2", "passes": [], "entries": []})
+        self._write_artifact(run_dir, "portfolio.json", {"schema_version": "pizm-portfolio-selection-v1", "stage": "portfolio", "route": "AUTO", "auto_target": {"target_type": "P", "target_id": "P1"}, "next_reasoning_move": "DEEP"})
+        self._write_artifact(run_dir, "development-v2-P1.json", {"schema_version": "pizm-development-v2", "stage": "development-v2", "target": {"target_type": "P", "target_id": "P1"}})
+        self._write_artifact(run_dir, "deep-review-v2-P1.json", {"schema_version": "pizm-deep-review-v2", "stage": "deep-review-v2", "terminal_state": "MODEL_READY"})
+        self._write_artifact(run_dir, "design.json", {"schema_version": "pizm-lever-design-v1", "stage": "lever-design"})
+        self._write_artifact(run_dir, "review.json", {"schema_version": "pizm-lever-review-v1", "stage": "lever-review", "outcome": "ACCEPTED"})
+        acc_file = tmp_path / "acc.json"
+        acc_file.write_text(json.dumps({"host_inference_count": 7, "model_repair_count": 0, "checkpoint_retry_count": 0, "semantic_stage_count": 7}), encoding="utf-8")
+
+        r = run_bundle(
+            "create",
+            "--output-root", str(workspace["output"]),
+            "--slug", "auto-lever-7-test",
+            "--skill-root", str(workspace["skill"]),
+            "--stage", f"pass-01-normal={run_dir}",
+            "--stage", f"pass-02-rift={run_dir}",
+            "--stage", f"search-field={run_dir}",
+            "--stage", f"portfolio={run_dir}",
+            "--stage", f"deep-P1={run_dir}",
+            "--stage", f"lever-P1={run_dir}",
+            "--accounting", str(acc_file),
+        )
+        assert r.returncode == 0, r.stderr
+        manifest = json.loads((workspace["output"] / "session-auto-lever-7-test" / "manifest.json").read_text(encoding="utf-8"))
+        assert manifest["accounting"]["semantic_stage_count"] == 7
+
+    def test_regression_auto_terminal_at_portfolio_is_3(self, workspace, tmp_path):
+        """AUTO terminal at Portfolio = 3."""
+        run_dir = tmp_path / "auto_term_run"
+        run_dir.mkdir()
+        self._write_artifact(run_dir, "candidates-pass01.json", {"schema_version": "pizm-candidates-v1", "stage": "explore", "mode": "NORMAL", "candidates": [{"candidate_id": "c01"}]})
+        self._write_artifact(run_dir, "candidates-pass02.json", {"schema_version": "pizm-candidates-v1", "stage": "explore", "mode": "RIFT", "candidates": [{"candidate_id": "c02"}]})
+        self._write_artifact(run_dir, "search-field-pass02.json", {"schema_version": "pizm-search-field-v1", "stage": "search-field", "field_id": "sf2", "passes": [], "entries": []})
+        self._write_artifact(run_dir, "portfolio.json", {"schema_version": "pizm-portfolio-selection-v1", "stage": "portfolio", "route": "AUTO", "auto_target": {"target_type": "P", "target_id": "P1"}, "next_reasoning_move": "PRESERVE_ONLY"})
+        acc_file = tmp_path / "acc.json"
+        acc_file.write_text(json.dumps({"host_inference_count": 3, "model_repair_count": 0, "checkpoint_retry_count": 0, "semantic_stage_count": 3}), encoding="utf-8")
+
+        r = run_bundle(
+            "create",
+            "--output-root", str(workspace["output"]),
+            "--slug", "auto-term-3-test",
+            "--skill-root", str(workspace["skill"]),
+            "--stage", f"pass-01-normal={run_dir}",
+            "--stage", f"pass-02-rift={run_dir}",
+            "--stage", f"search-field={run_dir}",
+            "--stage", f"portfolio={run_dir}",
+            "--accounting", str(acc_file),
+        )
+        assert r.returncode == 0, r.stderr
+        manifest = json.loads((workspace["output"] / "session-auto-term-3-test" / "manifest.json").read_text(encoding="utf-8"))
+        assert manifest["accounting"]["semantic_stage_count"] == 3
+
+    def test_regression_legacy_bonk_search2_portfolio_deep2_compare_is_6(self, workspace, tmp_path):
+        """legacy BONK Search×2 + Portfolio + Deep×2 + Compare = 6."""
+        run_dir = tmp_path / "bonk_6_run"
+        run_dir.mkdir()
+        self._write_artifact(run_dir, "candidates-pass01.json", {"schema_version": "pizm-candidates-v1", "stage": "explore", "mode": "NORMAL", "candidates": [{"candidate_id": "c01"}]})
+        self._write_artifact(run_dir, "candidates-pass02.json", {"schema_version": "pizm-candidates-v1", "stage": "explore", "mode": "RESIDUAL", "candidates": [{"candidate_id": "c02"}]})
+        self._write_artifact(run_dir, "search-field.json", {"schema_version": "pizm-search-field-v1", "stage": "search-field", "field_id": "sf", "passes": [], "entries": []})
+        self._write_artifact(run_dir, "portfolio.json", {"schema_version": "pizm-portfolio-selection-v2", "stage": "portfolio", "route": "BONK", "competition_status": "TWO_DEFENSIBLE_BUNDLES", "recommended_competition": {"left_bundle_id": "B1", "right_bundle_id": "B2"}})
+        self._write_artifact(run_dir, "development-v2-B1.json", {"schema_version": "pizm-development-v2", "stage": "development-v2", "target": {"target_type": "B", "target_id": "B1"}})
+        self._write_artifact(run_dir, "development-v2-B2.json", {"schema_version": "pizm-development-v2", "stage": "development-v2", "target": {"target_type": "B", "target_id": "B2"}})
+        self._write_artifact(run_dir, "comparison-review-v1.json", {"schema_version": "pizm-comparison-review-v1", "stage": "comparison-review-v1", "left_target_id": "B1", "right_target_id": "B2", "comparison": {"current_preference": "LEFT"}})
+        acc_file = tmp_path / "acc.json"
+        acc_file.write_text(json.dumps({"host_inference_count": 6, "model_repair_count": 0, "checkpoint_retry_count": 0, "semantic_stage_count": 6}), encoding="utf-8")
+
+        r = run_bundle(
+            "create",
+            "--output-root", str(workspace["output"]),
+            "--slug", "bonk-6-test",
+            "--skill-root", str(workspace["skill"]),
+            "--stage", f"pass-01-normal={run_dir}",
+            "--stage", f"pass-02-residual={run_dir}",
+            "--stage", f"search-field={run_dir}",
+            "--stage", f"portfolio={run_dir}",
+            "--stage", f"deep-B1={run_dir}",
+            "--stage", f"deep-B2={run_dir}",
+            "--stage", f"comparison-review={run_dir}",
+            "--accounting", str(acc_file),
+        )
+        assert r.returncode == 0, r.stderr
+        manifest = json.loads((workspace["output"] / "session-bonk-6-test" / "manifest.json").read_text(encoding="utf-8"))
+        assert manifest["accounting"]["semantic_stage_count"] == 6
+
+    def test_regression_legacy_bonk_plus_lever_is_8(self, workspace, tmp_path):
+        """legacy BONK + LEVER = 8."""
+        run_dir = tmp_path / "bonk_lever_8_run"
+        run_dir.mkdir()
+        self._write_artifact(run_dir, "candidates-pass01.json", {"schema_version": "pizm-candidates-v1", "stage": "explore", "mode": "NORMAL", "candidates": [{"candidate_id": "c01"}]})
+        self._write_artifact(run_dir, "candidates-pass02.json", {"schema_version": "pizm-candidates-v1", "stage": "explore", "mode": "RESIDUAL", "candidates": [{"candidate_id": "c02"}]})
+        self._write_artifact(run_dir, "search-field.json", {"schema_version": "pizm-search-field-v1", "stage": "search-field", "field_id": "sf", "passes": [], "entries": []})
+        self._write_artifact(run_dir, "portfolio.json", {"schema_version": "pizm-portfolio-selection-v2", "stage": "portfolio", "route": "BONK", "competition_status": "TWO_DEFENSIBLE_BUNDLES", "recommended_competition": {"left_bundle_id": "B1", "right_bundle_id": "B2"}})
+        self._write_artifact(run_dir, "development-v2-B1.json", {"schema_version": "pizm-development-v2", "stage": "development-v2", "target": {"target_type": "B", "target_id": "B1"}})
+        self._write_artifact(run_dir, "development-v2-B2.json", {"schema_version": "pizm-development-v2", "stage": "development-v2", "target": {"target_type": "B", "target_id": "B2"}})
+        self._write_artifact(run_dir, "comparison-review-v1.json", {"schema_version": "pizm-comparison-review-v1", "stage": "comparison-review-v1", "left_target_id": "B1", "right_target_id": "B2", "comparison": {"current_preference": "LEFT"}})
+        self._write_artifact(run_dir, "design.json", {"schema_version": "pizm-lever-design-v1", "stage": "lever-design"})
+        self._write_artifact(run_dir, "review.json", {"schema_version": "pizm-lever-review-v1", "stage": "lever-review", "outcome": "ACCEPTED"})
+        acc_file = tmp_path / "acc.json"
+        acc_file.write_text(json.dumps({"host_inference_count": 8, "model_repair_count": 0, "checkpoint_retry_count": 0, "semantic_stage_count": 8}), encoding="utf-8")
+
+        r = run_bundle(
+            "create",
+            "--output-root", str(workspace["output"]),
+            "--slug", "bonk-lever-8-test",
+            "--skill-root", str(workspace["skill"]),
+            "--stage", f"pass-01-normal={run_dir}",
+            "--stage", f"pass-02-residual={run_dir}",
+            "--stage", f"search-field={run_dir}",
+            "--stage", f"portfolio={run_dir}",
+            "--stage", f"deep-B1={run_dir}",
+            "--stage", f"deep-B2={run_dir}",
+            "--stage", f"comparison-review={run_dir}",
+            "--stage", f"lever-B1={run_dir}",
+            "--accounting", str(acc_file),
+        )
+        assert r.returncode == 0, r.stderr
+        manifest = json.loads((workspace["output"] / "session-bonk-lever-8-test" / "manifest.json").read_text(encoding="utf-8"))
+        assert manifest["accounting"]["semantic_stage_count"] == 8
+
+    def test_regression_new_pack_search3_portfolio_is_4(self, workspace, tmp_path):
+        """new PACK Search×3 + Portfolio = 4."""
+        run_dir = tmp_path / "pack_run"
+        run_dir.mkdir()
+        self._write_artifact(run_dir, "candidates-pass01.json", {"schema_version": "pizm-candidates-v1", "stage": "explore", "mode": "NORMAL", "candidates": [{"candidate_id": "c01"}]})
+        self._write_artifact(run_dir, "candidates-pass02.json", {"schema_version": "pizm-candidates-v1", "stage": "explore", "mode": "RESIDUAL", "candidates": [{"candidate_id": "c02"}]})
+        self._write_artifact(run_dir, "candidates-pass03.json", {"schema_version": "pizm-candidates-v1", "stage": "explore", "mode": "RIFT", "candidates": [{"candidate_id": "c03"}]})
+        self._write_artifact(run_dir, "search-field-pass03.json", {"schema_version": "pizm-search-field-v1", "stage": "search-field", "field_id": "sf3", "passes": [], "entries": []})
+        self._write_artifact(run_dir, "portfolio.json", {"schema_version": "pizm-portfolio-selection-v1", "stage": "portfolio", "route": "AUTO", "auto_target": {"target_type": "P", "target_id": "P1"}, "next_reasoning_move": "PRESERVE_ONLY"})
+        acc_file = tmp_path / "acc.json"
+        acc_file.write_text(json.dumps({"host_inference_count": 4, "model_repair_count": 0, "checkpoint_retry_count": 0, "semantic_stage_count": 4}), encoding="utf-8")
+
+        r = run_bundle(
+            "create",
+            "--output-root", str(workspace["output"]),
+            "--slug", "pack-4-test",
+            "--skill-root", str(workspace["skill"]),
+            "--stage", f"pass-01-normal={run_dir}",
+            "--stage", f"pass-02-residual={run_dir}",
+            "--stage", f"pass-03-rift={run_dir}",
+            "--stage", f"search-field={run_dir}",
+            "--stage", f"portfolio={run_dir}",
+            "--accounting", str(acc_file),
+        )
+        assert r.returncode == 0, r.stderr
+        manifest = json.loads((workspace["output"] / "session-pack-4-test" / "manifest.json").read_text(encoding="utf-8"))
+        assert manifest["accounting"]["semantic_stage_count"] == 4
+
+    def test_regression_new_bonk_search3_portfolio_deep2_is_6(self, tmp_path):
+        """new BONK Search×3 + Portfolio + Deep×2 = 6 (constructed fixture bundle)."""
+        bundle = tmp_path / "bonk_v3_bundle"
+        for d in ("pass-01-normal", "pass-02-residual", "pass-03-rift", "search-field", "portfolio", "deep-B1", "deep-B2"):
+            (bundle / d).mkdir(parents=True)
+        (bundle / "pass-01-normal" / "candidates-pass01.json").write_text("{}")
+        (bundle / "pass-02-residual" / "candidates-pass02.json").write_text("{}")
+        (bundle / "pass-03-rift" / "candidates-pass03.json").write_text("{}")
+        (bundle / "search-field" / "search-field-pass03.json").write_text("{}")
+        (bundle / "portfolio" / "portfolio.json").write_text("{}")
+        (bundle / "deep-B1" / "development-v2-B1.json").write_text("{}")
+        (bundle / "deep-B2" / "development-v2-B2.json").write_text("{}")
+        assert _compute_semantic_stage_count(bundle) == 6
+
+    def test_regression_new_bonk_degraded_search3_portfolio_deep1_is_5(self, tmp_path):
+        """new BONK degraded Search×3 + Portfolio + Deep×1 = 5 (constructed fixture bundle)."""
+        bundle = tmp_path / "bonk_v3_degraded_bundle"
+        for d in ("pass-01-normal", "pass-02-residual", "pass-03-rift", "search-field", "portfolio", "deep-B1"):
+            (bundle / d).mkdir(parents=True)
+        (bundle / "pass-01-normal" / "candidates-pass01.json").write_text("{}")
+        (bundle / "pass-02-residual" / "candidates-pass02.json").write_text("{}")
+        (bundle / "pass-03-rift" / "candidates-pass03.json").write_text("{}")
+        (bundle / "search-field" / "search-field-pass03.json").write_text("{}")
+        (bundle / "portfolio" / "portfolio.json").write_text("{}")
+        (bundle / "deep-B1" / "development-v2-B1.json").write_text("{}")
+        assert _compute_semantic_stage_count(bundle) == 5
+
+
+# ---------------------------------------------------------------------------
+# PACK Route Tests (Wave A: Archive, Accounting, Rendering, HTML refusal)
+# ---------------------------------------------------------------------------
+
+
+class TestPackSessionBundleAndRenderer:
+    """Verifies Wave A PACK archive, accounting, markdown renderer, and HTML refusal."""
+
+    def _write_artifact(self, dir_path: Path, filename: str, content: dict) -> Path:
+        f = dir_path / filename
+        f.write_text(json.dumps(content, indent=2), encoding="utf-8")
+        sha_f = dir_path / (filename.rsplit(".", 1)[0] + ".sha256")
+        sha_f.write_text(_sha256_hex(f.read_bytes()), encoding="utf-8")
+        return f
+
+    def _setup_pack_shared_run_dir(self, run_dir: Path) -> dict:
+        c1 = self._write_artifact(run_dir, "candidates-pass01.json", {
+            "schema_version": "pizm-candidates-v1", "stage": "explore", "mode": "NORMAL",
+            "candidates": [
+                {"candidate_id": "c01", "title": "Initial Candidate 1", "semantic_core": {"claim": "Core Claim 1", "mechanism": "Mech 1"}},
+                {"candidate_id": "c02", "title": "Initial Candidate 2", "semantic_core": {"claim": "Core Claim 2", "mechanism": "Mech 2"}},
+            ],
+        })
+        c2 = self._write_artifact(run_dir, "candidates-pass02.json", {
+            "schema_version": "pizm-candidates-v1", "stage": "explore", "mode": "RESIDUAL",
+            "candidates": [
+                {"candidate_id": "c01", "title": "Residual Candidate 1", "semantic_core": {"claim": "Residual Claim 1", "mechanism": "Residual Mech 1"}},
+            ],
+        })
+        c3 = self._write_artifact(run_dir, "candidates-pass03.json", {
+            "schema_version": "pizm-candidates-v1", "stage": "explore", "mode": "RIFT",
+            "candidates": [
+                {"candidate_id": "c01", "title": "Rift Candidate 1", "semantic_core": {"claim": "Rift Claim 1", "mechanism": "Rift Mech 1"}},
+            ],
+        })
+        self._write_artifact(run_dir, "search-field-pass03.json", {
+            "schema_version": "pizm-search-field-v1", "stage": "search-field", "field_id": "sf3",
+            "passes": [], "entries": ["pass01:c01", "pass01:c02", "pass02:c01", "pass03:c01"],
+        })
+        port = self._write_artifact(run_dir, "portfolio.json", {
+            "schema_version": "pizm-portfolio-selection-v1", "stage": "portfolio", "route": "PACK",
+            "field_hash": hashlib.sha256((run_dir / "search-field-pass03.json").read_bytes()).hexdigest(),
+            "field_ref": "search-field-pass03.json",
+            "candidate_assessments": [
+                {"candidate_ref": "pass01:c01", "disposition": "KEEP", "standalone_quality": "strong", "unique_residue": "Res1", "nearest_overlap": None, "reason": "Grounding", "plain_explanation": "Plain explanation 1"},
+                {"candidate_ref": "pass01:c02", "disposition": "DROP", "standalone_quality": "weak", "unique_residue": "", "nearest_overlap": "pass01:c01", "reason": "Duplicate concept"},
+                {"candidate_ref": "pass02:c01", "disposition": "MERGE", "standalone_quality": "strong", "unique_residue": "Res2", "nearest_overlap": "pass01:c01", "reason": "Variant"},
+                {"candidate_ref": "pass03:c01", "disposition": "KEEP", "standalone_quality": "strong", "unique_residue": "Res3", "nearest_overlap": None, "reason": "Structural novelty", "plain_explanation": "Plain explanation 3"},
+            ],
+            "bundles": [
+                {
+                    "bundle_id": "B1",
+                    "member_refs": ["pass01:c01", "pass03:c01"],
+                    "bundle_thesis": "Integrated dual-pass hypothesis",
+                    "composition_gain": "Synergy of initial and rift framing",
+                    "internal_tension": "Short vs long term tension",
+                    "weakest_link": "Boundary conditions",
+                    "new_consequence_or_prediction": "Novel observable prediction",
+                }
+            ],
+            "perspectives": {"P1": "pass01:c01", "P2": "pass03:c01"},
+            "high_upside": [
+                {"ref": "pass03:c01", "why": "Distant structural reframe", "risk": "Low existing validation"}
+            ],
+            "next_reasoning_move": None,
+            "next_reasoning_rationale": None,
+            "information_request": None,
+            "rival_shadow": None,
+            "auto_target": None,
+        })
+        return {
+            "run_dir": run_dir,
+            "c1": c1, "c2": c2, "c3": c3, "portfolio": port,
+        }
+
+    def test_pack_bundle_pass_isolation_no_cross_leakage(self, workspace, tmp_path):
+        """PACK shared run-dir archive isolates pass01, pass02, pass03 without cross-pass leakage."""
+        run_dir = tmp_path / "pack_shared_run"
+        run_dir.mkdir()
+        self._setup_pack_shared_run_dir(run_dir)
+
+        acc_file = tmp_path / "acc_pack.json"
+        acc_file.write_text(json.dumps({
+            "host_inference_count": 4,
+            "model_repair_count": 0,
+            "checkpoint_retry_count": 0,
+            "semantic_stage_count": 4,
+        }), encoding="utf-8")
+
+        r = run_bundle(
+            "create",
+            "--output-root", str(workspace["output"]),
+            "--slug", "pack-iso-test",
+            "--skill-root", str(workspace["skill"]),
+            "--stage", f"pass-01-normal={run_dir}",
+            "--stage", f"pass-02-residual={run_dir}",
+            "--stage", f"pass-03-rift={run_dir}",
+            "--stage", f"search-field={run_dir}",
+            "--stage", f"portfolio={run_dir}",
+            "--accounting", str(acc_file),
+        )
+        assert r.returncode == 0, r.stderr
+        bundle = workspace["output"] / "session-pack-iso-test"
+
+        # Check isolation
+        p1_files = {f.name for f in (bundle / "pass-01-normal").iterdir()}
+        assert "candidates-pass01.json" in p1_files
+        assert "candidates-pass02.json" not in p1_files
+        assert "candidates-pass03.json" not in p1_files
+
+        p2_files = {f.name for f in (bundle / "pass-02-residual").iterdir()}
+        assert "candidates-pass02.json" in p2_files
+        assert "candidates-pass01.json" not in p2_files
+        assert "candidates-pass03.json" not in p2_files
+
+        p3_files = {f.name for f in (bundle / "pass-03-rift").iterdir()}
+        assert "candidates-pass03.json" in p3_files
+        assert "candidates-pass01.json" not in p3_files
+        assert "candidates-pass02.json" not in p3_files
+
+        sf_files = {f.name for f in (bundle / "search-field").iterdir()}
+        assert "search-field-pass03.json" in sf_files
+
+        port_files = {f.name for f in (bundle / "portfolio").iterdir()}
+        assert "portfolio.json" in port_files
+
+    def test_pack_mandatory_accounting_rejection_and_acceptance(self, workspace, tmp_path):
+        """PACK create without --accounting fails closed; with accounting succeeds with stage_count 4."""
+        run_dir = tmp_path / "pack_acc_run"
+        run_dir.mkdir()
+        self._setup_pack_shared_run_dir(run_dir)
+
+        # 1. Without accounting -> rejected
+        r_no_acc = run_bundle(
+            "create",
+            "--output-root", str(workspace["output"]),
+            "--slug", "pack-no-acc",
+            "--skill-root", str(workspace["skill"]),
+            "--stage", f"pass-01-normal={run_dir}",
+            "--stage", f"pass-02-residual={run_dir}",
+            "--stage", f"pass-03-rift={run_dir}",
+            "--stage", f"search-field={run_dir}",
+            "--stage", f"portfolio={run_dir}",
+        )
+        assert r_no_acc.returncode != 0
+        assert "accounting input is required" in r_no_acc.stderr
+
+        # 2. With accounting -> accepted and semantic_stage_count == 4
+        acc_file = tmp_path / "acc.json"
+        acc_file.write_text(json.dumps({
+            "host_inference_count": 4, "model_repair_count": 0, "checkpoint_retry_count": 0,
+            "semantic_stage_count": 4,
+        }), encoding="utf-8")
+        r_acc = run_bundle(
+            "create",
+            "--output-root", str(workspace["output"]),
+            "--slug", "pack-with-acc",
+            "--skill-root", str(workspace["skill"]),
+            "--stage", f"pass-01-normal={run_dir}",
+            "--stage", f"pass-02-residual={run_dir}",
+            "--stage", f"pass-03-rift={run_dir}",
+            "--stage", f"search-field={run_dir}",
+            "--stage", f"portfolio={run_dir}",
+            "--accounting", str(acc_file),
+        )
+        assert r_acc.returncode == 0, r_acc.stderr
+        manifest = json.loads((workspace["output"] / "session-pack-with-acc" / "manifest.json").read_text(encoding="utf-8"))
+        assert manifest["accounting"]["semantic_stage_count"] == 4
+
+    def test_pack_markdown_renderer_contract_and_determinism(self, tmp_path):
+        """PACK markdown renderer satisfies all 7 contract assertions and is byte-for-byte deterministic."""
+        run_dir = tmp_path / "pack_render_run"
+        run_dir.mkdir()
+        self._setup_pack_shared_run_dir(run_dir)
+
+        out1 = tmp_path / "research-pack-out1.md"
+        out2 = tmp_path / "research-pack-out2.md"
+
+        # Render once
+        r1 = run_bundle("render", "--run-dir", str(run_dir), "--task", "Analyze organizational trust", "--output", str(out1))
+        assert r1.returncode == 0, r1.stderr
+
+        # Render twice
+        r2 = run_bundle("render", "--run-dir", str(run_dir), "--task", "Analyze organizational trust", "--output", str(out2))
+        assert r2.returncode == 0, r2.stderr
+
+        # 1. Deterministic byte-for-byte
+        assert out1.read_bytes() == out2.read_bytes(), "PACK render output is not byte-identical across runs"
+
+        text = out1.read_text(encoding="utf-8")
+
+        # 2. No Deep/Critic requirement and no Deep/Critic sections
+        assert "## Deep" not in text
+        assert "## Critic" not in text
+
+        # 3. Promoted Perspectives and valid Bundles rendered
+        assert "## Curated Perspectives" in text
+        assert "P1 — Initial Candidate 1 (`pass01:c01`)" in text
+        assert "P2 — Rift Candidate 1 (`pass03:c01`)" in text
+        assert "## Bundles" in text
+        assert "B1 — P1 + P2" in text
+        assert "Integrated dual-pass hypothesis" in text
+
+        # 4. DROP bodies absent (only in curation summary count)
+        assert "Initial Candidate 2" not in text, "DROP candidate body leaked into curated perspectives"
+        assert "Duplicate concept" not in text, "DROP reason leaked as card"
+
+        # 5. Curation summary present with correct counts
+        assert "## Curation summary" in text
+        assert "- Raw candidate refs: 4" in text
+        assert "- KEEP: 2" in text
+        assert "- MERGE: 1" in text
+        assert "- BORDERLINE: 0" in text
+        assert "- DROP: 1" in text
+        assert "- Bundles: 1" in text
+
+        # 6. Explicit non-claims present
+        assert "## Explicit non-claims" in text
+        assert "any Perspective is true" in text
+        assert "any Bundle is validated" in text
+        assert "any candidate is a final recommendation" in text
+        assert "any causal mechanism has been independently verified" in text
+        assert "curation is not a truth ranking" in text
+
+        # 7. No MODEL_READY and no winner
+        assert "MODEL_READY" not in text
+        assert "Winner" not in text
+        assert "auto_target" not in text
+
+    def test_pack_html_unsupported_refusal(self, tmp_path):
+        """pizm-session-bundle render-html on a PACK run refuses with non-zero exit and stable error."""
+        run_dir = tmp_path / "pack_html_run"
+        run_dir.mkdir()
+        self._setup_pack_shared_run_dir(run_dir)
+
+        out_html = tmp_path / "run.html"
+        r = run_bundle("render-html", "--run-dir", str(run_dir), "--task", "Analyze trust", "--output", str(out_html))
+        assert r.returncode != 0
+        assert "PACK HTML is not supported in Wave A; use research-pack.md" in r.stderr
+
+
+class TestBonkV3ArchiveAndRenderer:
+    """Wave B: BONK v3 dual-development archive, accounting, renderer, HTML refusal."""
+
+    def _write_artifact(self, dir_path: Path, filename: str, content: dict) -> Path:
+        f = dir_path / filename
+        f.write_text(json.dumps(content, indent=2), encoding="utf-8")
+        sha_f = dir_path / (filename.rsplit(".", 1)[0] + ".sha256")
+        sha_f.write_text(_sha256_hex(f.read_bytes()), encoding="utf-8")
+        return f
+
+    def _v3_bundle(self, bid, refs):
+        return {
+            "bundle_id": bid,
+            "member_refs": list(refs),
+            "bundle_thesis": f"Bundle thesis {bid}",
+            "composition_gain": f"Composition gain {bid}",
+            "member_roles": {r: f"role in {bid}" for r in refs},
+            "member_ablation": {r: f"{r} removed from {bid}" for r in refs},
+            "internal_tension": f"Internal tension {bid}",
+            "weakest_link": f"Weakest link {bid}",
+            "new_consequence_or_prediction": f"Prediction {bid}",
+        }
+
+    def _v3_development(self, target_id, thesis):
+        refs = ["pass01:c01", "pass03:c01"]
+        return {
+            "schema_version": "pizm-development-v2",
+            "stage": "development-v2",
+            "target": {"target_type": "B", "target_id": target_id},
+            "identity_lock": {
+                "title": f"Title {target_id}",
+                "core_claim": f"Core claim {target_id}",
+                "structural_shift": f"Structural shift {target_id}",
+                "mechanism": f"Mechanism {target_id}",
+                "boundary": f"Boundary {target_id}",
+                "bundle_id": target_id,
+                "member_refs": refs,
+            },
+            "developed_model": {
+                "thesis": thesis,
+                "synthesis": f"Developed synthesis prose for {target_id}.",
+                "dynamics": f"Dynamics {target_id}",
+                "mechanism_chain": ["step one", "step two", "step three"],
+                "implications": [f"implication {target_id}"],
+                "predictions_or_observables": [f"observable {target_id}"],
+                "break_conditions": [f"break condition {target_id}"],
+                "unresolved_tensions": [f"tension {target_id}"],
+                "evidence_debt": [f"debt {target_id}"],
+                "load_bearing_claims": [
+                    {"claim": f"claim A {target_id}", "role_in_model": "core",
+                     "epistemic_status": "SUPPORTED", "what_would_weaken_or_refute": "x"},
+                    {"claim": f"claim B {target_id}", "role_in_model": "durability",
+                     "epistemic_status": "SPECULATIVE", "what_would_weaken_or_refute": "y"},
+                ],
+                "member_contributions": {r: f"{r} contributes" for r in refs},
+                "member_ablation": {r: f"{r} removal cost" for r in refs},
+            },
+        }
+
+    def _setup_v3_run_dir(self, run_dir: Path, mode="DUAL_BUNDLES", target_order=("B1", "B2"),
+                          targets_developed=None):
+        """Shared v3 run dir: 3 search passes, final field, v3 portfolio, developments."""
+        run_dir.mkdir(parents=True, exist_ok=True)
+        for i, m in ((1, "NORMAL"), (2, "RESIDUAL"), (3, "RIFT")):
+            self._write_artifact(run_dir, f"candidates-pass0{i}.json", {
+                "schema_version": "pizm-candidates-v1", "stage": "explore", "mode": m,
+                "candidates": [
+                    {"candidate_id": "c01", "title": f"Pass{i} Candidate 1",
+                     "semantic_core": {"claim": f"Claim p{i}", "mechanism": f"Mech p{i}"}},
+                ],
+            })
+        self._write_artifact(run_dir, "search-field-pass03.json", {
+            "schema_version": "pizm-search-field-v1", "stage": "search-field", "field_id": "sf3",
+            "passes": [], "entries": ["pass01:c01", "pass02:c01", "pass03:c01"],
+        })
+        field_hash = _sha256_hex((run_dir / "search-field-pass03.json").read_bytes())
+
+        if mode == "DUAL_BUNDLES":
+            dev_targets = [
+                {"target_type": "B", "target_id": t, "why_develop": f"develop {t}"}
+                for t in target_order
+            ]
+            material_difference = "B1 changes the causal mechanism; B2 shifts the system boundary."
+        else:
+            dev_targets = [
+                {"target_type": "B", "target_id": target_order[0],
+                 "why_develop": "No second materially distinct bundle was defensible."},
+            ]
+            material_difference = None
+
+        self._write_artifact(run_dir, "portfolio.json", {
+            "schema_version": "pizm-portfolio-selection-v3", "stage": "portfolio", "route": "BONK",
+            "field_ref": "search-field-pass03.json", "field_hash": field_hash,
+            "candidate_assessments": [
+                {"candidate_ref": "pass01:c01", "disposition": "KEEP", "standalone_quality": "strong",
+                 "unique_residue": "res", "nearest_overlap": None, "reason": "grounded"},
+                {"candidate_ref": "pass02:c01", "disposition": "KEEP", "standalone_quality": "strong",
+                 "unique_residue": "res2", "nearest_overlap": None, "reason": "grounded"},
+                {"candidate_ref": "pass03:c01", "disposition": "KEEP", "standalone_quality": "strong",
+                 "unique_residue": "res3", "nearest_overlap": None, "reason": "rift novelty"},
+            ],
+            "bundles": [self._v3_bundle("B1", ["pass01:c01", "pass02:c01"]),
+                        self._v3_bundle("B2", ["pass03:c01", "pass02:c01"])],
+            "perspectives": {"P1": "pass01:c01", "P2": "pass02:c01", "P3": "pass03:c01"},
+            "high_upside": [],
+            "development_mode": mode,
+            "development_targets": dev_targets,
+            "material_difference": material_difference,
+        })
+        developed = targets_developed if targets_developed is not None else [
+            t["target_id"] for t in dev_targets
+        ]
+        for t_id in developed:
+            self._write_artifact(
+                run_dir, f"development-v2-{t_id}.json",
+                self._v3_development(t_id, f"Developed thesis for {t_id}"),
+            )
+
+    def _accounting(self, tmp_path: Path, count: int) -> Path:
+        acc = tmp_path / f"acc_v3_{count}.json"
+        acc.write_text(json.dumps({
+            "host_inference_count": count,
+            "model_repair_count": 0,
+            "checkpoint_retry_count": 0,
+            "semantic_stage_count": count,
+        }), encoding="utf-8")
+        return acc
+
+    def test_v3_dual_archive_pass_isolation_and_accounting_six(self, workspace, tmp_path):
+        """Plan tests 10 & 11: v3 dual archives 6 semantic stages with pass03 isolation."""
+        run_dir = tmp_path / "v3_dual_run"
+        self._setup_v3_run_dir(run_dir)
+        acc = self._accounting(tmp_path, 6)
+
+        r = run_bundle(
+            "create",
+            "--output-root", str(workspace["output"]),
+            "--slug", "v3-dual-bundle",
+            "--skill-root", str(workspace["skill"]),
+            "--stage", f"pass-01-normal={run_dir}",
+            "--stage", f"pass-02-residual={run_dir}",
+            "--stage", f"pass-03-rift={run_dir}",
+            "--stage", f"search-field={run_dir}",
+            "--stage", f"portfolio={run_dir}",
+            "--stage", f"deep-B1={run_dir}",
+            "--stage", f"deep-B2={run_dir}",
+            "--accounting", str(acc),
+        )
+        assert r.returncode == 0, r.stderr
+        bundle = workspace["output"] / "session-v3-dual-bundle"
+        manifest = json.loads((bundle / "manifest.json").read_text(encoding="utf-8"))
+        assert manifest["accounting"]["semantic_stage_count"] == 6
+
+        p1 = {f.name for f in (bundle / "pass-01-normal").iterdir()}
+        assert p1 == {"candidates-pass01.json", "candidates-pass01.sha256"}
+        p2 = {f.name for f in (bundle / "pass-02-residual").iterdir()}
+        assert p2 == {"candidates-pass02.json", "candidates-pass02.sha256"}
+        p3 = {f.name for f in (bundle / "pass-03-rift").iterdir()}
+        assert p3 == {"candidates-pass03.json", "candidates-pass03.sha256"}
+        sf = {f.name for f in (bundle / "search-field").iterdir()}
+        assert sf == {"search-field-pass03.json", "search-field-pass03.sha256"}
+
+        d1 = {f.name for f in (bundle / "deep-B1").iterdir()}
+        assert d1 == {"development-v2-B1.json", "development-v2-B1.sha256"}
+        d2 = {f.name for f in (bundle / "deep-B2").iterdir()}
+        assert d2 == {"development-v2-B2.json", "development-v2-B2.sha256"}
+
+    def test_v3_single_archive_accounting_five(self, workspace, tmp_path):
+        """Degraded v3 (SINGLE_TARGET) archives 5 semantic stages."""
+        run_dir = tmp_path / "v3_single_run"
+        self._setup_v3_run_dir(run_dir, mode="SINGLE_TARGET", target_order=("B1",))
+        acc = self._accounting(tmp_path, 5)
+
+        r = run_bundle(
+            "create",
+            "--output-root", str(workspace["output"]),
+            "--slug", "v3-single-bundle",
+            "--skill-root", str(workspace["skill"]),
+            "--stage", f"pass-01-normal={run_dir}",
+            "--stage", f"pass-02-residual={run_dir}",
+            "--stage", f"pass-03-rift={run_dir}",
+            "--stage", f"search-field={run_dir}",
+            "--stage", f"portfolio={run_dir}",
+            "--stage", f"deep-B1={run_dir}",
+            "--accounting", str(acc),
+        )
+        assert r.returncode == 0, r.stderr
+        manifest = json.loads(
+            (workspace["output"] / "session-v3-single-bundle" / "manifest.json").read_text(encoding="utf-8")
+        )
+        assert manifest["accounting"]["semantic_stage_count"] == 5
+
+    def test_v3_create_requires_accounting(self, workspace, tmp_path):
+        """v3, like PACK/v2, fails closed without --accounting."""
+        run_dir = tmp_path / "v3_no_acc_run"
+        self._setup_v3_run_dir(run_dir)
+        r = run_bundle(
+            "create",
+            "--output-root", str(workspace["output"]),
+            "--slug", "v3-no-acc",
+            "--skill-root", str(workspace["skill"]),
+            "--stage", f"pass-01-normal={run_dir}",
+            "--stage", f"pass-02-residual={run_dir}",
+            "--stage", f"pass-03-rift={run_dir}",
+            "--stage", f"search-field={run_dir}",
+            "--stage", f"portfolio={run_dir}",
+            "--stage", f"deep-B1={run_dir}",
+            "--stage", f"deep-B2={run_dir}",
+        )
+        assert r.returncode != 0
+        assert "accounting input is required" in r.stderr
+
+    def test_v3_rejects_comparison_and_lever_stages(self, workspace, tmp_path):
+        """v3 has no comparison or LEVER stage; asking for one fails closed."""
+        run_dir = tmp_path / "v3_bad_stage_run"
+        self._setup_v3_run_dir(run_dir)
+        acc = self._accounting(tmp_path, 6)
+        base = [
+            "--output-root", str(workspace["output"]),
+            "--skill-root", str(workspace["skill"]),
+            "--stage", f"pass-01-normal={run_dir}",
+            "--stage", f"pass-02-residual={run_dir}",
+            "--stage", f"pass-03-rift={run_dir}",
+            "--stage", f"search-field={run_dir}",
+            "--stage", f"portfolio={run_dir}",
+            "--stage", f"deep-B1={run_dir}",
+            "--accounting", str(acc),
+        ]
+        r_comp = run_bundle("create", "--slug", "v3-bad-comp", *base,
+                            "--stage", f"comparison-review={run_dir}")
+        assert r_comp.returncode != 0
+        assert "BONK v3 run forbids comparison stages" in r_comp.stderr
+
+        r_lever = run_bundle("create", "--slug", "v3-bad-lever", *base,
+                             "--stage", f"lever-B1={run_dir}")
+        assert r_lever.returncode != 0
+        assert "BONK v3 run forbids lever stages" in r_lever.stderr
+
+    def test_v3_rejects_stray_review_artifact(self, workspace, tmp_path):
+        """A review artifact riding along in a v3 run dir fails the archive closed."""
+        run_dir = tmp_path / "v3_stray_review_run"
+        self._setup_v3_run_dir(run_dir)
+        (run_dir / "review.json").write_text(json.dumps({"terminal_state": "MODEL_READY"}), encoding="utf-8")
+        acc = self._accounting(tmp_path, 6)
+        r = run_bundle(
+            "create",
+            "--output-root", str(workspace["output"]),
+            "--slug", "v3-stray-review",
+            "--skill-root", str(workspace["skill"]),
+            "--stage", f"pass-01-normal={run_dir}",
+            "--stage", f"pass-02-residual={run_dir}",
+            "--stage", f"pass-03-rift={run_dir}",
+            "--stage", f"search-field={run_dir}",
+            "--stage", f"portfolio={run_dir}",
+            "--stage", f"deep-B1={run_dir}",
+            "--stage", f"deep-B2={run_dir}",
+            "--accounting", str(acc),
+        )
+        assert r.returncode != 0
+        assert "must not carry review/comparison/lever artifacts" in r.stderr
+
+    def test_v3_renderer_order_determinism_and_contract(self, tmp_path):
+        """Plan tests 8, 9, 11 + delta: renderer order follows development_targets."""
+        run_dir = tmp_path / "v3_render_run"
+        self._setup_v3_run_dir(run_dir, target_order=("B2", "B1"))
+
+        out1 = tmp_path / "v3-pack-1.md"
+        out2 = tmp_path / "v3-pack-2.md"
+        r1 = run_bundle("render", "--run-dir", str(run_dir), "--task", "Analyze trust", "--output", str(out1))
+        assert r1.returncode == 0, r1.stderr
+        r2 = run_bundle("render", "--run-dir", str(run_dir), "--task", "Analyze trust", "--output", str(out2))
+        assert r2.returncode == 0, r2.stderr
+        assert out1.read_bytes() == out2.read_bytes(), "v3 render is not byte-identical across runs"
+
+        text = out1.read_text(encoding="utf-8")
+        assert text.startswith("# Pizm BONK Development Pack\n")
+        assert "## Original task" in text
+        assert "Pass 1 — initial" in text and "Pass 2 — residual" in text and "Pass 3 — rift" in text
+        assert "## Curated field" in text
+        assert "## Bundles" in text
+        assert "### B1 — P1 + P2" in text and "### B2 — P3 + P2" in text
+
+        # Target A/B follow the frozen development_targets order (B2 first).
+        a_idx = text.index("## Development Target A")
+        b_idx = text.index("## Development Target B")
+        assert a_idx < b_idx
+        assert "### B2 —" in text[a_idx:b_idx]
+        assert "### B1 —" in text[b_idx:]
+        assert "Developed thesis for B2" in text[a_idx:b_idx]
+        assert "Developed thesis for B1" in text[b_idx:]
+
+        # Required target content
+        for needle in (
+            "Core claim B1", "Structural shift B1", "Mechanism B1", "Boundary B1",
+            "### Mechanism and dynamics", "### Load-bearing claims",
+            "### Predictions", "Break conditions:", "### Evidence debt",
+        ):
+            assert needle in text, f"missing {needle!r} in v3 development pack"
+
+        assert "## Why these two were developed" in text
+        assert "B1 changes the causal mechanism; B2 shifts the system boundary." in text
+
+        assert "## Explicit non-claims" in text
+        for needle in (
+            "no winner selected",
+            "models were not compared for truth",
+            "no synthesis was performed",
+            "no Critic readiness verdict was issued",
+            "neither model is considered validated",
+        ):
+            assert needle in text
+        assert "## Suggested downstream task" in text
+        assert "## Machine artifacts" in text
+        assert "- portfolio.json" in text
+
+    def test_v3_renderer_emits_no_winner_or_comparison_verdict(self, tmp_path):
+        """Plan test 9: v3 output carries no preference, winner, or readiness verdict."""
+        run_dir = tmp_path / "v3_absence_run"
+        self._setup_v3_run_dir(run_dir)
+        out = tmp_path / "v3-absence.md"
+        r = run_bundle("render", "--run-dir", str(run_dir), "--task", "Analyze trust", "--output", str(out))
+        assert r.returncode == 0, r.stderr
+        text = out.read_text(encoding="utf-8")
+
+        for forbidden in (
+            "MODEL_READY", "Winner", "## Critic", "## Lever", "## Comparison",
+            "Current preference", "competition_axis", "auto_target",
+            "LEFT", "RIGHT", "synthesize a third",
+        ):
+            assert forbidden not in text, f"v3 pack leaked {forbidden!r}"
+
+        # Affirmative winner/preference vocabulary must not appear anywhere:
+        # every occurrence of "winner"/"prefer" must be an explicit negation.
+        for line in text.splitlines():
+            lowered = line.lower()
+            if "winner" in lowered or "prefer" in lowered:
+                assert (
+                    "no winner" in lowered
+                    or "neither" in lowered
+                    or "not contestants" in lowered
+                ), f"affirmative verdict language leaked: {line!r}"
+
+    def test_v3_renderer_single_target_and_why(self, tmp_path):
+        """SINGLE_TARGET renders one target plus the frozen why-no-second-target prose."""
+        run_dir = tmp_path / "v3_single_render_run"
+        self._setup_v3_run_dir(run_dir, mode="SINGLE_TARGET", target_order=("B1",))
+        out = tmp_path / "v3-single.md"
+        r = run_bundle("render", "--run-dir", str(run_dir), "--task", "Analyze trust", "--output", str(out))
+        assert r.returncode == 0, r.stderr
+        text = out.read_text(encoding="utf-8")
+        assert "## Development Target" in text
+        assert "## Development Target A" not in text
+        assert "## Development Target B" not in text
+        assert "### B1 —" in text
+        assert "## Why only this target was developed" in text
+        assert "No second materially distinct bundle was defensible." in text
+        assert "no winner selected" in text
+
+    def test_v3_renderer_requires_every_development_artifact(self, tmp_path):
+        """A v3 pack cannot be rendered with a development target missing."""
+        run_dir = tmp_path / "v3_missing_dev_run"
+        self._setup_v3_run_dir(run_dir, targets_developed=("B1",))
+        out = tmp_path / "v3-missing.md"
+        r = run_bundle("render", "--run-dir", str(run_dir), "--task", "Analyze trust", "--output", str(out))
+        assert r.returncode != 0
+        assert "missing artifact: development-v2-B2.json" in r.stderr
+
+    def test_v2_legacy_bonk_with_comparison_and_lever_still_renders(self, tmp_path):
+        """Plan tests 1 & 2: legacy v2 + comparison-review-v1 + LEVER stays readable."""
+        run_dir = tmp_path / "v2_legacy_run"
+        run_dir.mkdir()
+        cand = {
+            "schema_version": "pizm-candidates-v1", "stage": "explore", "mode": "NORMAL",
+            "candidates": [{"candidate_id": "c01", "title": "Legacy One"},
+                           {"candidate_id": "c02", "title": "Legacy Two"}],
+        }
+        (run_dir / "candidates-pass01.json").write_text(json.dumps(cand), encoding="utf-8")
+        (run_dir / "candidates-pass01.sha256").write_text(
+            _sha256_hex((run_dir / "candidates-pass01.json").read_bytes()), encoding="utf-8")
+
+        portfolio = {
+            "schema_version": "pizm-portfolio-selection-v2", "stage": "portfolio", "route": "BONK",
+            "field_hash": "h", "competition_status": "TWO_DEFENSIBLE_BUNDLES",
+            "recommended_competition": {
+                "left_bundle_id": "B1", "right_bundle_id": "B2",
+                "competition_axis": "Legacy axis", "discriminating_observation": "Legacy observation",
+            },
+            "candidate_assessments": [
+                {"candidate_ref": "pass01:c01", "disposition": "KEEP", "standalone_quality": "strong",
+                 "unique_residue": "r1", "nearest_overlap": None, "reason": "g"},
+                {"candidate_ref": "pass01:c02", "disposition": "KEEP", "standalone_quality": "strong",
+                 "unique_residue": "r2", "nearest_overlap": None, "reason": "g"},
+            ],
+            "perspectives": {"P1": "pass01:c01", "P2": "pass01:c02"},
+            "bundles": [self._v3_bundle("B1", ["pass01:c01", "pass01:c02"]),
+                        self._v3_bundle("B2", ["pass01:c01", "pass01:c02"])],
+        }
+        (run_dir / "portfolio.json").write_text(json.dumps(portfolio), encoding="utf-8")
+        (run_dir / "portfolio.sha256").write_text(
+            _sha256_hex((run_dir / "portfolio.json").read_bytes()), encoding="utf-8")
+
+        for t_id in ("B1", "B2"):
+            dev = self._v3_development(t_id, f"Legacy thesis {t_id}")
+            (run_dir / f"development-v2-{t_id}.json").write_text(json.dumps(dev), encoding="utf-8")
+            (run_dir / f"development-v2-{t_id}.sha256").write_text(
+                _sha256_hex((run_dir / f"development-v2-{t_id}.json").read_bytes()), encoding="utf-8")
+
+        comparison = {
+            "schema_version": "pizm-comparison-review-v1", "stage": "comparison-review-v1",
+            "left_target_id": "B1", "right_target_id": "B2",
+            "left_review": {"target_id": "B1", "terminal_state": "MODEL_READY"},
+            "right_review": {"target_id": "B2", "terminal_state": "NEED_EVIDENCE"},
+            "comparison": {
+                "current_preference": "CONDITIONAL", "competition_axis": "Legacy axis",
+                "strongest_reason_for_left": "l", "strongest_reason_for_right": "r",
+                "shared_evidence_debt": [], "discriminating_observation": "Legacy observation",
+                "what_would_change_the_decision": "w",
+            },
+        }
+        (run_dir / "comparison-review-v1.json").write_text(json.dumps(comparison), encoding="utf-8")
+        (run_dir / "comparison-review-v1.sha256").write_text(
+            _sha256_hex((run_dir / "comparison-review-v1.json").read_bytes()), encoding="utf-8")
+
+        design = {"schema_version": "pizm-lever-design-v1", "stage": "lever",
+                  "levers": [{"lever_id": "L1", "intervention_or_test_point": "pilot"}]}
+        lever_review = {"schema_version": "pizm-lever-review-v1", "stage": "lever-review",
+                        "outcome": "ACCEPTED", "verdicts": [{"lever_id": "L1", "verdict": "ACCEPTED"}]}
+        for name, data in (("design.json", design), ("review.json", lever_review)):
+            (run_dir / name).write_text(json.dumps(data), encoding="utf-8")
+            (run_dir / (name[:-5] + ".sha256")).write_text(
+                _sha256_hex((run_dir / name).read_bytes()), encoding="utf-8")
+
+        out = tmp_path / "v2-legacy.md"
+        r = run_bundle("render", "--run-dir", str(run_dir), "--task", "Legacy task", "--output", str(out))
+        assert r.returncode == 0, r.stderr
+        text = out.read_text(encoding="utf-8")
+        assert text.startswith("# Prism BONK\n")
+        assert "## Deep B1" in text
+        assert "## Deep B2" in text
+        assert "Legacy thesis B1" in text
+        assert "Current preference: **CONDITIONAL**" in text
+        assert "## Lever" in text
+        assert "ACCEPTED" in text
+
+    def test_v3_html_unsupported_refusal(self, tmp_path):
+        """render-html on a v3 run refuses with a stable non-zero error."""
+        run_dir = tmp_path / "v3_html_run"
+        self._setup_v3_run_dir(run_dir)
+        out = tmp_path / "v3-run.html"
+        r = run_bundle("render-html", "--run-dir", str(run_dir), "--task", "Analyze trust",
+                       "--output", str(out))
+        assert r.returncode != 0
+        assert "BONK v3 HTML is not supported; use the markdown development pack handoff" in r.stderr

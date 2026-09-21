@@ -134,7 +134,7 @@ AUTO TASK
 
 `FINAL` is a DETERMINISTIC ASSEMBLY rendered directly from frozen structured artifacts (`candidates-pass01.json`, `candidates-pass02.json`, the search-field manifest, `portfolio.json`, `development-v2-$TARGET_ID.json`, `deep-review-v2-$TARGET_ID.json`, and `design.json` / `review.json` if LEVER was executed).
 
-- **Zero Model Invocations**: FINAL increments neither `semantic_stage_count` nor `host_inference_count` and performs ZERO tool-call model turns. The subsequent `run.md` rendering is equally deterministic: byte-identical output for identical frozen inputs, zero model calls.
+- **Zero Model Invocations**: FINAL increments neither `semantic_stage_count` nor `host_inference_count`. The deterministic FINAL adds zero semantic reasoning stages and performs no model-generated transformation of the frozen artifacts; host turns may still be required to invoke deterministic tools. The subsequent `run.md` rendering is equally deterministic: byte-identical output for identical frozen inputs, zero model calls.
 - **Contract Prohibition**: If an implementation ever requires an additional model turn or tool call for FINAL or for `run.md` rendering, STOP and replan the budget/contract instead of hiding it.
 - **Fixed Assembly Template**: The final response is formatted strictly using the fixed deterministic template below:
 

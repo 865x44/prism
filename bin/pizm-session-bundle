@@ -62,6 +62,13 @@ _COMPARISON_ALLOWLIST_RE = re.compile(
 _LEVER_ALLOWLIST_RE = re.compile(
     r"^(?:(?:lever-)?design|(?:lever-)?review)\.(?:json|sha256|meta\.json)$"
 )
+_V3_FORBIDDEN_ARTIFACT_RE = re.compile(
+    r"^(?:deep-review(?:-v2)?(?:-(?:P[0-9]+|B[0-9]+|DIRECT_SEED))?"
+    r"|comparison-review(?:-v1)?"
+    r"|(?:lever-)?design(?:-(?:P[0-9]+|B[0-9]+|DIRECT_SEED))?"
+    r"|lever-review(?:-(?:P[0-9]+|B[0-9]+|DIRECT_SEED))?"
+    r"|review)\.json$"
+)
 
 
 def _is_allowlisted_stage_artifact(stage_type: str, filename: str) -> bool:
@@ -196,6 +203,37 @@ def _get_stage_artifacts(
 
     return raw_allowlisted
 
+def _is_bonk_v3_run(stage_specs: list[tuple[str, Path, str]]) -> bool:
+    """True when any stage run directory carries a v3 BONK portfolio record."""
+    for _, run_dir, _ in stage_specs:
+        for name in ("portfolio.json", "selection.json"):
+            p = run_dir / name
+            if not p.is_file():
+                continue
+            try:
+                data = json.loads(p.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError):
+                continue
+            if isinstance(data, dict) and data.get("schema_version") == "pizm-portfolio-selection-v3":
+                return True
+    return False
+
+
+def _forbidden_v3_artifacts(run_dir: Path) -> list[str]:
+    """Sorted review/comparison/lever artifact names a BONK v3 run must not carry.
+
+    v3 terminates after the dual/single development handoff: any deep review,
+    comparison review, or LEVER artifact in the run directory means the run is
+    not a v3 run and must fail closed instead of being archived as one.
+    """
+    if not run_dir.is_dir():
+        return []
+    return sorted(
+        f.name for f in run_dir.iterdir()
+        if f.is_file() and _V3_FORBIDDEN_ARTIFACT_RE.fullmatch(f.name)
+    )
+
+
 def _die(msg: str, code: int = 1) -> int:
     print(f"ERROR: {msg}", file=sys.stderr)
     return code
@@ -249,6 +287,75 @@ def _classify_stage(label: str) -> str:
     elif label == "search-field":
         return "search-field"
     raise ValueError(f"cannot classify stage label: {label!r}")
+
+def _compute_semantic_stage_count(
+    bundle_dir: Path,
+    stage_specs: list[tuple[str, Path, str]] | None = None,
+) -> int:
+    """Derive semantic reasoning stage count from actual bundled artifacts.
+
+    Rules per specification:
+    - Explore/Search generation artifact = +1 each (candidates*.json)
+    - Search-field manifest = +0 (search-field*.json)
+    - Portfolio = +1 (portfolio*.json or selection.json in portfolio stage)
+    - Development artifact = +1 each (development*.json)
+    - Deep review artifact = +1 each (deep-review*.json or review.json in deep stage)
+    - Comparison review artifact = +1 (comparison-review*.json or review.json in comparison stage)
+    - Lever design = +1 (design*.json or lever-design*.json in lever stage)
+    - Lever review = +1 (review*.json or lever-review*.json in lever stage)
+    - Deterministic archive/render/html = +0
+    """
+    if stage_specs is not None:
+        target_stages = [(label, stype) for label, _, stype in stage_specs]
+    else:
+        target_stages = []
+        manifest_file = bundle_dir / "manifest.json"
+        if manifest_file.is_file():
+            try:
+                m_data = json.loads(manifest_file.read_text(encoding="utf-8"))
+                for lbl in m_data.get("stages", []):
+                    try:
+                        target_stages.append((lbl, _classify_stage(lbl)))
+                    except ValueError:
+                        pass
+            except Exception:
+                pass
+        if not target_stages:
+            for child in sorted(bundle_dir.iterdir()):
+                if child.is_dir() and _STAGE_LABEL_RE.fullmatch(child.name):
+                    try:
+                        target_stages.append((child.name, _classify_stage(child.name)))
+                    except ValueError:
+                        pass
+
+    count = 0
+    for label, stage_type in target_stages:
+        stage_dir = bundle_dir / label
+        if not stage_dir.is_dir():
+            continue
+        json_files = [
+            f for f in sorted(stage_dir.iterdir())
+            if f.is_file()
+            and f.name.endswith(".json")
+            and not f.name.endswith(".meta.json")
+            and f.name != "diagnostics.json"
+        ]
+        if stage_type == "explore":
+            count += sum(1 for f in json_files if f.name.startswith("candidates"))
+        elif stage_type == "search-field":
+            pass
+        elif stage_type == "portfolio":
+            count += sum(1 for f in json_files if f.name.startswith("portfolio") or f.name == "selection.json")
+        elif stage_type == "deep":
+            count += sum(1 for f in json_files if f.name.startswith("development"))
+            count += sum(1 for f in json_files if f.name.startswith("deep-review") or f.name == "review.json")
+        elif stage_type == "comparison":
+            count += sum(1 for f in json_files if f.name.startswith("comparison-review") or f.name == "review.json")
+        elif stage_type == "lever":
+            count += sum(1 for f in json_files if f.name.startswith("design") or f.name.startswith("lever-design"))
+            count += sum(1 for f in json_files if f.name.startswith("review") or f.name.startswith("lever-review"))
+
+    return count
 
 
 def _verify_sha_sidecar(run_dir: Path, artifact_name: str, sha_name: str) -> None:
@@ -497,6 +604,21 @@ def create_bundle(
         and not any(st in ("portfolio", "search-field", "comparison") for _, _, st in stage_specs)
     )
     has_comparison_stage = any(st == "comparison" for _, _, st in stage_specs)
+    is_bonk_v3_run = _is_bonk_v3_run(stage_specs)
+    if is_bonk_v3_run:
+        # BONK v3 ends after Deep A/B: comparison and LEVER stages are never
+        # part of a v3 run, and no review/comparison/lever artifact may ride
+        # along in a v3 run directory.
+        for label, _, stage_type in stage_specs:
+            if stage_type in ("comparison", "lever"):
+                return _die(f"stage {label}: BONK v3 run forbids {stage_type} stages")
+        for label, run_dir, _ in stage_specs:
+            forbidden = _forbidden_v3_artifacts(run_dir)
+            if forbidden:
+                return _die(
+                    f"stage {label}: BONK v3 run must not carry review/comparison/lever "
+                    f"artifacts: {', '.join(forbidden)}"
+                )
     for label, run_dir, stage_type in stage_specs:
         allowlisted_files = _get_stage_artifacts(label, stage_type, run_dir, stage_specs)
 
@@ -514,7 +636,12 @@ def create_bundle(
             has_dev = any(f.name.startswith("development") and f.name.endswith(".json") and "meta" not in f.name for f in allowlisted_files)
             if not has_dev:
                 return _die(f"stage {label}: missing required development.json in {run_dir}")
-            if not has_comparison_stage:
+            if is_bonk_v3_run:
+                # v3 develops and hands off: no Critic stage exists, so a
+                # development artifact is sufficient (and a review artifact is
+                # rejected by the v3 guard above).
+                pass
+            elif not has_comparison_stage:
                 has_rev = any((f.name.startswith("deep-review") or f.name == "review.json") and f.name.endswith(".json") and "meta" not in f.name for f in allowlisted_files)
                 if not has_rev:
                     return _die(f"stage {label}: missing required review.json in {run_dir}")
@@ -784,7 +911,7 @@ def create_bundle(
                 and "meta" not in k
             ]
         )
-        semantic_stage_count = len(stage_labels)
+        semantic_stage_count = _compute_semantic_stage_count(bundle_dir, stage_specs)
 
         # Check AUTO/FORGE requirement
         is_auto_or_forge = False
@@ -797,7 +924,13 @@ def create_bundle(
             if p_path.exists():
                 try:
                     p_data = json.loads(p_path.read_text(encoding="utf-8"))
-                    if p_data.get("route") == "AUTO" or p_data.get("schema_version") == "pizm-portfolio-selection-v2":
+                    if (
+                        p_data.get("route") in ("AUTO", "PACK")
+                        or p_data.get("schema_version") in (
+                            "pizm-portfolio-selection-v2",
+                            "pizm-portfolio-selection-v3",
+                        )
+                    ):
                         is_auto_or_forge = True
                 except Exception:
                     pass
@@ -811,7 +944,7 @@ def create_bundle(
                     pass
 
         if is_auto_or_forge and not accounting:
-            return _die("accounting input is required for AUTO/FORGE contracts")
+            return _die("accounting input is required for AUTO/FORGE/PACK contracts")
 
         if accounting:
             acc_path = Path(accounting)
@@ -1108,11 +1241,86 @@ def _validate_auto_portfolio(portfolio: dict, cand_index: dict = None):
     return auto_target, p_map
 
 
-def _validate_forge_portfolio(portfolio: dict, cand_index: dict = None) -> dict:
-    """Fail-closed FORGE routing validation. Returns p_map."""
-    if portfolio.get("schema_version") != "pizm-portfolio-selection-v2":
+_V3_FORBIDDEN_PORTFOLIO_KEYS = (
+    "next_reasoning_move",
+    "next_reasoning_rationale",
+    "information_request",
+    "rival_shadow",
+    "auto_target",
+    "competition_status",
+    "recommended_competition",
+    "single_target",
+)
+
+
+def _validate_v3_development_targets(portfolio: dict, seen_bids: set, perspectives: dict) -> None:
+    """Fail-closed validation of the v3 dual/single development selection."""
+    for forbidden in _V3_FORBIDDEN_PORTFOLIO_KEYS:
+        if forbidden in portfolio:
+            raise ValueError(f"v3 portfolio must not carry {forbidden!r}")
+
+    mode = portfolio.get("development_mode")
+    if mode not in ("DUAL_BUNDLES", "SINGLE_TARGET"):
         raise ValueError(
-            "FORGE portfolio requires pizm-portfolio-selection-v2, "
+            f"v3 portfolio development_mode must be DUAL_BUNDLES or SINGLE_TARGET, got {mode!r}"
+        )
+    targets = portfolio.get("development_targets")
+    if not isinstance(targets, list):
+        raise ValueError("v3 portfolio development_targets must be a list")
+    expected_count = 2 if mode == "DUAL_BUNDLES" else 1
+    if len(targets) != expected_count:
+        raise ValueError(
+            f"v3 portfolio development_mode {mode} requires exactly {expected_count} "
+            f"development target(s), got {len(targets)}"
+        )
+
+    seen_target_ids = set()
+    for i, t in enumerate(targets):
+        if not isinstance(t, dict):
+            raise ValueError(f"v3 portfolio development_targets[{i}] must be an object")
+        t_type = t.get("target_type")
+        t_id = t.get("target_id")
+        why = t.get("why_develop")
+        if t_type not in ("B", "P"):
+            raise ValueError(f"v3 portfolio development_targets[{i}].target_type must be B or P, got {t_type!r}")
+        if not isinstance(t_id, str) or not t_id.strip():
+            raise ValueError(f"v3 portfolio development_targets[{i}].target_id must be non-empty string")
+        if not isinstance(why, str) or not why.strip():
+            raise ValueError(f"v3 portfolio development_targets[{i}].why_develop must be non-empty string")
+        if mode == "DUAL_BUNDLES" and t_type != "B":
+            raise ValueError(
+                "v3 portfolio DUAL_BUNDLES requires both development targets to be Bundles (target_type B)"
+            )
+        if t_type == "B":
+            if not _B_ID_RE.fullmatch(t_id):
+                raise ValueError(f"v3 portfolio development target {t_id!r} must match B[1-9][0-9]* for target_type B")
+            if t_id not in seen_bids:
+                raise ValueError(f"v3 portfolio development target {t_id!r} not found in bundles")
+        else:
+            if not _P_ID_RE.fullmatch(t_id):
+                raise ValueError(f"v3 portfolio development target {t_id!r} must match P[1-9][0-9]* for target_type P")
+            if t_id not in perspectives:
+                raise ValueError(f"v3 portfolio development target {t_id!r} not found in perspectives")
+        if t_id in seen_target_ids:
+            raise ValueError(f"v3 portfolio development targets must be distinct; duplicate {t_id!r}")
+        seen_target_ids.add(t_id)
+
+    material_difference = portfolio.get("material_difference")
+    if mode == "DUAL_BUNDLES":
+        if not isinstance(material_difference, str) or not material_difference.strip():
+            raise ValueError("v3 portfolio DUAL_BUNDLES requires a non-empty material_difference")
+    elif material_difference is not None and (
+        not isinstance(material_difference, str) or material_difference.strip()
+    ):
+        raise ValueError("v3 portfolio SINGLE_TARGET requires material_difference to be null or empty")
+
+
+def _validate_forge_portfolio(portfolio: dict, cand_index: dict = None) -> dict:
+    """Fail-closed BONK portfolio validation (v2 competition, v3 dual-development). Returns p_map."""
+    schema_version = portfolio.get("schema_version")
+    if schema_version not in ("pizm-portfolio-selection-v2", "pizm-portfolio-selection-v3"):
+        raise ValueError(
+            "BONK portfolio requires pizm-portfolio-selection-v2 or pizm-portfolio-selection-v3, "
             f"got {portfolio.get('schema_version')!r}"
         )
     if portfolio.get("route") not in {"BONK", "FORGE"}:
@@ -1134,11 +1342,16 @@ def _validate_forge_portfolio(portfolio: dict, cand_index: dict = None) -> dict:
 
     perspectives = portfolio.get("perspectives") or {}
 
-    comp_status = portfolio.get("competition_status")
-    if comp_status not in ("TWO_DEFENSIBLE_BUNDLES", "NO_SECOND_DEFENSIBLE_BUNDLE"):
-        raise ValueError(
-            f"FORGE portfolio competition_status must be TWO_DEFENSIBLE_BUNDLES or NO_SECOND_DEFENSIBLE_BUNDLE, got {comp_status!r}"
-        )
+    if schema_version == "pizm-portfolio-selection-v3":
+        # v3 carries no competition block at all; the dual/single development
+        # selection is validated at the end of this function.
+        comp_status = None
+    else:
+        comp_status = portfolio.get("competition_status")
+        if comp_status not in ("TWO_DEFENSIBLE_BUNDLES", "NO_SECOND_DEFENSIBLE_BUNDLE"):
+            raise ValueError(
+                f"FORGE portfolio competition_status must be TWO_DEFENSIBLE_BUNDLES or NO_SECOND_DEFENSIBLE_BUNDLE, got {comp_status!r}"
+            )
     rec_comp = portfolio.get("recommended_competition")
     single_target = portfolio.get("single_target")
     if comp_status == "TWO_DEFENSIBLE_BUNDLES":
@@ -1252,6 +1465,9 @@ def _validate_forge_portfolio(portfolio: dict, cand_index: dict = None) -> dict:
         for m in (b.get("member_ablation") or {}):
             if cand_index is not None:
                 _candidate_by_ref(m, cand_index)
+
+    if schema_version == "pizm-portfolio-selection-v3":
+        _validate_v3_development_targets(portfolio, seen_bids, perspectives)
 
     return _derive_promoted_p_ids(portfolio)
 
@@ -1867,9 +2083,9 @@ def _render_why_models_compete(portfolio: dict) -> str:
     return "\n".join(lines).rstrip("\n")
 
 
-def _render_forge_deep_section(development: dict, target_id: str) -> str:
-    model = development.get("developed_model") or {}
-    lines = [f"## Deep {target_id}", ""]
+def _render_deep_body(model: dict) -> list[str]:
+    """Deep developed-model body: thesis → synthesis → mechanism → census → predictions → debt."""
+    lines: list[str] = []
     thesis = model.get("thesis")
     if isinstance(thesis, str) and thesis.strip():
         lines += [f"**Thesis.** {thesis}", ""]
@@ -1942,6 +2158,13 @@ def _render_forge_deep_section(development: dict, target_id: str) -> str:
         lines.extend(f"- {d}" for d in debt)
     else:
         lines.append("(no recorded evidence debt)")
+    return lines
+
+
+def _render_forge_deep_section(development: dict, target_id: str) -> str:
+    model = development.get("developed_model") or {}
+    lines = [f"## Deep {target_id}", ""]
+    lines.extend(_render_deep_body(model))
     return "\n".join(lines).rstrip("\n")
 
 
@@ -2528,6 +2751,447 @@ def _render_bonk_run_md(
     return 0
 
 
+def _render_v3_target_section(
+    letter: str | None,
+    target: dict,
+    development: dict,
+    bundle: dict | None,
+    p_map: dict,
+    cand_index: dict,
+) -> str:
+    """One development target: frozen identity, why-develop, developed model body."""
+    t_id = target.get("target_id")
+    lock = development.get("identity_lock") or {}
+    model = development.get("developed_model") or {}
+    heading = f"## Development Target {letter}" if letter else "## Development Target"
+    lines = [heading, ""]
+
+    if isinstance(bundle, dict):
+        members = [m for m in bundle.get("member_refs") or [] if isinstance(m, str)]
+        labels = " + ".join(_member_label(m, p_map, cand_index) for m in members)
+        lines.append(f"### {t_id} — {labels}")
+        lines.append(_bullet("Frozen members", ", ".join(members)))
+        for label, field in (
+            ("Bundle thesis", "bundle_thesis"),
+            ("Composition gain", "composition_gain"),
+            ("New consequence / prediction", "new_consequence_or_prediction"),
+            ("Internal tension", "internal_tension"),
+            ("Weakest link", "weakest_link"),
+        ):
+            val = bundle.get(field)
+            if isinstance(val, str) and val.strip():
+                lines.append(_bullet(label, val))
+        roles = bundle.get("member_roles") or {}
+        role_parts = [
+            f"{_member_label(m, p_map, cand_index)}: {roles[m]}"
+            for m in members
+            if isinstance(roles.get(m), str) and roles[m].strip()
+        ]
+        if role_parts:
+            lines.append(_bullet("Member roles", "; ".join(role_parts)))
+        ablation = bundle.get("member_ablation") or {}
+        abl_parts = [
+            f"{_member_label(m, p_map, cand_index)}: {ablation[m]}"
+            for m in members
+            if isinstance(ablation.get(m), str) and ablation[m].strip()
+        ]
+        if abl_parts:
+            lines.append(_bullet("Member ablation", " | ".join(abl_parts)))
+    else:
+        title = lock.get("title")
+        lines.append(f"### {t_id}" + (f" — {title}" if isinstance(title, str) and title.strip() else ""))
+
+    for label, field in (
+        ("Core claim", "core_claim"),
+        ("Structural shift", "structural_shift"),
+        ("Mechanism", "mechanism"),
+        ("Boundary", "boundary"),
+    ):
+        val = lock.get(field)
+        if isinstance(val, str) and val.strip():
+            lines.append(_bullet(label, val))
+
+    why = target.get("why_develop")
+    if isinstance(why, str) and why.strip():
+        lines.append(_bullet("Why develop", why.strip()))
+
+    lines += ["", "### Developed model (provisional; not validated)", ""]
+    lines.extend(_render_deep_body(model))
+    return "\n".join(lines).rstrip("\n")
+
+
+def _render_bonk_v3_run_md(
+    run_dir: Path,
+    task: str,
+    output_path: str,
+    portfolio: dict,
+) -> int:
+    """Deterministic BONK v3 development-pack renderer.
+
+    Zero model calls, zero synthesis: restates frozen Search passes, the
+    curated field, and each frozen development artifact in the portfolio's
+    development_targets order. Never emits a winner, a preference, a
+    comparison verdict, a readiness verdict, or a third synthesized model.
+    """
+    try:
+        # Search passes 1–3 (v3 is a mandatory three-pass route)
+        pass1_file = None
+        for cand in ("candidates-pass01.json", "candidates.json"):
+            if (run_dir / cand).is_file():
+                pass1_file = cand
+                break
+        if pass1_file is None:
+            return _die("missing artifact: candidates-pass01.json")
+        pass2_file = "candidates-pass02.json"
+        pass3_file = "candidates-pass03.json"
+        for name in (pass2_file, pass3_file):
+            if not (run_dir / name).is_file():
+                return _die(f"missing artifact: {name}")
+        field_file = "search-field-pass03.json"
+        if not (run_dir / field_file).is_file():
+            return _die(f"missing artifact: {field_file}")
+
+        pass1_data = _load_frozen_json(run_dir, pass1_file)
+        pass2_data = _load_frozen_json(run_dir, pass2_file)
+        pass3_data = _load_frozen_json(run_dir, pass3_file)
+        field_data = _load_frozen_json(run_dir, field_file)
+        for name in (pass1_file, pass2_file, pass3_file, field_file):
+            _verify_frozen_sidecar(run_dir, name)
+
+        cand_index: dict = {}
+        for name, data in ((pass1_file, pass1_data), (pass2_file, pass2_data), (pass3_file, pass3_data)):
+            pass_id = re.search(r"pass[0-9]{2,}", name)
+            for k, v in _candidate_index(data, pass_id.group(0) if pass_id else "pass01").items():
+                if k in cand_index:
+                    raise ValueError(f"duplicate composite candidate key across passes: {k!r}")
+                cand_index[k] = v
+
+        seen_sf_entries = set()
+        for entry in field_data.get("entries") or []:
+            if entry in seen_sf_entries:
+                raise ValueError(f"duplicate search field entry: {entry!r}")
+            seen_sf_entries.add(entry)
+            if entry not in cand_index:
+                raise ValueError(f"unknown search field entry: {entry!r}")
+
+        p_map = _validate_forge_portfolio(portfolio, cand_index)
+        mode = portfolio.get("development_mode")
+        targets = [t for t in portfolio.get("development_targets") or [] if isinstance(t, dict)]
+        bundles_by_id = {
+            b.get("bundle_id"): b
+            for b in portfolio.get("bundles") or []
+            if isinstance(b, dict)
+        }
+
+        # Load each development artifact in frozen portfolio order
+        loaded = []
+        for target in targets:
+            t_id = target.get("target_id")
+            dev_file = f"development-v2-{t_id}.json"
+            if not (run_dir / dev_file).is_file():
+                return _die(f"missing artifact: {dev_file}")
+            development = _load_frozen_json(run_dir, dev_file)
+            _verify_frozen_sidecar(run_dir, dev_file)
+            actual_target = (
+                development.get("target", {}).get("target_id")
+                if isinstance(development.get("target"), dict)
+                else development.get("target_id")
+            )
+            if actual_target != t_id:
+                return _die(
+                    f"development target mismatch in {dev_file}: expected {t_id!r}, got {actual_target!r}"
+                )
+            loaded.append((target, development, dev_file))
+
+        sections = ["# Pizm BONK Development Pack", "## Original task\n\n" + (task.strip() or "(no task provided)")]
+        sections.append(
+            "## Exploration coverage\n\n"
+            "Pass 1 — initial\n"
+            "Pass 2 — residual\n"
+            "Pass 3 — rift"
+        )
+
+        promoted = sorted(
+            (
+                (p_id, ref)
+                for p_id, ref in (portfolio.get("perspectives") or {}).items()
+                if isinstance(ref, str)
+            ),
+            key=lambda pr: _p_sort_key(pr[0]),
+        )
+        curated = ["## Curated field", "", "### Promoted perspectives", ""]
+        if promoted:
+            for p_id, ref in promoted:
+                curated.append(f"- {p_id} — {_c_title(_candidate_by_ref(ref, cand_index))} (`{ref}`)")
+        else:
+            curated.append("(no perspectives promoted)")
+        sections.append("\n".join(curated).rstrip("\n"))
+
+        bundles_sec = _render_bundles_section(portfolio, cand_index, p_map)
+        if bundles_sec:
+            sections.append(bundles_sec)
+
+        letters = ["A", "B"] if mode == "DUAL_BUNDLES" else [None]
+        for letter, (target, development, _dev_file) in zip(letters, loaded):
+            bundle = bundles_by_id.get(target.get("target_id"))
+            sections.append(
+                _render_v3_target_section(letter, target, development, bundle, p_map, cand_index)
+            )
+
+        if mode == "DUAL_BUNDLES":
+            why_lines = [
+                "## Why these two were developed",
+                "",
+                "Two materially distinct development targets were selected and developed "
+                "independently. They are not contestants: no winner was selected and neither "
+                "is preferred.",
+                "",
+                "Material structural difference (restated from the frozen portfolio record):",
+                str(portfolio.get("material_difference")).strip(),
+            ]
+        else:
+            why_lines = [
+                "## Why only this target was developed",
+                "",
+                "Why a second development target was not defensible (from the frozen portfolio record):",
+                str(loaded[0][0].get("why_develop")).strip(),
+            ]
+        sections.append("\n".join(why_lines).rstrip("\n"))
+
+        sections.append(
+            "## Explicit non-claims\n\n"
+            "- no winner selected\n"
+            "- models were not compared for truth\n"
+            "- no synthesis was performed\n"
+            "- no Critic readiness verdict was issued\n"
+            "- neither model is considered validated"
+        )
+
+        if mode == "DUAL_BUNDLES":
+            downstream = (
+                "Independently assess both developed hypotheses against the original source. "
+                "You may choose one, reject both, preserve both, or synthesize them, but do not "
+                "infer that Prism endorsed either."
+            )
+        else:
+            downstream = (
+                "Independently assess the developed hypothesis against the original source. "
+                "You may adopt it, reject it, or preserve it for later, but do not infer that "
+                "Prism endorsed it."
+            )
+        sections.append("## Suggested downstream task\n\n" + downstream)
+
+        machine_names = [
+            n
+            for n in (
+                pass1_file,
+                pass2_file,
+                pass3_file,
+                field_file,
+                "portfolio.json",
+                *[dev_file for _, _, dev_file in loaded],
+            )
+            if n
+        ]
+        machine_lines = ["## Machine artifacts", ""]
+        machine_lines.extend(f"- {n}" for n in sorted(machine_names))
+        sections.append("\n".join(machine_lines))
+
+        document = "\n\n".join(sections) + "\n"
+    except ValueError as e:
+        return _die(str(e))
+    out = Path(output_path)
+    try:
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(document, encoding="utf-8")
+    except OSError as e:
+        return _die(f"cannot write output: {e}")
+    print(f"RENDER_OK {out}")
+    return 0
+
+
+def _render_pack_run_md(
+    run_dir: Path,
+    task: str,
+    output_path: str,
+    portfolio: dict,
+) -> int:
+    try:
+        if portfolio.get("route") != "PACK":
+            return _die(f"PACK render requires portfolio route=PACK, got {portfolio.get('route')!r}")
+
+        # Load Pass 1 candidates (required)
+        pass1_file = "candidates.json"
+        if not (run_dir / pass1_file).is_file():
+            if (run_dir / "candidates-pass01.json").is_file():
+                pass1_file = "candidates-pass01.json"
+            else:
+                return _die("missing artifact: candidates.json")
+        _verify_frozen_sidecar(run_dir, pass1_file)
+        pass1_data = _load_frozen_json(run_dir, pass1_file)
+
+        # Load Pass 2 candidates if present
+        pass2_data = None
+        for p2_cand in ("candidates-pass02.json", "search-pass02.json"):
+            if (run_dir / p2_cand).is_file():
+                _verify_frozen_sidecar(run_dir, p2_cand)
+                pass2_data = _load_frozen_json(run_dir, p2_cand)
+                break
+
+        # Load Pass 3 candidates if present
+        pass3_data = None
+        for p3_cand in ("candidates-pass03.json", "search-pass03.json"):
+            if (run_dir / p3_cand).is_file():
+                _verify_frozen_sidecar(run_dir, p3_cand)
+                pass3_data = _load_frozen_json(run_dir, p3_cand)
+                break
+
+        cand_index = _candidate_index(pass1_data, "pass01")
+        if pass2_data:
+            cand_index.update(_candidate_index(pass2_data, "pass02"))
+        if pass3_data:
+            cand_index.update(_candidate_index(pass3_data, "pass03"))
+
+        p_map = _derive_promoted_p_ids(portfolio)
+
+        assessments = [
+            a for a in portfolio.get("candidate_assessments") or []
+            if isinstance(a, dict)
+        ]
+
+        keep_count = sum(1 for a in assessments if a.get("disposition") == "KEEP")
+        merge_count = sum(1 for a in assessments if a.get("disposition") == "MERGE")
+        borderline_count = sum(1 for a in assessments if a.get("disposition") == "BORDERLINE")
+        drop_count = sum(1 for a in assessments if a.get("disposition") == "DROP")
+        bundles_list = [b for b in portfolio.get("bundles") or [] if isinstance(b, dict)]
+        bundle_count = len(bundles_list)
+
+        lines = [
+            "# Pizm Research Pack",
+            "",
+            "## Original task",
+            task or "(no task provided)",
+            "",
+            "## Run shape",
+            "Pass 1 — initial",
+        ]
+        if pass2_data:
+            lines.append("Pass 2 — residual")
+        if pass3_data:
+            lines.append("Pass 3 — rift")
+        lines.append("")
+
+        lines.append("## Curated Perspectives")
+        lines.append("")
+
+        kept_assessments = [a for a in assessments if a.get("disposition") == "KEEP"]
+        kept_assessments.sort(key=lambda a: _ref_sort_key(a.get("candidate_ref", "")))
+
+        if not kept_assessments:
+            lines.append("(no perspectives promoted to KEEP)")
+            lines.append("")
+        else:
+            for a in kept_assessments:
+                ref = a.get("candidate_ref") or ""
+                p_id = p_map.get(ref, "?")
+                cand = cand_index.get(ref, {})
+                title = _c_title(cand)
+                lines.append(f"### {p_id} — {title} (`{ref}`)")
+                explanation = a.get("plain_explanation")
+                if isinstance(explanation, str) and explanation.strip():
+                    lines.append(_bullet("Plain explanation", explanation.strip()))
+                quality = a.get("standalone_quality")
+                if quality:
+                    lines.append(_bullet("Disposition", f"KEEP (standalone quality: {quality})"))
+                core = cand.get("semantic_core") or {}
+                if isinstance(core, dict):
+                    for label, field in (
+                        ("Core claim", "claim"),
+                        ("Structural shift", "structural_shift"),
+                        ("Mechanism", "mechanism"),
+                        ("Grounding anchor", "grounding_anchor"),
+                        ("Boundary", "boundary"),
+                    ):
+                        val = core.get(field)
+                        if isinstance(val, str) and val.strip():
+                            lines.append(_bullet(label, val))
+                residue = a.get("unique_residue") or ""
+                if residue.strip():
+                    lines.append(_bullet("Unique residue", residue.strip()))
+                overlap = a.get("nearest_overlap")
+                if isinstance(overlap, str) and overlap.strip():
+                    lines.append(_bullet("Nearest overlap", overlap.strip()))
+                reason = a.get("reason") or ""
+                if reason.strip():
+                    lines.append(_bullet("Reason", reason.strip()))
+                epi = cand.get("epistemics") or {}
+                if isinstance(epi, dict):
+                    parts = [
+                        f"{k}: {', '.join(v)}"
+                        for k, v in sorted(epi.items())
+                        if isinstance(v, list) and v
+                    ]
+                    if parts:
+                        lines.append(_bullet("Source-relative epistemics", "; ".join(parts)))
+                lines.append("")
+
+        bundles_rendered = _render_bundles_section(portfolio, cand_index, p_map)
+        if bundles_rendered:
+            lines.append(bundles_rendered)
+            lines.append("")
+
+        high_upside = portfolio.get("high_upside") or []
+        if isinstance(high_upside, list) and high_upside:
+            lines.append("## High-upside reading cues")
+            lines.append("(Attention cues for exploration; not a ranking or truth assessment)")
+            for entry in high_upside:
+                if not isinstance(entry, dict):
+                    continue
+                ref = entry.get("ref", "")
+                pid = p_map.get(ref, "")
+                label = pid if pid else ref
+                title = _c_title(cand_index.get(ref, {}))
+                lines.append(f"- **{label}** — {title} (`{ref}`)")
+                why = entry.get("why")
+                if isinstance(why, str) and why.strip():
+                    lines.append(f"  Why: {why.strip()}")
+                risk = entry.get("risk")
+                if isinstance(risk, str) and risk.strip():
+                    lines.append(f"  Risk: {risk.strip()}")
+            lines.append("")
+
+        lines.append("## Curation summary")
+        lines.append(f"- Raw candidate refs: {len(cand_index)}")
+        lines.append(f"- KEEP: {keep_count}")
+        lines.append(f"- MERGE: {merge_count}")
+        lines.append(f"- BORDERLINE: {borderline_count}")
+        lines.append(f"- DROP: {drop_count}")
+        lines.append(f"- Bundles: {bundle_count}")
+        lines.append("")
+
+        lines.append("## Explicit non-claims")
+        lines.append("This research packet does not establish that:")
+        lines.append("- any Perspective is true;")
+        lines.append("- any Bundle is validated;")
+        lines.append("- any candidate is a final recommendation;")
+        lines.append("- any causal mechanism has been independently verified.")
+        lines.append("")
+        lines.append("Candidate epistemic annotations are provisional source-relative search metadata; Prism curation is not a truth ranking.")
+        lines.append("")
+
+        lines.append("## Suggested downstream handoff")
+        lines.append("Use the original task/source together with this packet. Independently evaluate which models are useful, which claims require verification, which perspectives should be combined or rejected, and what should be acted on. Do not treat Prism's curation as a truth ranking.")
+        lines.append("")
+
+        out_text = "\n".join(lines).rstrip("\n") + "\n"
+        out_p = Path(output_path)
+        out_p.parent.mkdir(parents=True, exist_ok=True)
+        out_p.write_text(out_text, encoding="utf-8")
+        print(f"RENDER_OK {out_p}")
+        return 0
+    except Exception as e:
+        return _die(f"PACK render error: {e}")
+
 def render_run_md(
     run_dir_str: str,
     task: str,
@@ -2548,10 +3212,16 @@ def render_run_md(
     except ValueError as e:
         return _die(str(e))
 
+    if portfolio.get("schema_version") == "pizm-portfolio-selection-v3":
+        if portfolio.get("route") not in {"BONK", "FORGE"}:
+            return _die(f"BONK v3 portfolio requires route=BONK, got route={portfolio.get('route')!r}")
+        return _render_bonk_v3_run_md(run_dir, task, output_path, portfolio)
     if portfolio.get("schema_version") == "pizm-portfolio-selection-v2":
         if portfolio.get("route") not in {"BONK", "FORGE"}:
             return _die(f"BONK portfolio requires route=BONK, got route={portfolio.get('route')!r}")
         return _render_bonk_run_md(run_dir, task, output_path, portfolio)
+    elif portfolio.get("route") == "PACK":
+        return _render_pack_run_md(run_dir, task, output_path, portfolio)
     else:
         return _render_auto_run_md(run_dir, task, output_path, portfolio)
 
@@ -2713,6 +3383,19 @@ def main() -> int:
         )
 
     if args.command == "render-html":
+        # Guard: PACK HTML is explicitly unsupported in Wave A
+        p_file = Path(args.run_dir) / "portfolio.json"
+        if p_file.is_file():
+            try:
+                p_data = json.loads(p_file.read_text(encoding="utf-8"))
+                if p_data.get("route") == "PACK":
+                    return _die("PACK HTML is not supported in Wave A; use research-pack.md")
+                if p_data.get("schema_version") == "pizm-portfolio-selection-v3":
+                    return _die(
+                        "BONK v3 HTML is not supported; use the markdown development pack handoff"
+                    )
+            except Exception:
+                pass
         bin_dir = str(Path(__file__).resolve().parent)
         if bin_dir not in sys.path:
             sys.path.insert(0, bin_dir)

@@ -549,7 +549,10 @@ def test_a9_final_and_runmd_zero_model_deterministic(auto_md_text):
     assert "DETERMINISTIC ASSEMBLY" in auto_md_text
     assert "Zero Model Invocations" in auto_md_text
     assert "increments neither `semantic_stage_count` nor `host_inference_count`" in auto_md_text
-    assert "ZERO tool-call model turns" in auto_md_text
+    assert (
+        "deterministic FINAL adds zero semantic reasoning stages and performs no model-generated transformation of the frozen artifacts"
+        in auto_md_text
+    )
     assert "STOP and replan" in auto_md_text
 
     # run.md rendering named as equally deterministic and zero-model
