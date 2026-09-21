@@ -19,6 +19,7 @@ Read only the reference needed for the requested primitive:
 - Search (manual Search / Explore / NORMAL / residual / RIFT / 360 alias): read `references/explore.md`.
 - Deep on one P-ID, one composed Bundle B-ID, or a direct seed: read `references/deep.md` (v2 contract).
 - LEVER on a MODEL_READY Deep perspective (single P-ID or Bundle B-ID): read `references/lever.md`.
+- PACK pipeline: read `references/pack.md`.
 - AUTO pipeline: read `references/auto.md`.
 - BONK heavy automated path: read `references/bonk.md`.
 - WORDCRAFT (optional creative operation): read `references/wordcraft.md`.
@@ -60,8 +61,9 @@ A fresh Pizm run must not inspect artifacts or rendered records from prior `.ai/
 - `deep P2 P5 P8` or an equivalent explicit selection → experimental multi-focus Deep: each selected focus becomes its own Deep target and is developed in its own pass.
 - `/pizm critic P<n>|B<n>` (or bare `/pizm critic`) → Critic review primitive on a frozen development target. Bare `/pizm critic` is allowed only when exactly one unambiguous frozen, not-yet-reviewed Deep branch exists in active conversation context; otherwise return a deterministic refusal listing available targets.
 - `/pizm lever P<n>|B<n>` (or bare `/pizm lever`) → read `references/lever.md`. Bare `/pizm lever` is allowed only when exactly one unambiguous MODEL_READY branch exists; otherwise return a deterministic refusal listing ready branches. Blocked cases (unknown/stale target ID, non-ready Deep status) produce zero lever semantic stages.
+- `/pizm pack <task>` → read `references/pack.md`. Three Search passes (initial → residual → rift) → Portfolio curation over accumulated field → deterministic research packet (`research-pack-<slug>.md`) → STOP.
 - `/pizm auto <task>` → read `references/auto.md`. Two Search passes (initial + rift) → Portfolio over accumulated field → one nominated target (P or B) → Deep → Critic → optional LEVER; the final report, the readable `run.md`, and the interactive `run.html` with local Reader link (or file fallback) are assembled deterministically from frozen artifacts with zero model calls (`bin/pizm-session-bundle render` and `render-html --ensure-reader`).
-- `/pizm bonk <task>` → read `references/bonk.md`. Two-pass Search (initial + residual) → Portfolio over accumulated field → two competing Bundles developed separately (Deep(LEFT) then Deep(RIGHT)) → Critic/Compare → optional LEVER → deterministic final + `run.md` + `run.html` with Reader link or file fallback (`bin/pizm-session-bundle render` and `render-html --ensure-reader`).
+- `/pizm bonk <task>` → read `references/bonk.md`. Three-pass Search (initial + residual + rift) → Portfolio over accumulated field → two materially distinct Bundles developed separately (Deep A then Deep B) → deterministic dual-development handoff (no winner, no comparison, no synthesis) rendered as `run-<subject-slug>.md` via `bin/pizm-session-bundle render`; HTML is not supported for BONK v3.
 - `/pizm forge <task>` → deprecated compatibility alias that executes BONK; tell the user the heavy route is now BONK and continue as BONK. Explicit only; never implicit.
 - `/pizm wordcraft <material>` (or explicit phrasing such as `повордкрафти этот абзац`, `use Pizm Wordcraft on this passage`) → WORDCRAFT on directly supplied text or clearly referenced material in active conversation context → read `references/wordcraft.md` → STOP.
 - `/pizm wordcraft P<n>|B<n>` → WORDCRAFT using that exact accessible Pizm perspective/bundle → read `references/wordcraft.md` → STOP.
@@ -74,8 +76,8 @@ A fresh Pizm run must not inspect artifacts or rendered records from prior `.ai/
 
 - **Canonical manual reasoning primitives**: Search (`references/explore.md`), Deep (`references/deep.md`), LEVER (`references/lever.md`), RIFT (`references/explore.md`).
 - **Canonical optional creative operation**: WORDCRAFT (`references/wordcraft.md`).
-- **Canonical automatic pipelines**: AUTO (`references/auto.md`), BONK (`references/bonk.md`).
-- **Internal Search policies**: `initial` (broad structural search), `residual` (novelty against accumulated field), `rift` (explicit in manual use; mandatory second Search policy inside AUTO; not used by BONK).
+- **Canonical automatic pipelines**: PACK (`references/pack.md`), AUTO (`references/auto.md`), BONK (`references/bonk.md`).
+- **Internal Search policies**: `initial` (broad structural search), `residual` (novelty against accumulated field), `rift` (explicit in manual use; mandatory second Search policy inside AUTO; third Search pass inside BONK).
 - **Superseded / deprecated terms**: `360` is retained for one release solely as a deprecated compatibility alias to `Search(residual)`; `/pizm forge` is retained for one release solely as a deprecated compatibility alias to BONK; "Breadth" is superseded as a user mode (Search is the manual divergence primitive); "MAX" is superseded and eliminated as a product route; raw-P-only AUTO is superseded by Portfolio target nomination (P or B); compact-card Deep is superseded by mature analytical prose synthesis (~900–1600 words for P, ~1400–2400 words for B); full rubric-blindness is operationalized as same-host staged contract separation post-freeze.
 
 AUTO executes only via explicit `/pizm auto <task>` user delegation; manual modes never trigger it; discussing AUTO remains possible without executing it.

@@ -1506,6 +1506,136 @@ def test_portfolio_manual_freeze_success(workspace):
     # Contract map: manual portfolio does not reveal selector
     assert "NEXT CONTRACT" not in result.stdout
 
+def test_portfolio_pack_freeze_success(workspace):
+    project, skill = workspace
+    data = valid_portfolio()
+    data["route"] = "PACK"
+    inp = write_json(project / "portfolio_pack.json", data)
+    result = run_ck(
+        "freeze", "--stage", "portfolio", "--run-id", "pack-run-1",
+        "--input", inp, "--project-root", str(project), "--skill-root", str(skill),
+    )
+    assert result.returncode == 0, result.stderr
+    assert "FREEZE_OK" in result.stdout
+    run_dir = project / ".ai" / "pizm" / "run-pack-run-1"
+    assert (run_dir / "portfolio.json").exists()
+    assert (run_dir / "portfolio.sha256").exists()
+    assert (run_dir / "portfolio.meta.json").exists()
+    meta = json.loads((run_dir / "portfolio.meta.json").read_text())
+    assert meta["schema_version"] == "pizm-portfolio-selection-v1"
+    # PACK portfolio freeze reveals no next semantic contract
+    assert "NEXT CONTRACT" not in result.stdout
+
+
+def test_portfolio_pack_rejects_non_null_routing_fields(workspace):
+    project, skill = workspace
+    base = valid_portfolio()
+    base["route"] = "PACK"
+
+    # Non-null auto_target
+    d1 = dict(base, auto_target={"target_type": "P", "target_id": "P1"})
+    inp1 = write_json(project / "pack_bad1.json", d1)
+    r1 = run_ck("freeze", "--stage", "portfolio", "--run-id", "pack-bad-1", "--input", inp1, "--project-root", str(project), "--skill-root", str(skill))
+    assert r1.returncode != 0
+    assert "route PACK requires auto_target to be null" in r1.stderr
+
+    # Non-null next_reasoning_move
+    d2 = dict(base, next_reasoning_move="DEEP")
+    inp2 = write_json(project / "pack_bad2.json", d2)
+    r2 = run_ck("freeze", "--stage", "portfolio", "--run-id", "pack-bad-2", "--input", inp2, "--project-root", str(project), "--skill-root", str(skill))
+    assert r2.returncode != 0
+    assert "route PACK requires next_reasoning_move to be null" in r2.stderr
+
+    # Non-null next_reasoning_rationale
+    d3 = dict(base, next_reasoning_rationale="Rationale")
+    inp3 = write_json(project / "pack_bad3.json", d3)
+    r3 = run_ck("freeze", "--stage", "portfolio", "--run-id", "pack-bad-3", "--input", inp3, "--project-root", str(project), "--skill-root", str(skill))
+    assert r3.returncode != 0
+    assert "route PACK requires next_reasoning_rationale to be null" in r3.stderr
+
+    # Non-null information_request
+    d4 = dict(base, information_request={"mode": "USER_QUESTION"})
+    inp4 = write_json(project / "pack_bad4.json", d4)
+    r4 = run_ck("freeze", "--stage", "portfolio", "--run-id", "pack-bad-4", "--input", inp4, "--project-root", str(project), "--skill-root", str(skill))
+    assert r4.returncode != 0
+    assert "route PACK requires information_request to be null" in r4.stderr
+
+    # Non-null rival_shadow
+    d5 = dict(base, rival_shadow={"target_type": "P", "target_id": "P2"})
+    inp5 = write_json(project / "pack_bad5.json", d5)
+    r5 = run_ck("freeze", "--stage", "portfolio", "--run-id", "pack-bad-5", "--input", inp5, "--project-root", str(project), "--skill-root", str(skill))
+    assert r5.returncode != 0
+    assert "route PACK requires rival_shadow to be null" in r5.stderr
+
+
+def test_portfolio_pack_rejects_missing_routing_fields(workspace):
+    project, skill = workspace
+    base = valid_portfolio()
+    base["route"] = "PACK"
+
+    # Missing auto_target
+    d1 = dict(base)
+    del d1["auto_target"]
+    inp1 = write_json(project / "pack_miss1.json", d1)
+    r1 = run_ck("freeze", "--stage", "portfolio", "--run-id", "pack-miss-1", "--input", inp1, "--project-root", str(project), "--skill-root", str(skill))
+    assert r1.returncode != 0
+    assert "route PACK requires auto_target to be present" in r1.stderr
+
+    # Missing next_reasoning_move
+    d2 = dict(base)
+    del d2["next_reasoning_move"]
+    inp2 = write_json(project / "pack_miss2.json", d2)
+    r2 = run_ck("freeze", "--stage", "portfolio", "--run-id", "pack-miss-2", "--input", inp2, "--project-root", str(project), "--skill-root", str(skill))
+    assert r2.returncode != 0
+    assert "route PACK requires next_reasoning_move to be present" in r2.stderr
+
+
+def test_portfolio_pack_highest_pass_field_ref_enforced(workspace):
+    """When pass01, pass02, pass03 exist, field_ref=pass02 is rejected and pass03 is accepted."""
+    project, skill = workspace
+    run_id = "pack-field-ref-test"
+    run_dir = project / ".ai" / "pizm" / f"run-{run_id}"
+    run_dir.mkdir(parents=True)
+
+    sf1 = {"schema_version": "pizm-search-field-v1", "stage": "search-field", "field_id": "sf1", "passes": [], "entries": []}
+    sf1_raw = json.dumps(sf1).encode("utf-8")
+    (run_dir / "search-field-pass01.json").write_bytes(sf1_raw)
+    (run_dir / "search-field-pass01.sha256").write_text(hashlib.sha256(sf1_raw).hexdigest())
+    (run_dir / "search-field-pass01.meta.json").write_text('{"stage":"search-field"}')
+
+    sf2 = {"schema_version": "pizm-search-field-v1", "stage": "search-field", "field_id": "sf2", "passes": [], "entries": []}
+    sf2_raw = json.dumps(sf2).encode("utf-8")
+    sf2_hash = hashlib.sha256(sf2_raw).hexdigest()
+    (run_dir / "search-field-pass02.json").write_bytes(sf2_raw)
+    (run_dir / "search-field-pass02.sha256").write_text(sf2_hash)
+    (run_dir / "search-field-pass02.meta.json").write_text('{"stage":"search-field"}')
+
+    sf3 = {"schema_version": "pizm-search-field-v1", "stage": "search-field", "field_id": "sf3", "passes": [], "entries": []}
+    sf3_raw = json.dumps(sf3).encode("utf-8")
+    sf3_hash = hashlib.sha256(sf3_raw).hexdigest()
+    (run_dir / "search-field-pass03.json").write_bytes(sf3_raw)
+    (run_dir / "search-field-pass03.sha256").write_text(sf3_hash)
+    (run_dir / "search-field-pass03.meta.json").write_text('{"stage":"search-field"}')
+
+    data = valid_portfolio()
+    data["route"] = "PACK"
+
+    # 1. field_ref = search-field-pass02.json -> reject
+    data["field_ref"] = "search-field-pass02.json"
+    data["field_hash"] = sf2_hash
+    inp_bad = write_json(project / "port_bad_ref.json", data)
+    r_bad = run_ck("freeze", "--stage", "portfolio", "--run-id", run_id, "--input", inp_bad, "--project-root", str(project), "--skill-root", str(skill))
+    assert r_bad.returncode != 0
+    assert "field_ref must reference the final search field 'search-field-pass03.json'" in r_bad.stderr
+
+    # 2. field_ref = search-field-pass03.json -> accept
+    data["field_ref"] = "search-field-pass03.json"
+    data["field_hash"] = sf3_hash
+    inp_ok = write_json(project / "port_ok_ref.json", data)
+    r_ok = run_ck("freeze", "--stage", "portfolio", "--run-id", run_id, "--input", inp_ok, "--project-root", str(project), "--skill-root", str(skill))
+    assert r_ok.returncode == 0, r_ok.stderr
+    assert "FREEZE_OK" in r_ok.stdout
+
 @pytest.mark.parametrize(
     "target,valid",
     [
@@ -3168,3 +3298,366 @@ def test_g1f_development_v2_short_single_line_synthesis_accepted(workspace):
     payload["developed_model"]["synthesis"] = "s" * 2000
     result = freeze_dev_v2(workspace, payload, "synthesis-short")
     assert result.returncode == 0, result.stderr
+
+# ── BONK v3 portfolio (dual-development route) ───────────────────────────
+
+
+def _v3_bundle(bid, refs=("pass01:c01", "pass01:c02")):
+    return {
+        "bundle_id": bid,
+        "member_refs": list(refs),
+        "bundle_thesis": f"thesis {bid}",
+        "composition_gain": f"gain {bid}",
+        "member_roles": {},
+        "member_ablation": {r: f"ablation {r}" for r in refs},
+        "internal_tension": f"tension {bid}",
+        "weakest_link": f"weak {bid}",
+        "new_consequence_or_prediction": f"prediction {bid}",
+    }
+
+
+def _v3_run_with_fields(project, run_id, passes=(3,)):
+    """Run dir holding frozen search-field pass snapshots (no candidate chain needed)."""
+    run_dir = project / ".ai" / "pizm" / f"run-{run_id}"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    for i in passes:
+        data = {
+            "schema_version": "pizm-search-field-v1",
+            "stage": "search-field",
+            "field_id": f"sf{i}",
+            "passes": [
+                {
+                    "pass_id": f"pass0{j}",
+                    "candidates_ref": f"candidates-pass0{j}.json",
+                    "frozen_hash": chr(96 + j) * 64,
+                }
+                for j in range(1, i + 1)
+            ],
+            "entries": [f"pass0{j}:c01" for j in range(1, i + 1)],
+        }
+        raw = json.dumps(data, indent=2).encode("utf-8")
+        (run_dir / f"search-field-pass0{i}.json").write_bytes(raw)
+        (run_dir / f"search-field-pass0{i}.sha256").write_text(
+            hashlib.sha256(raw).hexdigest(), encoding="utf-8"
+        )
+    return run_dir
+
+
+def valid_portfolio_v3(run_dir, mode="DUAL_BUNDLES", field_name="search-field-pass03.json"):
+    """Minimal valid v3 portfolio bound to the frozen final search field."""
+    data = {
+        "schema_version": "pizm-portfolio-selection-v3",
+        "stage": "portfolio",
+        "route": "BONK",
+        "field_ref": field_name,
+        "field_hash": (run_dir / (field_name[: -len(".json")] + ".sha256")).read_text(encoding="utf-8").strip(),
+        "perspectives": {"P1": "pass01:c01", "P2": "pass01:c02"},
+        "candidate_assessments": [
+            {"candidate_ref": "pass01:c01", "disposition": "KEEP", "standalone_quality": "strong",
+             "unique_residue": "r1", "nearest_overlap": None, "reason": "good"},
+            {"candidate_ref": "pass01:c02", "disposition": "KEEP", "standalone_quality": "strong",
+             "unique_residue": "r2", "nearest_overlap": None, "reason": "good"},
+        ],
+        "bundles": [_v3_bundle("B1"), _v3_bundle("B2")],
+        "high_upside": [],
+    }
+    if mode == "DUAL_BUNDLES":
+        data["development_mode"] = "DUAL_BUNDLES"
+        data["development_targets"] = [
+            {"target_type": "B", "target_id": "B1", "why_develop": "develop B1"},
+            {"target_type": "B", "target_id": "B2", "why_develop": "develop B2"},
+        ]
+        data["material_difference"] = "B1 changes the causal mechanism; B2 shifts the system boundary."
+    else:
+        data["development_mode"] = "SINGLE_TARGET"
+        data["development_targets"] = [
+            {"target_type": "B", "target_id": "B1",
+             "why_develop": "No second materially distinct bundle was defensible."},
+        ]
+        data["material_difference"] = None
+    return data
+
+
+def _freeze_v3(project, skill, data, run_id, name=None):
+    inp = write_json(project / (name or f"p_{run_id}.json"), data)
+    return run_ck("freeze", "--stage", "portfolio", "--run-id", run_id,
+                  "--input", inp, "--project-root", str(project), "--skill-root", str(skill))
+
+
+def test_portfolio_v3_dual_freeze_success_and_no_reveal(workspace):
+    """A valid v3 dual portfolio freezes and reveals no next semantic contract."""
+    project, skill = workspace
+    run_id = "v3-dual-ok"
+    run_dir = _v3_run_with_fields(project, run_id)
+    result = _freeze_v3(project, skill, valid_portfolio_v3(run_dir), run_id)
+    assert result.returncode == 0, result.stderr
+    assert "FREEZE_OK" in result.stdout
+    assert "NEXT CONTRACT" not in result.stdout
+    meta = json.loads((run_dir / "portfolio.meta.json").read_text(encoding="utf-8"))
+    assert meta["schema_version"] == "pizm-portfolio-selection-v3"
+
+
+def test_portfolio_v3_forge_alias_normalized_to_bonk(workspace):
+    project, skill = workspace
+    run_id = "v3-forge-alias"
+    run_dir = _v3_run_with_fields(project, run_id)
+    data = valid_portfolio_v3(run_dir)
+    data["route"] = "FORGE"
+    result = _freeze_v3(project, skill, data, run_id)
+    assert result.returncode == 0, result.stderr
+
+
+def test_portfolio_v3_requires_bonk_route(workspace):
+    project, skill = workspace
+    run_id = "v3-auto-route"
+    run_dir = _v3_run_with_fields(project, run_id)
+    data = valid_portfolio_v3(run_dir)
+    data["route"] = "AUTO"
+    result = _freeze_v3(project, skill, data, run_id)
+    assert result.returncode != 0
+    assert "requires route 'BONK'" in result.stderr
+
+
+@pytest.mark.parametrize(
+    "key,value",
+    [
+        ("auto_target", {"target_type": "B", "target_id": "B1"}),
+        ("next_reasoning_move", "DEEP"),
+        ("next_reasoning_rationale", "because"),
+        ("information_request", {"mode": "EXTERNAL_OBSERVATION"}),
+        ("rival_shadow", {"target_type": "B", "target_id": "B2"}),
+        ("competition_status", "TWO_DEFENSIBLE_BUNDLES"),
+        ("recommended_competition", {"left_bundle_id": "B1", "right_bundle_id": "B2"}),
+        ("single_target", {"target_type": "B", "target_id": "B1"}),
+    ],
+)
+def test_portfolio_v3_forbids_v1_and_v2_routing_keys(workspace, key, value):
+    """v3 must not carry any v1 routing aid or v2 competition key."""
+    project, skill = workspace
+    run_id = f"v3-forbid-{key}".replace("_", "-")
+    run_dir = _v3_run_with_fields(project, run_id)
+    data = valid_portfolio_v3(run_dir)
+    data[key] = value
+    result = _freeze_v3(project, skill, data, run_id)
+    assert result.returncode != 0
+    assert f"forbids {key}" in result.stderr
+
+
+def test_portfolio_v3_dual_requires_two_targets(workspace):
+    project, skill = workspace
+    run_id = "v3-one-target"
+    run_dir = _v3_run_with_fields(project, run_id)
+    data = valid_portfolio_v3(run_dir)
+    data["development_targets"] = data["development_targets"][:1]
+    result = _freeze_v3(project, skill, data, run_id)
+    assert result.returncode != 0
+    assert "requires exactly 2 development target(s)" in result.stderr
+
+
+def test_portfolio_v3_dual_rejects_duplicate_target(workspace):
+    """B1/B1 is not two materially distinct targets."""
+    project, skill = workspace
+    run_id = "v3-dup-target"
+    run_dir = _v3_run_with_fields(project, run_id)
+    data = valid_portfolio_v3(run_dir)
+    data["development_targets"][1] = {"target_type": "B", "target_id": "B1", "why_develop": "again"}
+    result = _freeze_v3(project, skill, data, run_id)
+    assert result.returncode != 0
+    assert "must be distinct" in result.stderr
+
+
+def test_portfolio_v3_dual_rejects_nonexistent_target(workspace):
+    project, skill = workspace
+    run_id = "v3-ghost-target"
+    run_dir = _v3_run_with_fields(project, run_id)
+    data = valid_portfolio_v3(run_dir)
+    data["development_targets"][1] = {"target_type": "B", "target_id": "B9", "why_develop": "ghost"}
+    result = _freeze_v3(project, skill, data, run_id)
+    assert result.returncode != 0
+    assert "must reference a bundle_id proposed in this portfolio" in result.stderr
+
+
+def test_portfolio_v3_dual_rejects_perspective_target(workspace):
+    """DUAL_BUNDLES develops bundles, not loose perspectives."""
+    project, skill = workspace
+    run_id = "v3-p-target"
+    run_dir = _v3_run_with_fields(project, run_id)
+    data = valid_portfolio_v3(run_dir)
+    data["development_targets"][1] = {"target_type": "P", "target_id": "P2", "why_develop": "loose"}
+    result = _freeze_v3(project, skill, data, run_id)
+    assert result.returncode != 0
+    assert "both development targets to be Bundles" in result.stderr
+
+
+@pytest.mark.parametrize("value", ["", "   ", None, 7])
+def test_portfolio_v3_dual_requires_material_difference(workspace, value):
+    project, skill = workspace
+    run_id = f"v3-nodiff-{len(str(value))}-{type(value).__name__.lower()}"
+    run_dir = _v3_run_with_fields(project, run_id)
+    data = valid_portfolio_v3(run_dir)
+    data["material_difference"] = value
+    result = _freeze_v3(project, skill, data, run_id)
+    assert result.returncode != 0
+    assert "requires a non-empty material_difference" in result.stderr
+
+
+def test_portfolio_v3_target_why_develop_must_be_non_empty(workspace):
+    project, skill = workspace
+    run_id = "v3-no-why"
+    run_dir = _v3_run_with_fields(project, run_id)
+    data = valid_portfolio_v3(run_dir)
+    data["development_targets"][0]["why_develop"] = "   "
+    result = _freeze_v3(project, skill, data, run_id)
+    assert result.returncode != 0
+    assert "why_develop must be non-empty string" in result.stderr
+
+
+def test_portfolio_v3_single_target_accepted(workspace):
+    """An honest single-target portfolio (P target, null material_difference) freezes."""
+    project, skill = workspace
+    run_id = "v3-single-ok"
+    run_dir = _v3_run_with_fields(project, run_id)
+    data = valid_portfolio_v3(run_dir, "SINGLE_TARGET")
+    data["development_targets"] = [
+        {"target_type": "P", "target_id": "P2",
+         "why_develop": "No second materially distinct bundle was defensible."},
+    ]
+    result = _freeze_v3(project, skill, data, run_id)
+    assert result.returncode == 0, result.stderr
+
+
+def test_portfolio_v3_single_requires_exactly_one_target(workspace):
+    project, skill = workspace
+    run_id = "v3-single-two"
+    run_dir = _v3_run_with_fields(project, run_id)
+    data = valid_portfolio_v3(run_dir, "SINGLE_TARGET")
+    data["development_targets"] = [
+        {"target_type": "B", "target_id": "B1", "why_develop": "a"},
+        {"target_type": "B", "target_id": "B2", "why_develop": "b"},
+    ]
+    result = _freeze_v3(project, skill, data, run_id)
+    assert result.returncode != 0
+    assert "requires exactly 1 development target(s)" in result.stderr
+
+
+def test_portfolio_v3_single_rejects_material_difference(workspace):
+    project, skill = workspace
+    run_id = "v3-single-diff"
+    run_dir = _v3_run_with_fields(project, run_id)
+    data = valid_portfolio_v3(run_dir, "SINGLE_TARGET")
+    data["material_difference"] = "there is none really"
+    result = _freeze_v3(project, skill, data, run_id)
+    assert result.returncode != 0
+    assert "requires material_difference to be null or empty" in result.stderr
+
+
+def test_portfolio_v3_single_empty_material_difference_accepted(workspace):
+    project, skill = workspace
+    run_id = "v3-single-empty"
+    run_dir = _v3_run_with_fields(project, run_id)
+    data = valid_portfolio_v3(run_dir, "SINGLE_TARGET")
+    data["material_difference"] = ""
+    result = _freeze_v3(project, skill, data, run_id)
+    assert result.returncode == 0, result.stderr
+
+
+def test_portfolio_v3_requires_field_ref(workspace):
+    project, skill = workspace
+    run_id = "v3-no-ref"
+    run_dir = _v3_run_with_fields(project, run_id)
+    data = valid_portfolio_v3(run_dir)
+    del data["field_ref"]
+    result = _freeze_v3(project, skill, data, run_id)
+    assert result.returncode != 0
+    assert "requires field_ref" in result.stderr
+
+
+def test_portfolio_v3_field_ref_must_be_final_pass(workspace):
+    """With pass01..pass03 frozen, only search-field-pass03.json is accepted."""
+    project, skill = workspace
+    run_id = "v3-final-field-ref"
+    run_dir = _v3_run_with_fields(project, run_id, passes=(1, 2, 3))
+
+    data = valid_portfolio_v3(run_dir)
+    data["field_ref"] = "search-field-pass02.json"
+    data["field_hash"] = (run_dir / "search-field-pass02.sha256").read_text(encoding="utf-8").strip()
+    result = _freeze_v3(project, skill, data, run_id)
+    assert result.returncode != 0
+    assert "field_ref must reference the final search field 'search-field-pass03.json'" in result.stderr
+
+    ok = valid_portfolio_v3(run_dir)
+    result = _freeze_v3(project, skill, ok, run_id)
+    assert result.returncode == 0, result.stderr
+
+
+def test_portfolio_v3_reuses_shared_bundle_and_upside_validation(workspace):
+    """v3 reuses the shared bundle/high_upside validation instead of duplicating it."""
+    project, skill = workspace
+
+    run_id = "v3-hu-score"
+    run_dir = _v3_run_with_fields(project, run_id)
+    bad_upside = valid_portfolio_v3(run_dir)
+    bad_upside["high_upside"] = [{"ref": "pass01:c02", "why": "w", "risk": "r", "score": 0.9}]
+    result = _freeze_v3(project, skill, bad_upside, run_id)
+    assert result.returncode != 0
+    assert "must not carry 'score'" in result.stderr
+
+    run_id2 = "v3-bad-members"
+    run_dir2 = _v3_run_with_fields(project, run_id2)
+    bad_members = valid_portfolio_v3(run_dir2)
+    bad_members["bundles"][0]["member_refs"] = ["pass01:c01"]
+    result = _freeze_v3(project, skill, bad_members, run_id2)
+    assert result.returncode != 0
+    assert "at least 2 composite refs" in result.stderr
+
+
+def test_v3_bonk_flow_never_reveals_critic_compare_or_lever_contracts(workspace):
+    """Plan test 7: the v3 checkpoint flow reveals no Compare/Critic/LEVER contract.
+
+    Freezing the v3 portfolio and then both developments emits no NEXT CONTRACT
+    block, so a v3 run cannot chain into deep-reviewer/deep-compare/lever.
+    """
+    project, skill = workspace
+    run_id = "v3-no-reveal"
+    run_dir = _v3_run_with_fields(project, run_id)
+
+    res_p = _freeze_v3(project, skill, valid_portfolio_v3(run_dir), run_id)
+    assert res_p.returncode == 0, res_p.stderr
+    assert "NEXT CONTRACT" not in res_p.stdout
+    assert "DEEP COMPARE" not in res_p.stdout
+    assert "DEEP REVIEWER" not in res_p.stdout
+    assert "LEVER REVIEWER" not in res_p.stdout
+
+    for target in ("B1", "B2"):
+        dev = valid_dev_v2("B", target)
+        inp = write_json(project / f"dev_v3_{target}.json", dev)
+        res_d = run_ck("freeze", "--stage", "development-v2", "--run-id", run_id,
+                       "--target", target, "--input", inp,
+                       "--project-root", str(project), "--skill-root", str(skill))
+        assert res_d.returncode == 0, res_d.stderr
+        assert "NEXT CONTRACT" not in res_d.stdout
+        assert "DEEP COMPARE" not in res_d.stdout
+        assert "DEEP REVIEWER" not in res_d.stdout
+        assert "LEVER REVIEWER" not in res_d.stdout
+
+
+def test_v2_bonk_flow_still_reveals_deep_compare(workspace):
+    """Legacy v2 read compatibility: the comparison seam still reveals deep-compare.md."""
+    project, skill = workspace
+    run_id = "v2-still-reveals"
+    run_dir = project / ".ai" / "pizm" / f"run-{run_id}"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    raw_p = json.dumps(valid_portfolio_v2("B1", "B2"), indent=2).encode("utf-8")
+    (run_dir / "portfolio.json").write_bytes(raw_p)
+    (run_dir / "portfolio.sha256").write_text(hashlib.sha256(raw_p).hexdigest(), encoding="utf-8")
+    (run_dir / "portfolio.meta.json").write_text('{"stage":"portfolio"}', encoding="utf-8")
+
+    for target in ("B1", "B2"):
+        dev = valid_dev_v2("B", target)
+        dev["identity_lock"]["bundle_id"] = target
+        inp = write_json(project / f"dev_v2_{target}.json", dev)
+        res_d = run_ck("freeze", "--stage", "development-v2", "--run-id", run_id,
+                       "--target", target, "--input", inp,
+                       "--project-root", str(project), "--skill-root", str(skill))
+        assert res_d.returncode == 0, res_d.stderr
+    assert "DEEP COMPARE RUBRIC" in res_d.stdout

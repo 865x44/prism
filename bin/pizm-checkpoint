@@ -1269,6 +1269,84 @@ def _validate_v1_perspectives_mapping(data, kept_refs):
         )
 
 
+def _validate_v3_development_targets(data, seen_bundle_ids, seen_p_ids):
+    """Fail-closed validation of the BONK v3 dual/single development selection.
+
+    DUAL_BUNDLES: exactly two distinct existing B-IDs with a non-empty
+    why_develop each and a non-empty material_difference. SINGLE_TARGET:
+    exactly one existing B- or P-ID with a non-empty why_develop (the prose
+    must also state why no second target was defensible; this validator
+    checks non-emptiness only) and a null/empty material_difference.
+    """
+    mode = data.get("development_mode")
+    if mode not in ("DUAL_BUNDLES", "SINGLE_TARGET"):
+        raise ValueError(
+            f"development_mode must be DUAL_BUNDLES or SINGLE_TARGET, got {mode!r}"
+        )
+    targets = data.get("development_targets")
+    if not isinstance(targets, list):
+        raise ValueError("development_targets must be a list")
+    expected_count = 2 if mode == "DUAL_BUNDLES" else 1
+    if len(targets) != expected_count:
+        raise ValueError(
+            f"development_mode {mode} requires exactly {expected_count} development target(s), "
+            f"got {len(targets)}"
+        )
+
+    seen_target_ids = set()
+    for i, t in enumerate(targets):
+        if not isinstance(t, dict):
+            raise ValueError(f"development_targets[{i}] must be an object")
+        t_type = t.get("target_type")
+        t_id = t.get("target_id")
+        why = t.get("why_develop")
+        if t_type not in ("B", "P"):
+            raise ValueError(f"development_targets[{i}].target_type must be B or P, got {t_type!r}")
+        if not isinstance(t_id, str) or not t_id.strip():
+            raise ValueError(f"development_targets[{i}].target_id must be non-empty string")
+        if not isinstance(why, str) or not why.strip():
+            raise ValueError(f"development_targets[{i}].why_develop must be non-empty string")
+        if mode == "DUAL_BUNDLES" and t_type != "B":
+            raise ValueError(
+                "development_mode DUAL_BUNDLES requires both development targets to be "
+                "Bundles (target_type B)"
+            )
+        if t_type == "B":
+            if not _B_ID_RE.fullmatch(t_id):
+                raise ValueError(
+                    f"development target {t_id!r} must match B[1-9][0-9]* for target_type B"
+                )
+            if t_id not in seen_bundle_ids:
+                raise ValueError(
+                    f"development target {t_id!r} must reference a bundle_id proposed in this portfolio"
+                )
+        else:
+            if not _P_ID_RE.fullmatch(t_id):
+                raise ValueError(
+                    f"development target {t_id!r} must match P[1-9][0-9]* for target_type P"
+                )
+            if t_id not in seen_p_ids:
+                raise ValueError(
+                    f"development target {t_id!r} must reference a perspective id in perspectives mapping"
+                )
+        if t_id in seen_target_ids:
+            raise ValueError(f"development targets must be distinct; duplicate {t_id!r}")
+        seen_target_ids.add(t_id)
+
+    material_difference = data.get("material_difference")
+    if mode == "DUAL_BUNDLES":
+        if not isinstance(material_difference, str) or not material_difference.strip():
+            raise ValueError(
+                "development_mode DUAL_BUNDLES requires a non-empty material_difference"
+            )
+    elif material_difference is not None and (
+        not isinstance(material_difference, str) or material_difference.strip()
+    ):
+        raise ValueError(
+            "development_mode SINGLE_TARGET requires material_difference to be null or empty"
+        )
+
+
 def _validate_portfolio(
     data: dict,
     raw_bytes_len: int = 0,
@@ -1278,9 +1356,14 @@ def _validate_portfolio(
     if not isinstance(data, dict):
         raise ValueError("root must be a JSON object")
     schema_version = data.get("schema_version")
-    if schema_version not in ("pizm-portfolio-selection-v1", "pizm-portfolio-selection-v2"):
+    if schema_version not in (
+        "pizm-portfolio-selection-v1",
+        "pizm-portfolio-selection-v2",
+        "pizm-portfolio-selection-v3",
+    ):
         raise ValueError(
-            f"schema_version must be 'pizm-portfolio-selection-v1' or 'pizm-portfolio-selection-v2', got {schema_version!r}"
+            "schema_version must be 'pizm-portfolio-selection-v1', 'pizm-portfolio-selection-v2', "
+            f"or 'pizm-portfolio-selection-v3', got {schema_version!r}"
         )
     if data.get("stage") != "portfolio":
         raise ValueError("stage field must be 'portfolio'")
@@ -1292,7 +1375,28 @@ def _validate_portfolio(
         )
 
     route = data.get("route")
-    if schema_version == "pizm-portfolio-selection-v2":
+    if schema_version == "pizm-portfolio-selection-v3":
+        if route == "FORGE":
+            route = "BONK"
+            data["route"] = "BONK"
+        if route != "BONK":
+            raise ValueError(f"pizm-portfolio-selection-v3 requires route 'BONK', got {route!r}")
+        # v3 is the dual-development route: the v1 routing aids and the v2
+        # competition block are all structurally absent (never present, not
+        # merely null) so no reader can mistake a v3 portfolio for either.
+        for k in (
+            "auto_target",
+            "next_reasoning_move",
+            "next_reasoning_rationale",
+            "information_request",
+            "rival_shadow",
+            "competition_status",
+            "recommended_competition",
+            "single_target",
+        ):
+            if k in data:
+                raise ValueError(f"pizm-portfolio-selection-v3 forbids {k}")
+    elif schema_version == "pizm-portfolio-selection-v2":
         if route == "FORGE":
             route = "BONK"
             data["route"] = "BONK"
@@ -1304,8 +1408,8 @@ def _validate_portfolio(
             if data.get(k) is not None:
                 raise ValueError(f"pizm-portfolio-selection-v2 forbids {k}")
     else:
-        if route not in ("MANUAL", "AUTO"):
-            raise ValueError(f"route must be MANUAL or AUTO, got {route!r}")
+        if route not in ("MANUAL", "AUTO", "PACK"):
+            raise ValueError(f"route must be MANUAL, AUTO, or PACK, got {route!r}")
         if data.get("single_target") is not None:
             raise ValueError("single_target is forbidden in pizm-portfolio-selection-v1")
 
@@ -1315,9 +1419,9 @@ def _validate_portfolio(
 
     # Resolve and verify search-field reference
     field_ref = data.get("field_ref")
-    if schema_version == "pizm-portfolio-selection-v2":
+    if schema_version in ("pizm-portfolio-selection-v2", "pizm-portfolio-selection-v3"):
         if not isinstance(field_ref, str) or not field_ref.strip():
-            raise ValueError("pizm-portfolio-selection-v2 requires field_ref")
+            raise ValueError(f"{schema_version} requires field_ref")
 
     if run_dir is not None:
         pass_field_files = []
@@ -1510,16 +1614,26 @@ def _validate_portfolio(
 
     auto_target = data.get("auto_target")
     if schema_version == "pizm-portfolio-selection-v1":
-        for required_key in ("next_reasoning_move", "next_reasoning_rationale", "information_request", "rival_shadow"):
-            if required_key not in data:
-                raise ValueError(f"pizm-portfolio-selection-v1 requires {required_key}")
-
-        next_move = data.get("next_reasoning_move")
-        next_rationale = data.get("next_reasoning_rationale")
-        info_req = data.get("information_request")
-        rival_shadow = data.get("rival_shadow")
-
-        if route == "MANUAL":
+        if route == "PACK":
+            for required_key in (
+                "next_reasoning_move",
+                "next_reasoning_rationale",
+                "information_request",
+                "rival_shadow",
+                "auto_target",
+            ):
+                if required_key not in data:
+                    raise ValueError(f"route PACK requires {required_key} to be present")
+                if data[required_key] is not None:
+                    raise ValueError(f"route PACK requires {required_key} to be null")
+        elif route == "MANUAL":
+            for required_key in ("next_reasoning_move", "next_reasoning_rationale", "information_request", "rival_shadow"):
+                if required_key not in data:
+                    raise ValueError(f"pizm-portfolio-selection-v1 requires {required_key}")
+            next_move = data.get("next_reasoning_move")
+            next_rationale = data.get("next_reasoning_rationale")
+            info_req = data.get("information_request")
+            rival_shadow = data.get("rival_shadow")
             if next_move is not None:
                 raise ValueError("route MANUAL requires next_reasoning_move to be null")
             if next_rationale is not None:
@@ -1531,6 +1645,13 @@ def _validate_portfolio(
             if auto_target is not None:
                 raise ValueError("route MANUAL requires auto_target to be null")
         elif route == "AUTO":
+            for required_key in ("next_reasoning_move", "next_reasoning_rationale", "information_request", "rival_shadow"):
+                if required_key not in data:
+                    raise ValueError(f"pizm-portfolio-selection-v1 requires {required_key}")
+            next_move = data.get("next_reasoning_move")
+            next_rationale = data.get("next_reasoning_rationale")
+            info_req = data.get("information_request")
+            rival_shadow = data.get("rival_shadow")
             if next_move not in ("DEEP", "GATHER_INFORMATION", "PRESERVE_ONLY"):
                 raise ValueError(
                     "route AUTO requires next_reasoning_move to be DEEP|GATHER_INFORMATION|PRESERVE_ONLY, "
@@ -1659,11 +1780,11 @@ def _validate_portfolio(
                 "and user-visible ids are never renumbered"
             )
 
-    # v2 validation
-    if schema_version == "pizm-portfolio-selection-v2":
+    # v2/v3 shared validation: explicit perspective identity map
+    if schema_version in ("pizm-portfolio-selection-v2", "pizm-portfolio-selection-v3"):
         perspectives = data.get("perspectives")
         if not isinstance(perspectives, dict) or len(perspectives) == 0:
-            raise ValueError("v2 portfolio must have a non-empty perspectives mapping")
+            raise ValueError(f"{schema_version} must have a non-empty perspectives mapping")
 
         seen_p_ids = set()
         seen_c_refs = set()
@@ -1686,6 +1807,8 @@ def _validate_portfolio(
             seen_p_ids.add(p_id)
             seen_c_refs.add(c_ref)
 
+    # v2-only validation: competition block and prior-snapshot continuity
+    if schema_version == "pizm-portfolio-selection-v2":
         comp_status = data.get("competition_status")
         if comp_status not in _COMPETITION_STATUSES:
             raise ValueError(
@@ -1782,6 +1905,12 @@ def _validate_portfolio(
                             raise ValueError(
                                 f"newly assigned perspective {p_id} violates monotonic ID constraint (<= {prior_highest})"
                             )
+
+    # v3-only validation: dual/single development selection
+    if schema_version == "pizm-portfolio-selection-v3":
+        _validate_v3_development_targets(data, seen_bundle_ids, seen_p_ids)
+
+
 def _sha256_hex(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
@@ -1979,6 +2108,12 @@ def _resolve_development_v2_next_contract(
 
     schema = port_data.get("schema_version")
     route = port_data.get("route")
+
+    # v3 BONK portfolios terminate after the deterministic dual-development
+    # handoff: no comparison, no critic, no lever contract is ever revealed.
+    if schema == "pizm-portfolio-selection-v3":
+        return None
+
     if route == "MANUAL":
         # Manual portfolio -> STOP (reveal nothing)
         return None

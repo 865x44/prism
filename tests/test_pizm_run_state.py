@@ -91,6 +91,26 @@ def test_state_resolution_portfolio_terminal():
     assert s2.is_complete is True
 
 
+def test_state_resolution_pack_portfolio_curated():
+    state = pizm_run_state.resolve_run_state(
+        portfolio={
+            "schema_version": "pizm-portfolio-selection-v1",
+            "route": "PACK",
+            "next_reasoning_move": None,
+            "next_reasoning_rationale": None,
+            "information_request": None,
+            "rival_shadow": None,
+            "auto_target": None,
+        }
+    )
+    assert state.route == "PACK"
+    assert state.artifact_shape == "PORTFOLIO_TERMINAL"
+    assert state.execution_completion == "COMPLETE"
+    assert state.semantic_outcome == "CURATED"
+    assert state.missing_next is None
+    assert state.auto_target is None
+    assert state.is_complete is True
+
 def test_state_resolution_comparison_only_bonk():
     for pref in ("LEFT", "RIGHT", "CONDITIONAL", "UNRESOLVED"):
         state = pizm_run_state.resolve_run_state(
@@ -658,3 +678,107 @@ def test_g1f_split_composite_identity_first_slash_only():
     # No slash: unchanged.
     assert split("muse-spark-1.3-test", "") == ("muse-spark-1.3-test", "")
     assert split(None, None) == (None, None)
+
+
+# ---------------------------------------------------------------------------
+# BONK v3: dual/single development handoff (target-matched completion)
+# ---------------------------------------------------------------------------
+
+def _v3_portfolio(mode, targets):
+    return {
+        "schema_version": "pizm-portfolio-selection-v3",
+        "route": "BONK",
+        "development_mode": mode,
+        "development_targets": [
+            {"target_type": t_type, "target_id": t_id, "why_develop": "why"} for t_type, t_id in targets
+        ],
+    }
+
+
+def _devs(*target_ids):
+    return [{"target": {"target_id": t_id}} for t_id in target_ids]
+
+
+@pytest.mark.parametrize(
+    "present,expected_shape,expected_outcome,expected_missing",
+    [
+        (("B1", "B2"), "DUAL_DEVELOPMENT", "DUAL_BUNDLES", None),
+        (("B1",), "PARTIAL", None, "Deep"),
+        (("B2",), "PARTIAL", None, "Deep"),
+        (("B1", "B3"), "PARTIAL", None, "Deep"),
+        ((), "PARTIAL", None, "Deep"),
+    ],
+)
+def test_state_resolution_bonk_v3_dual_is_target_matched(
+    present, expected_shape, expected_outcome, expected_missing
+):
+    """v3 dual completeness is target-matched, never a bare development count."""
+    state = pizm_run_state.resolve_run_state(
+        portfolio=_v3_portfolio("DUAL_BUNDLES", (("B", "B1"), ("B", "B2"))),
+        developments=_devs(*present),
+    )
+    assert state.route == "BONK"
+    assert state.artifact_shape == expected_shape
+    assert state.execution_completion == ("COMPLETE" if expected_missing is None else "INCOMPLETE")
+    assert state.semantic_outcome == expected_outcome
+    assert state.missing_next == expected_missing
+    assert state.auto_target is None
+    assert state.is_complete is (expected_missing is None)
+
+
+@pytest.mark.parametrize(
+    "present,expected_shape,expected_outcome,expected_missing",
+    [
+        (("P2",), "SINGLE_DEVELOPMENT", "SINGLE_TARGET", None),
+        (("P2", "P3"), "SINGLE_DEVELOPMENT", "SINGLE_TARGET", None),
+        (("P9",), "PARTIAL", None, "Deep"),
+        ((), "PARTIAL", None, "Deep"),
+    ],
+)
+def test_state_resolution_bonk_v3_single_is_target_matched(
+    present, expected_shape, expected_outcome, expected_missing
+):
+    """Only the exact selected target completes a v3 single-target run."""
+    state = pizm_run_state.resolve_run_state(
+        portfolio=_v3_portfolio("SINGLE_TARGET", (("P", "P2"),)),
+        developments=_devs(*present),
+    )
+    assert state.route == "BONK"
+    assert state.artifact_shape == expected_shape
+    assert state.execution_completion == ("COMPLETE" if expected_missing is None else "INCOMPLETE")
+    assert state.semantic_outcome == expected_outcome
+    assert state.missing_next == expected_missing
+    assert state.auto_target is None
+
+
+def test_state_resolution_bonk_v3_never_waits_for_critic_or_comparison():
+    """v3 has no Critic/Comparison stage: a missing development is always missing Deep."""
+    cases = [
+        (_v3_portfolio("DUAL_BUNDLES", (("B", "B1"), ("B", "B2"))), _devs("B1")),
+        (_v3_portfolio("DUAL_BUNDLES", (("B", "B1"), ("B", "B2"))), _devs("B1", "B3")),
+        (_v3_portfolio("SINGLE_TARGET", (("B", "B1"),)), _devs()),
+    ]
+    for portfolio, developments in cases:
+        state = pizm_run_state.resolve_run_state(portfolio=portfolio, developments=developments)
+        assert state.artifact_shape == "PARTIAL"
+        assert state.missing_next == "Deep"
+        assert state.missing_next not in ("Critic", "Comparison")
+
+
+def test_state_resolution_bonk_v3_unknown_mode_fails_closed():
+    """An unrecognized development_mode never resolves as complete."""
+    portfolio = _v3_portfolio("DUAL_BUNDLES", (("B", "B1"), ("B", "B2")))
+    portfolio["development_mode"] = "SOMETHING_ELSE"
+    state = pizm_run_state.resolve_run_state(portfolio=portfolio, developments=_devs("B1", "B2"))
+    assert state.artifact_shape == "PARTIAL"
+    assert state.execution_completion == "INCOMPLETE"
+    assert state.missing_next == "Deep"
+
+
+def test_state_resolution_bonk_v3_without_route_field_still_bonk():
+    """A v3 portfolio without an explicit route still resolves to the BONK route."""
+    portfolio = _v3_portfolio("DUAL_BUNDLES", (("B", "B1"), ("B", "B2")))
+    del portfolio["route"]
+    state = pizm_run_state.resolve_run_state(portfolio=portfolio, developments=_devs("B1", "B2"))
+    assert state.route == "BONK"
+    assert state.artifact_shape == "DUAL_DEVELOPMENT"

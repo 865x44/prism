@@ -112,10 +112,10 @@ def split_composite_identity(
 
 @dataclass(frozen=True)
 class RunState:
-    route: str  # MANUAL | AUTO | BONK
-    artifact_shape: str  # SINGLE_DEEP_REVIEW | COMPARISON_REVIEW | PORTFOLIO_TERMINAL | PARTIAL
+    route: str  # MANUAL | AUTO | BONK | PACK
+    artifact_shape: str  # SINGLE_DEEP_REVIEW | COMPARISON_REVIEW | DUAL_DEVELOPMENT | SINGLE_DEVELOPMENT | PORTFOLIO_TERMINAL | PARTIAL
     execution_completion: str  # COMPLETE | INCOMPLETE
-    semantic_outcome: Optional[str]  # e.g. MODEL_READY, LEFT, CONDITIONAL, UNRESOLVED, GATHER_INFORMATION, None
+    semantic_outcome: Optional[str]  # e.g. MODEL_READY, LEFT, CONDITIONAL, UNRESOLVED, DUAL_BUNDLES, SINGLE_TARGET, GATHER_INFORMATION, None
     missing_next: Optional[str] = None  # e.g. Search, Portfolio, Deep, Critic, Comparison, None
     auto_target: Optional[Dict[str, Any]] = None
     subject_slug: Optional[str] = None
@@ -148,6 +148,74 @@ def _unwrap_item(item: Any) -> Any:
     if isinstance(item, (tuple, list)) and len(item) == 2 and isinstance(item[0], str):
         return item[1]
     return item
+
+
+def _development_target_id(development: Any) -> Optional[str]:
+    """Frozen development target id, tolerating both flat and nested shapes."""
+    if not isinstance(development, dict):
+        return None
+    target = development.get("target")
+    if isinstance(target, dict):
+        t_id = target.get("target_id")
+        return t_id if isinstance(t_id, str) else None
+    t_id = development.get("target_id")
+    return t_id if isinstance(t_id, str) else None
+
+
+def _resolve_bonk_v3_state(
+    port_data: Dict[str, Any],
+    dev_items: Sequence[Any],
+    subject_slug: Optional[str],
+    records: Optional[Dict[str, str]],
+) -> RunState:
+    """BONK v3 state: complete only when every frozen development target is developed.
+
+    DUAL_BUNDLES completes on exactly the two frozen bundle developments;
+    SINGLE_TARGET completes on exactly the one frozen target. Any missing or
+    unknown development target fails closed as an incomplete Deep stage — v3
+    has no Critic/Comparison stage to wait for.
+    """
+    mode = port_data.get("development_mode")
+    raw_targets = port_data.get("development_targets")
+    target_ids = [
+        t.get("target_id")
+        for t in (raw_targets if isinstance(raw_targets, list) else [])
+        if isinstance(t, dict) and isinstance(t.get("target_id"), str)
+    ]
+    present_ids = {
+        t_id for t_id in (_development_target_id(d) for d in dev_items) if t_id
+    }
+    missing = [t_id for t_id in target_ids if t_id not in present_ids]
+
+    if mode not in ("DUAL_BUNDLES", "SINGLE_TARGET") or not target_ids or missing:
+        return RunState(
+            route="BONK",
+            artifact_shape="PARTIAL",
+            execution_completion="INCOMPLETE",
+            semantic_outcome=None,
+            missing_next="Deep",
+            auto_target=None,
+            subject_slug=subject_slug,
+            records=records,
+        )
+
+    if mode == "DUAL_BUNDLES":
+        artifact_shape = "DUAL_DEVELOPMENT"
+        semantic_outcome = "DUAL_BUNDLES"
+    else:
+        artifact_shape = "SINGLE_DEVELOPMENT"
+        semantic_outcome = "SINGLE_TARGET"
+
+    return RunState(
+        route="BONK",
+        artifact_shape=artifact_shape,
+        execution_completion="COMPLETE",
+        semantic_outcome=semantic_outcome,
+        missing_next=None,
+        auto_target=None,
+        subject_slug=subject_slug,
+        records=records,
+    )
 
 
 def resolve_run_state(
@@ -192,9 +260,13 @@ def resolve_run_state(
                 route = "BONK"
             elif raw_upper == "MANUAL":
                 route = "MANUAL"
+            elif raw_upper == "PACK":
+                route = "PACK"
             else:
                 route = "AUTO"
         elif port_data.get("competition_status") in ("TWO_DEFENSIBLE_BUNDLES", "NO_SECOND_DEFENSIBLE_BUNDLE"):
+            route = "BONK"
+        elif port_data.get("schema_version") == "pizm-portfolio-selection-v3":
             route = "BONK"
         elif port_data.get("schema_version") in ("pizm-portfolio-selection-v1", "pizm-portfolio-selection-v2"):
             route = "AUTO"
@@ -202,12 +274,28 @@ def resolve_run_state(
         route = "BONK"
     elif manifest_data is not None and manifest_data.get("route"):
         m_route = str(manifest_data["route"]).strip().upper()
-        route = "BONK" if m_route in ("FORGE", "BONK") else m_route
+        if m_route in ("FORGE", "BONK"):
+            route = "BONK"
+        elif m_route == "PACK":
+            route = "PACK"
+        else:
+            route = m_route
     elif not port_data and (dev_items or rev_items or passes_list):
         route = "MANUAL"
 
     # 2. Check Portfolio Terminal
     if port_data is not None:
+        if route == "PACK":
+            return RunState(
+                route="PACK",
+                artifact_shape="PORTFOLIO_TERMINAL",
+                execution_completion="COMPLETE",
+                semantic_outcome="CURATED",
+                missing_next=None,
+                auto_target=None,
+                subject_slug=subject_slug,
+                records=records,
+            )
         next_move = port_data.get("next_reasoning_move")
         if route == "AUTO" and next_move in ("GATHER_INFORMATION", "PRESERVE_ONLY"):
             return RunState(
@@ -221,8 +309,15 @@ def resolve_run_state(
                 records=records,
             )
 
-    # 3. Check BONK Route (Comparison Review or Single Fallback)
+    # 3. Check BONK Route (v3 dual-development, or Comparison Review / Single Fallback)
     if route == "BONK":
+        # 3a. BONK v3: the run terminates after the dual/single development
+        # handoff. Completion is target-matched against the frozen
+        # development_targets list; there is no Critic/Comparison stage, so a
+        # missing development can only ever be missing Deep.
+        if port_data is not None and port_data.get("schema_version") == "pizm-portfolio-selection-v3":
+            return _resolve_bonk_v3_state(port_data, dev_items, subject_slug, records)
+
         comp_status = port_data.get("competition_status") if port_data else None
 
         if comp_status == "NO_SECOND_DEFENSIBLE_BUNDLE":
