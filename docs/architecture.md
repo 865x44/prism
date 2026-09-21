@@ -5,7 +5,7 @@ Prism is a semantic exploration and model-development architecture designed for 
 This document describes the system architecture across four distinct layers:
 1. **Semantic Capabilities**: Core reasoning primitives and logical contracts (Search, Portfolio, Deep Development, Critic Review, LEVER, Comparative Review). Logical contracts define semantic invariants and artifact schemas; they are not model calls, network APIs, or provider abstractions.
 2. **Cumulative Manual Orchestration**: The reference interactive experience where human direction guides free-form exploration, preserves monotonic P-ID continuity, chooses what and when to deepen, and invokes manual LEVER on ready models.
-3. **Dynamic AUTO Orchestration**: Automated execution of the same semantic capabilities with dynamic reasoning-budget forks (`DEEP`, `GATHER_INFORMATION`, `PRESERVE_ONLY`), compact live rival shadows, and honest non-ready stops.
+3. **Automated Route Hierarchy**: PACK (recommended automatic exploration/handoff: cheap-model three-pass Search + Portfolio curation → deterministic research packet), BONK (heavy dual development: three-pass Search + dual-development selection → two separate Deep developments → deterministic handoff with no winner and no synthesis), and AUTO (experimental end-to-end synthesis/adjudication: dynamic reasoning-budget forks (`DEEP`, `GATHER_INFORMATION`, `PRESERVE_ONLY`), compact live rival shadows, and honest non-ready stops). PACK and BONK are non-adjudicating; Critic, Comparative Review, and LEVER remain advanced/manual/experimental primitives, and only AUTO retains an automatic Critic stage.
 4. **Execution & Performance Optimization**: Deterministic fail-closed payload ceilings, checkpoint seams, offline bundle accounting, and reader rendering. Context slicing and payload reduction operate as execution hypotheses, never as semantic invariants.
 
 ---
@@ -26,7 +26,7 @@ Every Search pass executes exactly one search policy:
 
 1. **`initial` (NORMAL)**: Broad structural divergence across the problem space. When supported by source material, target is roughly 12–16 compact candidate seeds. Hard safety bounds: 1..20 candidates, $\le 192\text{ KiB}$ total candidate payload, $\le 12\text{ KiB}$ per candidate.
 2. **`residual` (360)**: Novelty search directed explicitly away from accumulated prior perspectives and developed directions. Identifies uncharted territory against the registered search field. (*Note: `360` is a deprecated compatibility alias for the residual search policy*).
-3. **`rift` (RIFT)**: Distant, non-obvious structural reframings that strictly preserve the underlying operational mechanism of the source while rejecting decorative or metaphorical analogies. Explicit in manual use (`/pizm rift`); mandatory second Search policy inside AUTO (`Search(rift)`); not used by BONK.
+3. **`rift` (RIFT)**: Distant, non-obvious structural reframings that strictly preserve the underlying operational mechanism of the source while rejecting decorative or metaphorical analogies. Explicit in manual use (`/pizm rift`); the mandatory final Search policy inside PACK and BONK (`Search(rift)` as `pass03`); the mandatory second Search policy inside AUTO (`Search(rift)` as `pass02`).
 *Terminology note: "Breadth" is superseded terminology and is not a user mode. "MAX" is superseded and eliminated as a product route.*
 
 ### Search Field Manifest
@@ -62,9 +62,10 @@ A Bundle ($B\langle n\rangle$) groups complementary perspectives where compositi
 
 ### Portfolio Schemas
 
-#### `pizm-portfolio-selection-v1` (Manual & AUTO)
-Used in manual exploration and AUTO (`route: "MANUAL" | "AUTO"`).
+#### `pizm-portfolio-selection-v1` (Manual, AUTO & PACK)
+Used in manual exploration, AUTO, and PACK (`route: "MANUAL" | "AUTO" | "PACK"`).
 - **In `MANUAL`**: `auto_target`, `next_reasoning_move`, `next_reasoning_rationale`, `information_request`, and `rival_shadow` are `null`. The user interactively decides which perspective or bundle to deepen in Layer 2 cumulative manual orchestration.
+- **In `PACK`**: all five downstream routing fields (`auto_target`, `next_reasoning_move`, `next_reasoning_rationale`, `information_request`, `rival_shadow`) are present and `null`, and `field_ref` names `search-field-pass03.json`. PACK curates the accumulated field and stops there: zero Deep, Critic, Comparative Review, and LEVER stages, no readiness claim, no winner.
 - **In `AUTO`**: `next_reasoning_move` is a required non-null enum (`DEEP | GATHER_INFORMATION | PRESERVE_ONLY`) with a non-empty `next_reasoning_rationale`:
   - `DEEP`: `auto_target` is a required non-null target (`{"target_type": "P" | "B", "target_id": "P<n>" | "B<n>"}`); `information_request` is `null`. `rival_shadow` is nullable. When a clear live rival exists in the portfolio, `rival_shadow` records:
     ```json
@@ -89,14 +90,24 @@ Used in manual exploration and AUTO (`route: "MANUAL" | "AUTO"`).
     ```
   - `PRESERVE_ONLY`: Intentional completed terminal outcome. `auto_target`, `information_request`, and `rival_shadow` are all `null`. Preserves the current field without further reasoning spend.
 
-#### `pizm-portfolio-selection-v2` (BONK)
-Used in BONK (`route: "BONK"`). Specifies `competition_status`: either `TWO_DEFENSIBLE_BUNDLES` with `recommended_competition` (`left_bundle_id`, `right_bundle_id`, `competition_axis`, `discriminating_observation`) or `NO_SECOND_DEFENSIBLE_BUNDLE` with `single_target`.
+#### `pizm-portfolio-selection-v2` (legacy BONK competition — read compatibility)
+Specifies `competition_status`: either `TWO_DEFENSIBLE_BUNDLES` with `recommended_competition` (`left_bundle_id`, `right_bundle_id`, `competition_axis`, `discriminating_observation`) or `NO_SECOND_DEFENSIBLE_BUNDLE` with `single_target`. Existing v2 archives remain readable and renderable; new BONK runs never write v2.
+
+#### `pizm-portfolio-selection-v3` (BONK dual development)
+Used in BONK (`route: "BONK"`, `stage: "portfolio"`). Selects two materially distinct development targets instead of a competitor pair:
+- **`field_ref` / `field_hash`**: Must name the final search field (`search-field-pass03.json`) and match its frozen SHA-256 sidecar.
+- **`development_mode`**: `DUAL_BUNDLES` or `SINGLE_TARGET`.
+- **`DUAL_BUNDLES`**: exactly two `development_targets` entries `{"target_type": "B", "target_id": "B<n>", "why_develop": "non-empty"}`, distinct and both present in the frozen `bundles` list; `material_difference` is required non-empty and must state a structural distinction (causal mechanism, system boundary, unit of analysis, control structure, temporal mechanism, intervention logic, or mutually tensioned assumptions) rather than a wording or topic difference.
+- **`SINGLE_TARGET`**: exactly one `development_targets` entry (`target_type` `B` present in `bundles`, or `P` present in the `perspectives` mapping) whose `why_develop` states why no second materially distinct target was defensible; `material_difference` is `null` or empty.
+- **Forbidden under v3** (absent, not merely null): `auto_target`, `next_reasoning_move`, `next_reasoning_rationale`, `information_request`, `rival_shadow`, `competition_status`, `recommended_competition`, `single_target`.
 
 ---
 
 ## 3. Deep Model Development (v2)
 
 Deep develops a selected perspective ($P\langle n\rangle$), composed bundle ($B\langle n\rangle$), or direct seed into a mature, testable causal model conforming to `pizm-development-v2`.
+
+Deep is hypothesis elaboration, not validation: it develops the selected target into its strongest honest form and does not establish that its mechanism is true. Its load-bearing claim census remains provisional until independently assessed (Critic review or downstream human judgment).
 
 ### Development Contract
 
@@ -126,9 +137,11 @@ All five list keys are required and may be empty (`[]`). This provides an audita
 
 ---
 
-## 4. Critic & Comparative Review
+## 4. Critic & Comparative Review (advanced/manual/experimental)
 
 The Critic provides independent adversarial reassessment of frozen development models. The developer role is blind to the critic rubric until the development artifact freezes.
+
+Critic, Comparative Review, and LEVER are advanced/manual/experimental primitives: neither recommended automatic route invokes them. PACK and BONK v3 execute zero Critic, Compare, and LEVER stages; only AUTO retains an automatic Critic stage as part of its experimental end-to-end verdict.
 
 ### Single-Model Critic (`pizm-deep-review-v2`)
 
@@ -167,15 +180,15 @@ The critic returns exactly one of three terminal states:
 
 ### Comparative Review (`pizm-comparison-review-v1`) & Delayed Reveal Seam
 
-In dual-competition BONK execution:
+Legacy dual-competition path (BONK v2 archives and advanced/manual use only; no recommended automatic route executes it):
 - **Delayed Reveal**: The comparative contract (`references/deep-compare.md`) is structurally hidden and revealed ONLY after BOTH `development-v2-<left_id>` and `development-v2-<right_id>` are frozen and hash-verified.
 - **Comparator Scope**: Evaluates `left_review`, `right_review`, and `comparison` (`current_preference`: `LEFT|RIGHT|CONDITIONAL|UNRESOLVED`, `competition_axis`, `strongest_reason_for_left`, `strongest_reason_for_right`, `discriminating_observation`, `what_would_change_the_decision`).
 
 ---
 
-## 5. LEVER (Actionable Leverage)
+## 5. LEVER (Actionable Leverage — advanced/manual primitive)
 
-LEVER derives bounded, high-leverage interventions from a `MODEL_READY` model. It is not a general planning tool; it operates solely on validated causal mechanisms.
+LEVER derives bounded, high-leverage interventions from a `MODEL_READY` model. It is not a general planning tool; it operates solely on validated causal mechanisms. It is invoked by explicit manual request (`/pizm lever`) or conditionally inside the experimental AUTO route's dynamic reasoning-budget branch; PACK and BONK never invoke it.
 
 - **Design Stage (`pizm-lever-design-v1`)**: Identifies intervention points, causal linkages to the model, bounded moves, expected responses, disconfirming signals, and explicit stop conditions.
 - **Review Stage (`pizm-lever-review-v1`)**: Adversarial audit testing model dependence, boundedness, discrimination, adaptation rules, and stop triggers.
@@ -183,9 +196,27 @@ LEVER derives bounded, high-leverage interventions from a `MODEL_READY` model. I
 
 ---
 
-## 6. AUTO Topology
+## 6. PACK & AUTO Topologies
 
-AUTO (`/pizm auto <task>`) is an automated pipeline that orchestrates the underlying semantic capabilities through dynamic reasoning-budget forks (Layer 3: Dynamic AUTO Orchestration):
+### PACK Topology (recommended automatic route)
+
+PACK (`/pizm pack <task>`) is the recommended automatic route: a cheap host model expands and structures the hypothesis space, and the curated result is handed off for synthesis, judgment, and decision.
+
+```text
+/pizm pack <task>
+  │
+  ├─► Search(initial)  ──────────────► Freeze pass01 + search-field-pass01
+  ├─► Search(residual) ──────────────► Freeze pass02 + search-field-pass02
+  ├─► Search(rift)     ──────────────► Freeze pass03 + search-field-pass03 (FINAL)
+  ├─► Portfolio Curation ────────────► Freeze portfolio (route: PACK, v1, all routing keys null)
+  └─► Deterministic FINAL ───────────► Session bundle archive, research-pack-<slug>.md (0 model calls)
+```
+
+*PACK Non-Claims*: exactly three accumulated Search passes, one Portfolio curation, and zero Deep, Critic, Comparison, and LEVER stages. PACK issues no `MODEL_READY`, no winner, and no truth ranking; interactive HTML is not supported for PACK, so the Markdown research packet is the primary deliverable.
+
+### AUTO Topology (experimental automatic route)
+
+AUTO (`/pizm auto <task>`) is the experimental end-to-end route: it orchestrates the underlying semantic capabilities through dynamic reasoning-budget forks and is the only route that ends in an automated readiness verdict (Layer 3: Automated Route Hierarchy):
 
 ```text
 /pizm auto <task>
@@ -224,31 +255,33 @@ AUTO (`/pizm auto <task>`) is an automated pipeline that orchestrates the underl
 AUTO enforces strict two-pass search and single-target discipline: exactly two Search passes (initial + rift) produce the accumulated field, from which exactly one target is deepened, with zero branch rerolls or additional search passes. Semantic budgets operate across 5/7 stages (5 stages for DEEP without LEVER; 7 stages with conditional LEVER design and review). Context slicing, payload pruning, and token reduction operate as execution optimization hypotheses, not as semantic invariants of the reasoning model.
 ---
 
-## 7. BONK Topology
+## 7. BONK Topology (heavy dual-development route)
 
-BONK (`/pizm bonk <task>`) is the heavy automated dual-competition pipeline:
+BONK (`/pizm bonk <task>`) selects two strong, materially distinct model families, develops both, and hands both downstream unranked:
 
 ```text
 /pizm bonk <task>
   │
-  ├─► Search(initial) ───────────────► Freeze pass01 + search-field
+  ├─► Search(initial) ───────────────► Freeze pass01 + search-field-pass01
   │
-  ├─► Search(residual) ──────────────► Freeze pass02 + search-field
+  ├─► Search(residual) ──────────────► Freeze pass02 + search-field-pass02
   │
-  ├─► Portfolio Judge (BONK) ───────► Freeze portfolio-v2 (TWO_DEFENSIBLE_BUNDLES or NO_SECOND_DEFENSIBLE_BUNDLE)
+  ├─► Search(rift) ──────────────────► Freeze pass03 + search-field-pass03 (FINAL)
   │
-  ├─► Deep(LEFT) ────────────────────► Freeze development-v2-<left_id>
+  ├─► Portfolio dual-development ────► Freeze portfolio-v3 (DUAL_BUNDLES or SINGLE_TARGET)
   │
-  ├─► Deep(RIGHT) ───────────────────► Freeze development-v2-<right_id>
+  ├─► Deep A ────────────────────────► Freeze development-v2-<A_target_id>
   │
-  ├─► Reveal deep-compare.md ────────► Freeze comparison-review-v1 (Critic LEFT + Critic RIGHT + Comparative Reasoner)
+  ├─► Deep B ────────────────────────► Freeze development-v2-<B_target_id>
   │
-  ├─► [Conditional LEVER] ───────────► Freeze design + review on preferred MODEL_READY bundle
-  │
-  └─► Deterministic FINAL ───────────► Session bundle archive, deterministic run.md + run.html (0 model calls)
+  └─► Deterministic FINAL ───────────► Session bundle archive, run-<subject-slug>.md (0 model calls)
 ```
 
-*Degraded BONK*: When `competition_status` is `NO_SECOND_DEFENSIBLE_BUNDLE`, BONK deepens only `single_target`, skips the comparative review stage, and renders the skip reason in `run.md` and `run.html`.
+*Dual-development invariants*: exactly three Search passes and no fourth pass or re-search; each selected target gets one ordinary Deep development under `pizm-development-v2`; zero Critic, Compare, and LEVER stages; no winner, no preference, no ranked pair, and no synthesized third model. The frozen `material_difference` and both full developments are handed downstream. Stage accounting is 6 semantic stages for the dual path and 5 for the single-target path.
+
+*Degraded BONK*: when the portfolio records `development_mode: "SINGLE_TARGET"`, BONK develops the one target and renders the recorded reason no second materially distinct target was defensible. It never fabricates a second bundle or an artificial competitor.
+
+*Legacy*: `pizm-portfolio-selection-v2` and `comparison-review-v1` are not deleted. Existing BONK v2 dual-competition archives remain readable and renderable, but they are read compatibility only and are never written by new BONK runs. Interactive HTML is not supported for BONK v3; the Markdown development pack is primary.
 
 ---
 
@@ -299,6 +332,7 @@ The archive manifest (`manifest.json` via `bin/pizm-session-bundle`) is the sole
 
 Human presentation strictly separates readable summaries from machine authority:
 - **Deterministic `run.md`**: Reader-oriented markdown synthesis rendered by `bin/pizm-session-bundle render`. Requires zero model calls and does not duplicate machine accounting fields.
+- **Route-specific deliverables**: the same deterministic renderer emits `research-pack-<slug>.md` for PACK and `run-<subject-slug>.md` for BONK v3. Interactive HTML is not supported for PACK or BONK v3: `render-html` refuses with a stable non-zero error and the Markdown handoff is primary.
 - **Deterministic `run.html`**: Self-contained interactive full-trace report rendered by `bin/pizm-session-bundle render-html`. Requires zero model calls.
 - **Local Reader Server**: Optional local transport via `pizm-reader-server` (default port 41144). When active, reports `READER_URL http://127.0.0.1:41144/run/<slug>/`. When inactive, reports `READER_OFFLINE file://<path>/run.html (local reader server inactive)`. The reader server is never part of semantic run validity; `file://` fallback is always available.
 ---
