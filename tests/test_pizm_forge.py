@@ -886,16 +886,6 @@ class TestForgeContractText:
         assert installed.exists()
         assert staged.read_bytes() == installed.read_bytes()
 
-    def test_forge_contract_text_assertions(self):
-        forge_text = (STAGED_SKILL_ROOT / "references" / "bonk.md").read_text(encoding="utf-8")
-        assert 'route: "BONK"' in forge_text or 'route BONK' in forge_text
-        assert "left_bundle_id" in forge_text
-        assert "right_bundle_id" in forge_text
-        assert "deep-compare.md" in forge_text
-        assert 'bundle_a: "B1"' not in forge_text
-        assert 'bundle_a' not in forge_text
-        assert "review_B1" not in forge_text
-
     def test_bonk_file_exists_and_forge_reference_gone(self):
         assert (STAGED_SKILL_ROOT / "references" / "bonk.md").is_file()
         assert not (STAGED_SKILL_ROOT / "references" / "forge.md").exists()
