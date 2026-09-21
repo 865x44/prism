@@ -181,11 +181,36 @@ def _validate_explore(data: dict, raw_bytes_len: int = 0) -> None:
         raise ValueError(f"schema_version must be {_SCHEMA_VERSIONS['explore']!r}")
     if data.get("stage") != "explore":
         raise ValueError("stage field must be 'explore'")
-    if data.get("mode") not in ("NORMAL", "360", "RIFT"):
+    mode = data.get("mode")
+    if mode not in ("NORMAL", "360", "RIFT"):
         raise ValueError("mode must be NORMAL|360|RIFT")
     candidates = data.get("candidates")
-    if not isinstance(candidates, list) or len(candidates) == 0:
-        raise ValueError("candidates must be a non-empty list")
+    if not isinstance(candidates, list):
+        raise ValueError("candidates must be a list")
+    # Honest exhaustion (residual 360 / RIFT): an empty pool is a legitimate
+    # finding, but only when it is named. NORMAL owns no exhaustion channel —
+    # the initial pass either finds territory or reports a limit instead of
+    # freezing, so an empty NORMAL pool stays a hard failure.
+    exhaustion_reason = data.get("exhaustion_reason")
+    if mode == "NORMAL":
+        if len(candidates) == 0:
+            raise ValueError("candidates must be a non-empty list for mode NORMAL")
+        if exhaustion_reason is not None:
+            raise ValueError(
+                "mode NORMAL must not carry exhaustion_reason "
+                "(honest exhaustion applies to modes 360 and RIFT)"
+            )
+    elif len(candidates) == 0:
+        if not isinstance(exhaustion_reason, str) or not exhaustion_reason.strip():
+            raise ValueError(
+                "modes 360 and RIFT may freeze empty candidates only with a "
+                "non-empty exhaustion_reason string"
+            )
+    elif exhaustion_reason is not None:
+        raise ValueError(
+            "exhaustion_reason is only allowed when candidates is empty "
+            "(a non-empty pool has no exhaustion to declare)"
+        )
 
     # Payload safety bounds enforcement (R1)
     if raw_bytes_len > _EXPLORE_MAX_TOTAL_BYTES:
@@ -479,6 +504,94 @@ def _validate_development_v2(data: dict, raw_bytes_len: int = 0) -> None:
         for idx, item in enumerate(items):
             if not isinstance(item, str):
                 raise ValueError(f"developed_model.development_delta.{cat}[{idx}] must be a string")
+
+
+def _frozen_v3_portfolio(run_dir: Path) -> dict | None:
+    """Sidecar-verified v3 portfolio frozen in run_dir, or None when absent/other schema.
+
+    A present-but-unverifiable portfolio fails closed: once a selection record
+    exists in the run directory, it is the only trustworthy source of the frozen
+    development selection, so a tampered or sidecar-less record must never be
+    silently ignored on a route-aware freeze.
+    """
+    portfolio_path = run_dir / "portfolio.json"
+    if not portfolio_path.is_file():
+        return None
+    raw_bytes, _ = _verify_artifact_and_sidecar(portfolio_path, field_name="portfolio")
+    try:
+        data = json.loads(raw_bytes)
+    except (json.JSONDecodeError, ValueError):
+        raise ValueError("frozen portfolio is not valid JSON")
+    if not isinstance(data, dict):
+        raise ValueError("frozen portfolio root must be a JSON object")
+    if data.get("schema_version") != "pizm-portfolio-selection-v3":
+        return None
+    return data
+
+
+def _validate_development_v2_against_v3_portfolio(run_dir: Path, data: dict) -> None:
+    """BONK v3 route-aware coupling between a frozen development and its portfolio.
+
+    BONK v3 claims two things the generic Deep validator cannot see: that only a
+    selected target is developed, and that the developed bundle is the frozen
+    bundle (member identity, not merely a matching bundle_id), while no
+    comparative channel is opened. When no v3 portfolio is frozen yet (AUTO,
+    MANUAL, and v2 routes, or a deep artifact frozen before the portfolio) this
+    is a no-op; the session-bundle `create` backstop covers that ordering.
+    """
+    portfolio = _frozen_v3_portfolio(run_dir)
+    if portfolio is None:
+        return
+
+    target = data.get("target") or {}
+    target_type = target.get("target_type")
+    target_id = target.get("target_id")
+    selected = any(
+        isinstance(t, dict)
+        and t.get("target_type") == target_type
+        and t.get("target_id") == target_id
+        for t in portfolio.get("development_targets") or []
+    )
+    if not selected:
+        raise ValueError(
+            f"development target {target_id!r} ({target_type}) is not among the frozen "
+            "portfolio development_targets: BONK v3 develops only its selected targets"
+        )
+
+    model = data.get("developed_model")
+    if isinstance(model, dict) and model.get("comparative_standing") is not None:
+        raise ValueError(
+            "developed_model.comparative_standing must be null for a BONK v3 development "
+            "(BONK v3 never compares its targets)"
+        )
+
+    if target_type == "B":
+        bundles = {
+            b.get("bundle_id"): b
+            for b in portfolio.get("bundles") or []
+            if isinstance(b, dict)
+        }
+        bundle = bundles.get(target_id)
+        if not isinstance(bundle, dict):
+            raise ValueError(
+                f"frozen portfolio carries no bundle {target_id!r} to develop"
+            )
+        frozen_refs = set(bundle.get("member_refs") or [])
+        lock = data.get("identity_lock")
+        lock_refs = set((lock or {}).get("member_refs") or [])
+        if lock_refs != frozen_refs:
+            raise ValueError(
+                f"identity_lock.member_refs {sorted(lock_refs)} must equal the frozen bundle "
+                f"{target_id} member_refs {sorted(frozen_refs)} "
+                "(frozen identity drift fails closed)"
+            )
+    else:
+        perspectives = portfolio.get("perspectives") or {}
+        if target_id not in perspectives:
+            raise ValueError(
+                f"development target {target_id!r} must exist in the frozen portfolio "
+                "perspectives mapping"
+            )
 
 
 def _validate_deep_review_v2(
@@ -2240,6 +2353,7 @@ def freeze(
             _validate_deep(data)
         elif stage == "development-v2":
             _validate_development_v2(data, len(raw))
+            _validate_development_v2_against_v3_portfolio(run_dir, data)
         elif stage == "deep-review-v2":
             _validate_deep_review_v2(data, len(raw), project_root, run_dir)
         elif stage == "lever-design":

@@ -1,6 +1,6 @@
 # Prism
 
-Prism is a semantic exploration and model-development tool designed to discover materially distinct perspectives, evaluate structural overlap and composition, deepen selected angles into explicit causal models, subject them to adversarial critique, and derive bounded practical leverage.
+Prism is a semantic exploration and structuring tool: it expands a problem into materially distinct perspectives, evaluates structural overlap and composition, curates them into explicit Perspectives and Bundles, and hands the structured field downstream — to a stronger model or a human — for synthesis, judgment, and decision.
 
 ---
 

@@ -198,7 +198,7 @@ The judge freezes its decision as one portfolio record conforming to `pizm-portf
 {
   "schema_version": "pizm-portfolio-selection-v1",
   "route": "MANUAL|AUTO|PACK",
-  "field_ref": "search-field-pass02.json",
+  "field_ref": "search-field-passNN.json",
   "field_hash": "...",
   "candidate_assessments": [
     {"candidate_ref": "pass01:c06", "disposition": "KEEP|BORDERLINE|MERGE|DROP", "standalone_quality": "strong|borderline|weak", "unique_residue": "...", "nearest_overlap": "pass02:c03|null", "reason": "...", "plain_explanation": "... (optional reader aid, expected for visible Perspectives)"}

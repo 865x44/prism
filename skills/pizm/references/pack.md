@@ -22,7 +22,7 @@ $PIZM_SKILL_ROOT       the directory containing the currently loaded Pizm SKILL.
                        installed host: $HOME/.claude/skills/pizm or $HOME/.config/opencode/skills/pizm
 ```
 
-An installed host must use the helper and skill root deployed together by the supported installer, must not mix repo and installed locations, and must be synchronized to the label-aware version before executing this flow. Every command recipe below is written with these variables: a displayed `bin/...` or `skills/pizm` path is the repo-checkout value of the same variable, never a separate command.
+An installed host must use the helper and skill root deployed together by the supported installer, must not mix repo and installed locations, and the helpers and loaded skill root must belong to the same installed Pizm version. Every command recipe below is written with these variables: a displayed `bin/...` or `skills/pizm` path is the repo-checkout value of the same variable, never a separate command.
 
 ## Core Operational Promise & Non-Claims
 
@@ -87,7 +87,7 @@ PACK TASK
      "$PIZM_CHECKPOINT" freeze --stage search-field --run-id "$RUN_ID" --artifact-suffix pass01 --input "$SEARCH_FIELD_PASS01_JSON"
      ```
 
-3. **Search Pass 2 (residual)**: Consume accumulated field from Pass 1; search for missing mechanisms, variables, boundaries, and countermodels under `residual` policy.
+3. **Search Pass 2 (residual)**: Consume accumulated field from Pass 1; search for missing mechanisms, variables, boundaries, and countermodels under `residual` policy. Freeze the artifact with the accepted residual mode string `360` (the accepted `mode` enum is `NORMAL|360|RIFT`); an exhausted pass freezes `candidates: []` with a non-empty `exhaustion_reason` instead of padding the pool.
    - Freeze candidates:
      ```bash
      "$PIZM_CHECKPOINT" freeze --stage explore --run-id "$RUN_ID" --artifact-suffix pass02 --input "$CANDIDATES_PASS02_JSON"
@@ -97,7 +97,7 @@ PACK TASK
      "$PIZM_CHECKPOINT" freeze --stage search-field --run-id "$RUN_ID" --artifact-suffix pass02 --input "$SEARCH_FIELD_PASS02_JSON"
      ```
 
-4. **Search Pass 3 (rift)**: Consume accumulated field from Passes 1 and 2; search for distant structural shifts, reframing unit of analysis, causality, boundary, agency, or time scales under `rift` policy.
+4. **Search Pass 3 (rift)**: Consume accumulated field from Passes 1 and 2; search for distant structural shifts, reframing unit of analysis, causality, boundary, agency, or time scales under `rift` policy. An exhausted rift pass freezes `candidates: []` with a non-empty `exhaustion_reason` (mode `RIFT`) rather than inventing a decorative analogy.
    - Freeze candidates:
      ```bash
      "$PIZM_CHECKPOINT" freeze --stage explore --run-id "$RUN_ID" --artifact-suffix pass03 --input "$CANDIDATES_PASS03_JSON"

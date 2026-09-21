@@ -92,6 +92,17 @@ _PACK_ALLOWED_STAGE_LABELS = frozenset(
         "portfolio",
     }
 )
+# The fixed base labels every BONK v3 archive carries; the archive adds exactly
+# the frozen development_targets as deep-<target_id> labels on top of this base.
+_BONK_V3_BASE_STAGE_LABELS = frozenset(
+    {
+        "pass-01-normal",
+        "pass-02-residual",
+        "pass-03-rift",
+        "search-field",
+        "portfolio",
+    }
+)
 
 
 def _is_allowlisted_stage_artifact(stage_type: str, filename: str) -> bool:
@@ -285,14 +296,22 @@ def _forbidden_pack_artifacts(run_dir: Path) -> list[str]:
     )
 
 
+def _development_target_identity(data: dict) -> tuple[str | None, str | None]:
+    """Frozen development (target_type, target_id), tolerating nested and flat shapes."""
+    target = data.get("target")
+    if not isinstance(target, dict):
+        target = data
+    t_type = target.get("target_type")
+    t_id = target.get("target_id")
+    return (
+        t_type if isinstance(t_type, str) else None,
+        t_id if isinstance(t_id, str) else None,
+    )
+
+
 def _development_target_id(data: dict) -> str | None:
     """Frozen development target id, tolerating nested and flat shapes."""
-    target = data.get("target")
-    if isinstance(target, dict):
-        t_id = target.get("target_id")
-        return t_id if isinstance(t_id, str) else None
-    t_id = data.get("target_id")
-    return t_id if isinstance(t_id, str) else None
+    return _development_target_identity(data)[1]
 
 
 def _die(msg: str, code: int = 1) -> int:
@@ -696,6 +715,29 @@ def create_bundle(
                 "BONK v3 archive Deep stages must equal the frozen development_targets "
                 f"exactly: expected {sorted(expected_deep)}, got {sorted(actual_deep)}"
             )
+        # Exact base topology on top of the selected Deep stages: a v3 archive
+        # without its three Search passes, field, or portfolio is not a
+        # self-contained v3 run, and a fourth pass (or any other label) is not
+        # part of the route.
+        allowed_labels = _BONK_V3_BASE_STAGE_LABELS | {
+            f"deep-{t_id}" for t_id in expected_deep
+        }
+        labels = {label for label, _, _ in stage_specs}
+        extra = sorted(labels - allowed_labels)
+        if extra:
+            return _die(f"BONK v3 run carries non-v3 stages: {', '.join(extra)}")
+        missing = sorted(_BONK_V3_BASE_STAGE_LABELS - labels)
+        if missing:
+            return _die(
+                "BONK v3 run requires exactly the three Search passes, the search "
+                f"field, and the portfolio; missing: {', '.join(missing)}"
+            )
+        v3_bundles = {
+            b.get("bundle_id"): b
+            for b in v3_portfolio.get("bundles") or []
+            if isinstance(b, dict)
+        }
+        v3_perspectives = v3_portfolio.get("perspectives") or {}
         for label, run_dir, stage_type in stage_specs:
             if stage_type != "deep":
                 continue
@@ -716,6 +758,32 @@ def create_bundle(
                     return _die(
                         f"stage {label}: development artifact {f.name} declares target "
                         f"{actual_target!r}, expected {t_id!r}"
+                    )
+                # Backstop for a Deep artifact frozen before its portfolio: the
+                # same frozen-identity and no-comparison couplings the checkpoint
+                # enforces when the portfolio already exists in the run dir.
+                t_type, _ = _development_target_identity(dev_data)
+                model = dev_data.get("developed_model")
+                if isinstance(model, dict) and model.get("comparative_standing") is not None:
+                    return _die(
+                        f"stage {label}: development artifact {f.name} carries "
+                        "comparative_standing; BONK v3 never compares its targets"
+                    )
+                if t_type == "B":
+                    bundle = v3_bundles.get(t_id) or {}
+                    frozen_refs = set(bundle.get("member_refs") or [])
+                    lock = dev_data.get("identity_lock")
+                    lock_refs = set((lock or {}).get("member_refs") or [])
+                    if lock_refs != frozen_refs:
+                        return _die(
+                            f"stage {label}: development artifact {f.name} freezes "
+                            f"member_refs {sorted(lock_refs)} but the frozen bundle {t_id} "
+                            f"carries {sorted(frozen_refs)}"
+                        )
+                elif t_type == "P" and t_id not in v3_perspectives:
+                    return _die(
+                        f"stage {label}: development artifact {f.name} targets {t_id!r}, "
+                        "which is absent from the frozen portfolio perspectives mapping"
                     )
     elif _is_pack_run(stage_specs):
         # PACK ends at Portfolio curation: its stage set is exactly the three
@@ -1066,7 +1134,7 @@ def create_bundle(
                     pass
 
         if is_auto_or_forge and not accounting:
-            return _die("accounting input is required for AUTO/FORGE/PACK contracts")
+            return _die("accounting input is required for AUTO/BONK/FORGE/PACK contracts")
 
         if accounting:
             acc_path = Path(accounting)
@@ -2140,7 +2208,15 @@ def _render_search_pass(candidates_data: dict, pass_num: int) -> str:
         lines.append("")
     cands = [c for c in candidates_data.get("candidates") or [] if isinstance(c, dict)]
     if not cands:
-        raise ValueError(f"Pass {pass_num} candidates contains no readable candidates")
+        # Honest exhaustion: the pass ran and found no further grounded
+        # territory. The frozen record carries the reason instead of a fabricated
+        # candidate, so the handoff restates the limit verbatim.
+        lines.append("No additional grounded territory found.")
+        reason = candidates_data.get("exhaustion_reason")
+        if isinstance(reason, str) and reason.strip():
+            lines.append("")
+            lines.append(f"Reason: {reason.strip()}")
+        return "\n".join(lines).rstrip("\n")
     pass_prefix = f"pass{pass_num:02d}"
     for i, c in enumerate(cands, start=1):
         cid = str(c.get("candidate_id") or f"c{i:02d}")

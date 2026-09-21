@@ -265,6 +265,221 @@ def test_invalid_mode(workspace):
     assert result.returncode != 0
 
 
+@pytest.mark.parametrize("mode", ["360", "RIFT"])
+def test_explore_honest_exhaustion_with_reason_freezes(workspace, mode):
+    """Residual/rift passes may freeze an empty pool when the pass names its limit."""
+    project, skill = workspace
+    data = valid_explore()
+    data["mode"] = mode
+    data["candidates"] = []
+    data["exhaustion_reason"] = "No genuinely uncovered structural territory remained."
+    inp = write_json(project / "exhausted.json", data)
+
+    result = run_ck("freeze", "--stage", "explore", "--run-id", f"exhausted-{mode.lower()}",
+                    "--input", inp, "--project-root", str(project), "--skill-root", str(skill))
+
+    assert result.returncode == 0, result.stderr
+    assert "FREEZE_OK" in result.stdout
+    frozen = json.loads(
+        (project / ".ai" / "pizm" / f"run-exhausted-{mode.lower()}" / "candidates.json").read_text()
+    )
+    assert frozen["candidates"] == []
+    assert frozen["exhaustion_reason"]
+
+
+def test_explore_empty_pool_without_reason_rejected(workspace):
+    """An empty RIFT pool that does not name its limit is failing closed, not honest."""
+    project, skill = workspace
+    data = valid_explore()
+    data["mode"] = "RIFT"
+    data["candidates"] = []
+    inp = write_json(project / "exhausted-bare.json", data)
+
+    result = run_ck("freeze", "--stage", "explore", "--run-id", "exhausted-bare",
+                    "--input", inp, "--project-root", str(project), "--skill-root", str(skill))
+
+    assert result.returncode != 0
+    assert "exhaustion_reason" in result.stderr
+
+
+@pytest.mark.parametrize("reason", ["", "   ", 7])
+def test_explore_empty_pool_with_blank_reason_rejected(workspace, reason):
+    project, skill = workspace
+    data = valid_explore()
+    data["mode"] = "360"
+    data["candidates"] = []
+    data["exhaustion_reason"] = reason
+    inp = write_json(project / "exhausted-blank.json", data)
+
+    result = run_ck("freeze", "--stage", "explore", "--run-id", "exhausted-blank",
+                    "--input", inp, "--project-root", str(project), "--skill-root", str(skill))
+
+    assert result.returncode != 0
+    assert "exhaustion_reason" in result.stderr
+
+
+@pytest.mark.parametrize("mode", ["NORMAL", "360", "RIFT"])
+def test_explore_non_empty_pool_with_reason_rejected(workspace, mode):
+    """exhaustion_reason exists only to name an empty pass."""
+    project, skill = workspace
+    data = valid_explore()
+    data["mode"] = mode
+    data["exhaustion_reason"] = "nothing left"
+    inp = write_json(project / "reasoned.json", data)
+
+    result = run_ck("freeze", "--stage", "explore", "--run-id", f"reasoned-{mode.lower()}",
+                    "--input", inp, "--project-root", str(project), "--skill-root", str(skill))
+
+    assert result.returncode != 0
+    assert "exhaustion_reason" in result.stderr
+
+
+def test_explore_normal_empty_pool_rejected_even_with_reason(workspace):
+    """The initial pass owns no exhaustion channel: the pool or a visible limit, never both."""
+    project, skill = workspace
+    data = valid_explore()
+    data["mode"] = "NORMAL"
+    data["candidates"] = []
+    data["exhaustion_reason"] = "nothing to search"
+    inp = write_json(project / "normal-empty.json", data)
+
+    result = run_ck("freeze", "--stage", "explore", "--run-id", "normal-empty",
+                    "--input", inp, "--project-root", str(project), "--skill-root", str(skill))
+
+    assert result.returncode != 0
+    assert "non-empty list for mode NORMAL" in result.stderr
+
+
+def test_exhausted_final_pass_keeps_search_field_entries_unchanged(workspace):
+    """A genuinely exhausted second and third pass still append their search-field
+    rows; the accumulated entries are preserved exactly and the route stays freezable."""
+    project, skill = workspace
+    run_id = "exhausted-chain"
+
+    p1 = valid_explore()
+    inp_p1 = write_json(project / "ex_p1.json", p1)
+    res_p1 = run_ck("freeze", "--stage", "explore", "--run-id", run_id,
+                    "--artifact-suffix", "pass01", "--input", inp_p1,
+                    "--project-root", str(project), "--skill-root", str(skill))
+    assert res_p1.returncode == 0, res_p1.stderr
+    sha_p1 = res_p1.stdout.split()[1]
+
+    sf1 = {
+        "schema_version": "pizm-search-field-v1",
+        "stage": "search-field",
+        "passes": [{"pass_id": "pass01", "candidates_ref": "candidates-pass01.json",
+                    "frozen_hash": sha_p1}],
+        "entries": ["pass01:c1", "pass01:c2"],
+    }
+    inp_sf1 = write_json(project / "ex_sf1.json", sf1)
+    res_sf1 = run_ck("freeze", "--stage", "search-field", "--run-id", run_id,
+                     "--artifact-suffix", "pass01", "--input", inp_sf1,
+                     "--project-root", str(project), "--skill-root", str(skill))
+    assert res_sf1.returncode == 0, res_sf1.stderr
+    sha_sf1 = res_sf1.stdout.split()[1]
+
+    # Pass 2 (residual) genuinely exhausts.
+    p2 = valid_explore()
+    p2["mode"] = "360"
+    p2["candidates"] = []
+    p2["exhaustion_reason"] = "No genuinely uncovered structural territory remained."
+    inp_p2 = write_json(project / "ex_p2.json", p2)
+    res_p2 = run_ck("freeze", "--stage", "explore", "--run-id", run_id,
+                    "--artifact-suffix", "pass02", "--input", inp_p2,
+                    "--project-root", str(project), "--skill-root", str(skill))
+    assert res_p2.returncode == 0, res_p2.stderr
+    sha_p2 = res_p2.stdout.split()[1]
+
+    sf2 = {
+        "schema_version": "pizm-search-field-v1",
+        "stage": "search-field",
+        "prior_ref": "search-field-pass01.json",
+        "prior_hash": sha_sf1,
+        "passes": [
+            {"pass_id": "pass01", "candidates_ref": "candidates-pass01.json",
+             "frozen_hash": sha_p1},
+            {"pass_id": "pass02", "candidates_ref": "candidates-pass02.json",
+             "frozen_hash": sha_p2},
+        ],
+        "entries": ["pass01:c1", "pass01:c2"],
+    }
+    inp_sf2 = write_json(project / "ex_sf2.json", sf2)
+    res_sf2 = run_ck("freeze", "--stage", "search-field", "--run-id", run_id,
+                     "--artifact-suffix", "pass02", "--input", inp_sf2,
+                     "--project-root", str(project), "--skill-root", str(skill))
+    assert res_sf2.returncode == 0, res_sf2.stderr
+    sha_sf2 = res_sf2.stdout.split()[1]
+
+    # Pass 3 (rift) also exhausts; the final field still carries pass03's row.
+    p3 = valid_explore()
+    p3["mode"] = "RIFT"
+    p3["candidates"] = []
+    p3["exhaustion_reason"] = "The material cannot support a meaningful rift."
+    inp_p3 = write_json(project / "ex_p3.json", p3)
+    res_p3 = run_ck("freeze", "--stage", "explore", "--run-id", run_id,
+                    "--artifact-suffix", "pass03", "--input", inp_p3,
+                    "--project-root", str(project), "--skill-root", str(skill))
+    assert res_p3.returncode == 0, res_p3.stderr
+    sha_p3 = res_p3.stdout.split()[1]
+
+    sf3 = {
+        "schema_version": "pizm-search-field-v1",
+        "stage": "search-field",
+        "prior_ref": "search-field-pass02.json",
+        "prior_hash": sha_sf2,
+        "passes": [
+            {"pass_id": "pass01", "candidates_ref": "candidates-pass01.json",
+             "frozen_hash": sha_p1},
+            {"pass_id": "pass02", "candidates_ref": "candidates-pass02.json",
+             "frozen_hash": sha_p2},
+            {"pass_id": "pass03", "candidates_ref": "candidates-pass03.json",
+             "frozen_hash": sha_p3},
+        ],
+        "entries": ["pass01:c1", "pass01:c2"],
+    }
+    inp_sf3 = write_json(project / "ex_sf3.json", sf3)
+    res_sf3 = run_ck("freeze", "--stage", "search-field", "--run-id", run_id,
+                     "--artifact-suffix", "pass03", "--input", inp_sf3,
+                     "--project-root", str(project), "--skill-root", str(skill))
+    assert res_sf3.returncode == 0, res_sf3.stderr
+    sha_sf3 = res_sf3.stdout.split()[1]
+
+    final_field = json.loads(
+        (project / ".ai" / "pizm" / f"run-{run_id}" / "search-field-pass03.json").read_text()
+    )
+    assert final_field["entries"] == ["pass01:c1", "pass01:c2"]
+    assert [p["pass_id"] for p in final_field["passes"]] == ["pass01", "pass02", "pass03"]
+
+    # The three exhausted-row field is still the exact frozen final search field.
+    pv3 = {
+        "schema_version": "pizm-portfolio-selection-v3",
+        "stage": "portfolio",
+        "route": "BONK",
+        "field_ref": "search-field-pass03.json",
+        "field_hash": sha_sf3,
+        "perspectives": {"P1": "pass01:c1", "P2": "pass01:c2"},
+        "candidate_assessments": [
+            {"candidate_ref": "pass01:c1", "disposition": "KEEP", "standalone_quality": "strong",
+             "unique_residue": "r1", "nearest_overlap": None, "reason": "good"},
+            {"candidate_ref": "pass01:c2", "disposition": "KEEP", "standalone_quality": "strong",
+             "unique_residue": "r2", "nearest_overlap": None, "reason": "good"},
+        ],
+        "bundles": [_v3_bundle("B1", ["pass01:c1", "pass01:c2"]),
+                    _v3_bundle("B2", ["pass01:c2", "pass01:c1"])],
+        "high_upside": [],
+        "development_mode": "DUAL_BUNDLES",
+        "development_targets": [
+            {"target_type": "B", "target_id": "B1", "why_develop": "develop B1"},
+            {"target_type": "B", "target_id": "B2", "why_develop": "develop B2"},
+        ],
+        "material_difference": "B1 changes the mechanism; B2 shifts the boundary.",
+    }
+    inp_pv3 = write_json(project / "ex_pv3.json", pv3)
+    res_pv3 = run_ck("freeze", "--stage", "portfolio", "--run-id", run_id,
+                     "--input", inp_pv3, "--project-root", str(project), "--skill-root", str(skill))
+    assert res_pv3.returncode == 0, res_pv3.stderr
+
+
 def test_empty_development_object(workspace):
     project, skill = workspace
     data = valid_deep()
@@ -3791,3 +4006,152 @@ def test_v2_bonk_flow_still_reveals_deep_compare(workspace):
                        "--project-root", str(project), "--skill-root", str(skill))
         assert res_d.returncode == 0, res_d.stderr
     assert "DEEP COMPARE RUBRIC" in res_d.stdout
+
+
+# ── BONK v3 route-aware development freeze (frozen identity, no comparison) ──
+
+
+def _dev_v2_bundle_with_refs(target_id, refs):
+    """A shape-valid v2 development whose identity lock freezes the given members."""
+    dev = valid_dev_v2("B", target_id)
+    dev["identity_lock"]["member_refs"] = list(refs)
+    dev["developed_model"]["member_contributions"] = {r: f"{r} contributes" for r in refs}
+    dev["developed_model"]["member_ablation"] = {r: f"{r} removal cost" for r in refs}
+    return dev
+
+
+def _freeze_dev_v2_in_run(project, skill, run_id, payload, target):
+    inp = write_json(project / f"dev_{run_id}_{target}.json", payload)
+    return run_ck("freeze", "--stage", "development-v2", "--run-id", run_id,
+                  "--target", target, "--input", inp,
+                  "--project-root", str(project), "--skill-root", str(skill))
+
+
+def test_development_v2_v3_member_refs_set_equality_accepted(workspace):
+    """A development freezing the frozen bundle's members in any order is accepted."""
+    project, skill = workspace
+    run_id = "v3-identity-order"
+    run_dir = _v3_run_with_fields(project, run_id)
+    assert _freeze_v3(project, skill, valid_portfolio_v3(run_dir), run_id).returncode == 0
+
+    dev = _dev_v2_bundle_with_refs("B1", ["pass01:c02", "pass01:c01"])
+    res = _freeze_dev_v2_in_run(project, skill, run_id, dev, "B1")
+    assert res.returncode == 0, res.stderr
+    assert "FREEZE_OK" in res.stdout
+
+
+def test_development_v2_v3_rejects_swapped_member_refs(workspace):
+    """bundle_id matching is not identity: different members fail closed."""
+    project, skill = workspace
+    run_id = "v3-identity-swap"
+    run_dir = _v3_run_with_fields(project, run_id)
+    assert _freeze_v3(project, skill, valid_portfolio_v3(run_dir), run_id).returncode == 0
+
+    dev = _dev_v2_bundle_with_refs("B1", ["pass03:c01", "pass03:c02"])
+    res = _freeze_dev_v2_in_run(project, skill, run_id, dev, "B1")
+    assert res.returncode != 0
+    assert "must equal the frozen bundle B1 member_refs" in res.stderr
+
+
+def test_development_v2_v3_rejects_comparative_standing(workspace):
+    """BONK v3 never compares its targets, so the comparative channel stays null."""
+    project, skill = workspace
+    run_id = "v3-comparative-freeze"
+    run_dir = _v3_run_with_fields(project, run_id)
+    assert _freeze_v3(project, skill, valid_portfolio_v3(run_dir), run_id).returncode == 0
+
+    dev = valid_dev_v2("B", "B1")
+    dev["developed_model"]["comparative_standing"] = {
+        "rival_ref": "B2",
+        "material_difference": "other mechanism",
+        "selected_target_advantage": "cheaper",
+        "rival_advantage_or_parity": "broader",
+        "unresolved_competition": "unresolved",
+    }
+    res = _freeze_dev_v2_in_run(project, skill, run_id, dev, "B1")
+    assert res.returncode != 0
+    assert "comparative_standing must be null for a BONK v3 development" in res.stderr
+
+
+def test_development_v2_v3_rejects_unselected_target(workspace):
+    """Only the targets the frozen portfolio selected may be developed."""
+    project, skill = workspace
+    run_id = "v3-unselected"
+    run_dir = _v3_run_with_fields(project, run_id)
+    assert _freeze_v3(project, skill, valid_portfolio_v3(run_dir), run_id).returncode == 0
+
+    dev = _dev_v2_bundle_with_refs("B9", ["pass01:c01", "pass01:c02"])
+    res = _freeze_dev_v2_in_run(project, skill, run_id, dev, "B9")
+    assert res.returncode != 0
+    assert "not among the frozen portfolio development_targets" in res.stderr
+
+
+def test_development_v2_v3_target_flag_must_match_payload(workspace):
+    project, skill = workspace
+    run_id = "v3-target-flag"
+    run_dir = _v3_run_with_fields(project, run_id)
+    assert _freeze_v3(project, skill, valid_portfolio_v3(run_dir), run_id).returncode == 0
+
+    dev = _dev_v2_bundle_with_refs("B2", ["pass01:c01", "pass01:c02"])
+    res = _freeze_dev_v2_in_run(project, skill, run_id, dev, "B1")
+    assert res.returncode != 0
+    assert "--target 'B1' does not match payload target_id 'B2'" in res.stderr
+
+
+def test_development_v2_v3_single_target_perspective(workspace):
+    """A SINGLE_TARGET perspective development is accepted only for a selected perspective."""
+    project, skill = workspace
+    run_id = "v3-single-persp"
+    run_dir = _v3_run_with_fields(project, run_id)
+    data = valid_portfolio_v3(run_dir, "SINGLE_TARGET")
+    data["development_targets"] = [
+        {"target_type": "P", "target_id": "P2",
+         "why_develop": "No second materially distinct bundle was defensible."},
+    ]
+    assert _freeze_v3(project, skill, data, run_id).returncode == 0
+
+    ok = _freeze_dev_v2_in_run(project, skill, run_id, valid_dev_v2("P", "P2"), "P2")
+    assert ok.returncode == 0, ok.stderr
+
+    unknown = _freeze_dev_v2_in_run(project, skill, run_id, valid_dev_v2("P", "P9"), "P9")
+    assert unknown.returncode != 0
+    assert "not among the frozen portfolio development_targets" in unknown.stderr
+
+
+def test_development_v2_before_v3_portfolio_is_archive_gated(workspace):
+    """A Deep frozen before its portfolio cannot be route-checked at freeze time;
+    the session-bundle create backstop owns that ordering."""
+    project, skill = workspace
+    run_id = "v3-order-early"
+    _v3_run_with_fields(project, run_id)
+
+    dev = _dev_v2_bundle_with_refs("B1", ["pass03:c01", "pass03:c02"])
+    res = _freeze_dev_v2_in_run(project, skill, run_id, dev, "B1")
+    assert res.returncode == 0, res.stderr
+
+
+def test_development_v2_v3_tampered_portfolio_fails_closed(workspace):
+    """A present-but-unverifiable selection record is never ignored."""
+    project, skill = workspace
+    run_id = "v3-tampered-portfolio"
+    run_dir = _v3_run_with_fields(project, run_id)
+    assert _freeze_v3(project, skill, valid_portfolio_v3(run_dir), run_id).returncode == 0
+
+    (run_dir / "portfolio.sha256").write_text("0" * 64, encoding="utf-8")
+    dev = _dev_v2_bundle_with_refs("B1", ["pass01:c01", "pass01:c02"])
+    res = _freeze_dev_v2_in_run(project, skill, run_id, dev, "B1")
+    assert res.returncode != 0
+    assert "sidecar hash mismatch" in res.stderr
+
+
+def test_development_v2_v3_missing_portfolio_sidecar_fails_closed(workspace):
+    project, skill = workspace
+    run_id = "v3-portfolio-no-sidecar"
+    run_dir = _v3_run_with_fields(project, run_id)
+    assert _freeze_v3(project, skill, valid_portfolio_v3(run_dir), run_id).returncode == 0
+
+    (run_dir / "portfolio.sha256").unlink()
+    dev = _dev_v2_bundle_with_refs("B1", ["pass01:c01", "pass01:c02"])
+    res = _freeze_dev_v2_in_run(project, skill, run_id, dev, "B1")
+    assert res.returncode != 0
+    assert "missing sidecar" in res.stderr

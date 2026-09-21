@@ -30,7 +30,7 @@ INSTALLED_SELECTOR = INSTALLED_ROOT / "references" / "explore-selector.md"
 EXPECTED_OUTLINE = {
     "schema_version": "pizm-portfolio-selection-v1",
     "route": "MANUAL|AUTO|PACK",
-    "field_ref": "search-field-pass02.json",
+    "field_ref": "search-field-passNN.json",
     "field_hash": "...",
     "candidate_assessments": [
         {

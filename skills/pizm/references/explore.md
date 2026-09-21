@@ -46,6 +46,9 @@ In staged execution, Search operates as a generator: it produces a structured ca
 Every Search pass runs exactly one deliberate search policy: `initial`, `residual`, or `rift`. The policy names how this pass searches; it is not a quality grade. Candidate count is never a quality metric, and no policy has a fixed quota.
 
 Legacy mode strings remain parseable on read for compatibility: `NORMAL` = initial policy, `360` = residual policy (deprecated alias retained for one release), `RIFT` = rift policy. "Breadth" is superseded terminology and is not a user mode.
+
+Mode value written into a frozen artifact: every pass writes the accepted string for its policy — `initial` → `NORMAL`, `residual` → `360`, `rift` → `RIFT`. Only these three strings are accepted; `RESIDUAL` is not an accepted value and fails closed at freeze. Archive stage labels (`pass-NN-normal`, `pass-NN-residual`, `pass-NN-rift`) name the policy for archive topology; they are not the JSON `mode` value.
+
 ### NORMAL
 
 Candidate = compact search seed, not final Perspective.
@@ -86,7 +89,7 @@ Coverage-first semantics:
 - Reconstruct prior semantic cores before claiming novelty, then seek the next outer shell: blind spots, missing variables, countermodels, alternative units of analysis, boundary shifts, new causal families.
 - Avoid attractor repetition: do not regenerate previous territory under new names, and do not keep returning to a favored mechanism, actor swap, example swap, family heading, or stylistic reframing as if it were new breadth.
 - Seek genuinely distinct logics: mechanisms, system boundaries, agency distributions, time horizons, constraints, assumptions, failure logics, intervention logics.
-- Honest exhaustion is allowed: when no genuinely uncovered structural territory remains, return a short honest limit rather than forcing novelty.
+- Honest exhaustion is allowed: when no genuinely uncovered structural territory remains, return a short honest limit rather than forcing novelty. Freeze `candidates: []` together with a non-empty `exhaustion_reason` string (see Honest Exhaustion below); never pad the pool to avoid it.
 - Borderline-open territories may stay open: an inconclusive shell may remain explicitly open instead of being forced shut.
 - If prior context is materially incomplete enough to make novelty uncertain, say so rather than pretending continuity.
 
@@ -120,7 +123,7 @@ For each candidate RIFT, provide:
 - break point where the model stops working (`break_condition`, required for RIFT);
 - `rift_extras` (`source_structure`, `functional_mapping`, `return_path`, `break_condition`).
 
-If the material cannot support a meaningful RIFT, return a short honest limit rather than forcing novelty.
+If the material cannot support a meaningful RIFT, return a short honest limit rather than forcing novelty. Freeze `candidates: []` together with a non-empty `exhaustion_reason` string (see Honest Exhaustion below); never invent a decorative analogy to avoid it.
 
 ## Search Field (accumulated candidates across passes)
 
@@ -167,9 +170,20 @@ Candidate JSON must conform to the following schema:
         "break_condition": "string"
       }
     }
-  ]
+  ],
+  "exhaustion_reason": "string (optional; required only when candidates is empty in modes 360/RIFT)"
 }
 ```
+
+### Honest Exhaustion (exhaustion_reason)
+
+An empty candidate pool is a legitimate frozen result for the residual (`360`) and rift (`RIFT`) policies, but only when the pass names the limit it hit:
+
+- `NORMAL` (initial policy): `candidates` must stay non-empty and `exhaustion_reason` must be absent. The initial pass either finds territory or reports a visible limit instead of freezing an empty pool.
+- `360` (residual policy) and `RIFT`: `candidates: []` is allowed if and only if `exhaustion_reason` is a short non-empty string stating the honest limit (for example: no genuinely uncovered structural territory remained; the material cannot support a meaningful rift). An empty pool without `exhaustion_reason` fails closed at freeze.
+- A non-empty pool must not carry `exhaustion_reason` at all: the field exists only to name an empty pass.
+- The reason states the limit of this pass. It is not a grade, it is not a metric, and it never claims that the whole semantic space is exhausted.
+- An exhausted pass still happened: it appends its search-field row like any other pass, so the accumulated field keeps exactly its prior entries and the route continues to Portfolio unchanged. The reason neither adds nor removes a stage.
 
 ### Compact Seed Guidance
 

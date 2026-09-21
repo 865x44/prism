@@ -46,7 +46,7 @@ $PIZM_SKILL_ROOT       the directory containing the currently loaded Pizm SKILL.
                        installed host: $HOME/.claude/skills/pizm or $HOME/.config/opencode/skills/pizm
 ```
 
-An installed host must use the helper and skill root deployed together by the supported installer, must not mix repo and installed locations, and must be synchronized to the label-aware version before executing this flow. Every command recipe below is written with these variables: a displayed `bin/...` or `skills/pizm` path is the repo-checkout value of the same variable, never a separate command.
+An installed host must use the helper and skill root deployed together by the supported installer, must not mix repo and installed locations, and the helpers and loaded skill root must belong to the same installed Pizm version. Every command recipe below is written with these variables: a displayed `bin/...` or `skills/pizm` path is the repo-checkout value of the same variable, never a separate command.
 
 ---
 
@@ -102,12 +102,13 @@ No automatic Critic. No automatic Compare. No automatic LEVER. No winner. No syn
   - Reconstruct strongly covered semantic cores; notice redundant coverage; preserve seen-but-open directions.
   - Attack attractor lock (avoid returning to favored mechanisms, actor swaps, or stylistic reframings).
   - Seek new load-bearing dimensions, system boundaries, and causal families.
-  - Allow honest exhaustion if no new structural territory exists (do not pad).
+  - Allow honest exhaustion if no new structural territory exists (do not pad): freeze `candidates: []` with a non-empty `exhaustion_reason`.
+  - Freeze with the accepted residual mode string `360` (the accepted `mode` enum is `NORMAL|360|RIFT`; `RESIDUAL` is not accepted).
 - Freeze raw `pass02` via `"$PIZM_CHECKPOINT" freeze --stage explore --run-id <slug> --artifact-suffix pass02 --input <path>`.
 - Update the append-only search-field manifest naming `search-field-pass01.json` as `prior_ref` with its verified `prior_hash`, and freeze with `--artifact-suffix pass02`.
 
 ### Stage 3: Search Pass 3 (rift)
-- Pass 3 consumes the accumulated field from Passes 1 and 2 and searches under the `rift` policy: distant structural shifts, reframed unit of analysis, different causal direction, system boundary, agency location, or time scale.
+- Pass 3 consumes the accumulated field from Passes 1 and 2 and searches under the `rift` policy: distant structural shifts, reframed unit of analysis, different causal direction, system boundary, agency location, or time scale. An exhausted rift pass freezes `candidates: []` with a non-empty `exhaustion_reason` (mode `RIFT`) instead of a decorative analogy.
 - Freeze raw `pass03` via `"$PIZM_CHECKPOINT" freeze --stage explore --run-id <slug> --artifact-suffix pass03 --input <path>`.
 - Update the append-only search-field manifest naming `search-field-pass02.json` as `prior_ref` with its verified `prior_hash`, and freeze with `--artifact-suffix pass03` → creates `search-field-pass03.json`. This is the **final** search field.
 - BONK v3 executes exactly three automatic Search passes. There is no fourth pass and no re-search after the portfolio.

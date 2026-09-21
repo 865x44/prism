@@ -1386,7 +1386,7 @@ class TestAccountingValidation:
             "--stage", f"pass-01-normal={workspace['explore']}",
         )
         assert r.returncode != 0
-        assert "accounting input is required for AUTO/FORGE" in r.stderr
+        assert "accounting input is required for AUTO/BONK/FORGE/PACK" in r.stderr
 
 
 # ---------------------------------------------------------------------------
@@ -1641,6 +1641,83 @@ def test_render_gather_information_as_intentional_terminal(tmp_path):
     assert "Honest stop: GATHER_INFORMATION" in content
     assert "## Deep" not in content
     assert "## Critic" not in content
+
+
+def test_render_auto_exhausted_rift_pass_reports_the_limit(tmp_path):
+    """An AUTO RIFT pass that found nothing renders its honest limit instead of
+    failing the render (the frozen pass carries the reason)."""
+    run_dir = tmp_path / "run-exhausted-rift"
+    run_dir.mkdir()
+    cands = {
+        "schema_version": "pizm-candidates-v1",
+        "stage": "explore",
+        "mode": "NORMAL",
+        "candidates": [
+            {
+                "candidate_id": "c01",
+                "title": "Model 1",
+                "semantic_core": {
+                    "claim": "Core claim",
+                    "structural_shift": "Shift",
+                    "mechanism": "Mechanism",
+                    "grounding_anchor": "Anchor",
+                    "what_becomes_visible": "Visible",
+                    "boundary": "Limit",
+                },
+                "epistemics": {"supported": ["Fact 1"], "inferred": [], "speculative": [], "unknown": []},
+            }
+        ],
+    }
+    c1_bytes = json.dumps(cands).encode("utf-8")
+    (run_dir / "candidates.json").write_bytes(c1_bytes)
+    (run_dir / "candidates.sha256").write_text(_sha256_hex(c1_bytes))
+
+    pass2 = {
+        "schema_version": "pizm-candidates-v1",
+        "stage": "explore",
+        "mode": "RIFT",
+        "candidates": [],
+        "exhaustion_reason": "The material cannot support a meaningful rift.",
+    }
+    c2_bytes = json.dumps(pass2).encode("utf-8")
+    (run_dir / "candidates-pass02.json").write_bytes(c2_bytes)
+    (run_dir / "candidates-pass02.sha256").write_text(_sha256_hex(c2_bytes))
+
+    port = {
+        "schema_version": "pizm-portfolio-selection-v1",
+        "stage": "portfolio",
+        "route": "AUTO",
+        "field_hash": _sha256_hex(c1_bytes),
+        "candidate_assessments": [
+            {
+                "candidate_ref": "pass01:c01",
+                "disposition": "KEEP",
+                "standalone_quality": "strong",
+                "unique_residue": "Residue 1",
+                "nearest_overlap": None,
+                "reason": "Grounded",
+            }
+        ],
+        "bundles": [],
+        "next_reasoning_move": "PRESERVE_ONLY",
+        "next_reasoning_rationale": "The second pass found no further grounded territory.",
+        "auto_target": None,
+        "information_request": None,
+        "rival_shadow": None,
+    }
+    p_bytes = json.dumps(port).encode("utf-8")
+    (run_dir / "portfolio.json").write_bytes(p_bytes)
+    (run_dir / "portfolio.sha256").write_text(_sha256_hex(p_bytes))
+
+    out_md = tmp_path / "run.md"
+    res = run_bundle("render", "--run-dir", str(run_dir), "--task", "Exhausted rift task",
+                     "--output", str(out_md))
+    assert res.returncode == 0, res.stderr
+    content = out_md.read_text(encoding="utf-8")
+    assert "## Search Pass 2" in content
+    assert "Search policy: rift pass (RIFT)." in content
+    assert "No additional grounded territory found." in content
+    assert "The material cannot support a meaningful rift." in content
 
 
 def test_render_html_with_ensure_reader_fallback(tmp_path):
@@ -1997,7 +2074,7 @@ class TestSharedRunDirLabelAwareBundling:
             "schema_version": "pizm-candidates-v1", "stage": "explore", "mode": "NORMAL", "candidates": [{"candidate_id": "c01"}],
         })
         c2 = self._write_artifact(run_dir, "candidates-pass02.json", {
-            "schema_version": "pizm-candidates-v1", "stage": "explore", "mode": "RESIDUAL", "candidates": [{"candidate_id": "c02"}],
+            "schema_version": "pizm-candidates-v1", "stage": "explore", "mode": "360", "candidates": [{"candidate_id": "c02"}],
         })
         self._write_artifact(run_dir, "search-field-pass02.json", {
             "schema_version": "pizm-search-field-v1", "stage": "search-field", "field_id": "sf2",
@@ -2108,7 +2185,7 @@ class TestSharedRunDirLabelAwareBundling:
         c2 = self._write_artifact(run_dir, "candidates-pass02.json", {
             "schema_version": "pizm-candidates-v1",
             "stage": "explore",
-            "mode": "RESIDUAL",
+            "mode": "360",
             "candidates": [{"candidate_id": "c02", "title": "Pass 2 Seed", "core_claim": "C2", "structural_shift": "S2", "mechanism": "M2", "boundary": "B2"}],
         })
         (run_dir / "candidates-pass02.meta.json").write_text('{"stage":"explore","suffix":"pass02"}', encoding="utf-8")
@@ -2380,7 +2457,7 @@ class TestSemanticStageCountRegressions:
         run_dir = tmp_path / "bonk_6_run"
         run_dir.mkdir()
         self._write_artifact(run_dir, "candidates-pass01.json", {"schema_version": "pizm-candidates-v1", "stage": "explore", "mode": "NORMAL", "candidates": [{"candidate_id": "c01"}]})
-        self._write_artifact(run_dir, "candidates-pass02.json", {"schema_version": "pizm-candidates-v1", "stage": "explore", "mode": "RESIDUAL", "candidates": [{"candidate_id": "c02"}]})
+        self._write_artifact(run_dir, "candidates-pass02.json", {"schema_version": "pizm-candidates-v1", "stage": "explore", "mode": "360", "candidates": [{"candidate_id": "c02"}]})
         self._write_artifact(run_dir, "search-field.json", {"schema_version": "pizm-search-field-v1", "stage": "search-field", "field_id": "sf", "passes": [], "entries": []})
         self._write_artifact(run_dir, "portfolio.json", {"schema_version": "pizm-portfolio-selection-v2", "stage": "portfolio", "route": "BONK", "competition_status": "TWO_DEFENSIBLE_BUNDLES", "recommended_competition": {"left_bundle_id": "B1", "right_bundle_id": "B2"}})
         self._write_artifact(run_dir, "development-v2-B1.json", {"schema_version": "pizm-development-v2", "stage": "development-v2", "target": {"target_type": "B", "target_id": "B1"}})
@@ -2412,7 +2489,7 @@ class TestSemanticStageCountRegressions:
         run_dir = tmp_path / "bonk_lever_8_run"
         run_dir.mkdir()
         self._write_artifact(run_dir, "candidates-pass01.json", {"schema_version": "pizm-candidates-v1", "stage": "explore", "mode": "NORMAL", "candidates": [{"candidate_id": "c01"}]})
-        self._write_artifact(run_dir, "candidates-pass02.json", {"schema_version": "pizm-candidates-v1", "stage": "explore", "mode": "RESIDUAL", "candidates": [{"candidate_id": "c02"}]})
+        self._write_artifact(run_dir, "candidates-pass02.json", {"schema_version": "pizm-candidates-v1", "stage": "explore", "mode": "360", "candidates": [{"candidate_id": "c02"}]})
         self._write_artifact(run_dir, "search-field.json", {"schema_version": "pizm-search-field-v1", "stage": "search-field", "field_id": "sf", "passes": [], "entries": []})
         self._write_artifact(run_dir, "portfolio.json", {"schema_version": "pizm-portfolio-selection-v2", "stage": "portfolio", "route": "BONK", "competition_status": "TWO_DEFENSIBLE_BUNDLES", "recommended_competition": {"left_bundle_id": "B1", "right_bundle_id": "B2"}})
         self._write_artifact(run_dir, "development-v2-B1.json", {"schema_version": "pizm-development-v2", "stage": "development-v2", "target": {"target_type": "B", "target_id": "B1"}})
@@ -2447,7 +2524,7 @@ class TestSemanticStageCountRegressions:
         run_dir = tmp_path / "pack_run"
         run_dir.mkdir()
         self._write_artifact(run_dir, "candidates-pass01.json", {"schema_version": "pizm-candidates-v1", "stage": "explore", "mode": "NORMAL", "candidates": [{"candidate_id": "c01"}]})
-        self._write_artifact(run_dir, "candidates-pass02.json", {"schema_version": "pizm-candidates-v1", "stage": "explore", "mode": "RESIDUAL", "candidates": [{"candidate_id": "c02"}]})
+        self._write_artifact(run_dir, "candidates-pass02.json", {"schema_version": "pizm-candidates-v1", "stage": "explore", "mode": "360", "candidates": [{"candidate_id": "c02"}]})
         self._write_artifact(run_dir, "candidates-pass03.json", {"schema_version": "pizm-candidates-v1", "stage": "explore", "mode": "RIFT", "candidates": [{"candidate_id": "c03"}]})
         self._write_artifact(run_dir, "search-field-pass03.json", {"schema_version": "pizm-search-field-v1", "stage": "search-field", "field_id": "sf3", "passes": [], "entries": []})
         self._write_artifact(run_dir, "portfolio.json", {"schema_version": "pizm-portfolio-selection-v1", "stage": "portfolio", "route": "AUTO", "auto_target": {"target_type": "P", "target_id": "P1"}, "next_reasoning_move": "PRESERVE_ONLY"})
@@ -2538,7 +2615,7 @@ class TestPackSessionBundleAndRenderer:
             "candidates": pass1_candidates,
         })
         c2 = self._write_artifact(run_dir, "candidates-pass02.json", {
-            "schema_version": "pizm-candidates-v1", "stage": "explore", "mode": "RESIDUAL",
+            "schema_version": "pizm-candidates-v1", "stage": "explore", "mode": "360",
             "candidates": [
                 {"candidate_id": "c01", "title": "Residual Candidate 1", "semantic_core": {"claim": "Residual Claim 1", "mechanism": "Residual Mech 1"}},
             ],
@@ -2583,6 +2660,108 @@ class TestPackSessionBundleAndRenderer:
             "run_dir": run_dir,
             "c1": c1, "c2": c2, "c3": c3, "portfolio": port,
         }
+
+    def test_pack_honestly_exhausted_final_pass_archives_and_renders(self, workspace, tmp_path):
+        """An exhausted pass 3 is still a real pass: the run freezes, archives, and
+        renders, the accumulated search field keeps its prior entries, and no
+        candidate is invented to satisfy a schema."""
+        run_dir = tmp_path / "pack_exhausted_run"
+        run_dir.mkdir()
+        c1 = self._write_artifact(run_dir, "candidates-pass01.json", {
+            "schema_version": "pizm-candidates-v1", "stage": "explore", "mode": "NORMAL",
+            "candidates": [
+                {"candidate_id": "c01", "title": "Initial One",
+                 "semantic_core": {"claim": "Claim 1", "mechanism": "Mech 1"}},
+                {"candidate_id": "c02", "title": "Initial Two",
+                 "semantic_core": {"claim": "Claim 2", "mechanism": "Mech 2"}},
+            ],
+        })
+        c2 = self._write_artifact(run_dir, "candidates-pass02.json", {
+            "schema_version": "pizm-candidates-v1", "stage": "explore", "mode": "360",
+            "candidates": [
+                {"candidate_id": "c01", "title": "Residual One",
+                 "semantic_core": {"claim": "Claim 3", "mechanism": "Mech 3"}},
+            ],
+        })
+        c3 = self._write_artifact(run_dir, "candidates-pass03.json", {
+            "schema_version": "pizm-candidates-v1", "stage": "explore", "mode": "RIFT",
+            "candidates": [],
+            "exhaustion_reason": "No materially distinct grounded frame remained for a rift pass.",
+        })
+        field_entries = ["pass01:c01", "pass01:c02", "pass02:c01"]
+        field = {
+            "schema_version": "pizm-search-field-v1", "stage": "search-field", "field_id": "sf3",
+            "passes": [
+                {"pass_id": "pass01", "candidates_ref": c1.name,
+                 "frozen_hash": _sha256_hex(c1.read_bytes())},
+                {"pass_id": "pass02", "candidates_ref": c2.name,
+                 "frozen_hash": _sha256_hex(c2.read_bytes())},
+                {"pass_id": "pass03", "candidates_ref": c3.name,
+                 "frozen_hash": _sha256_hex(c3.read_bytes())},
+            ],
+            "entries": field_entries,
+        }
+        port = self._write_artifact(run_dir, "search-field-pass03.json", field)
+        self._write_artifact(run_dir, "portfolio.json", {
+            "schema_version": "pizm-portfolio-selection-v1", "stage": "portfolio", "route": "PACK",
+            "field_ref": "search-field-pass03.json",
+            "field_hash": _sha256_hex(port.read_bytes()),
+            "candidate_assessments": [
+                {"candidate_ref": "pass01:c01", "disposition": "KEEP", "standalone_quality": "strong",
+                 "unique_residue": "Residue 1", "nearest_overlap": None, "reason": "Grounded",
+                 "plain_explanation": "Plain explanation 1"},
+                {"candidate_ref": "pass01:c02", "disposition": "DROP", "standalone_quality": "weak",
+                 "unique_residue": "", "nearest_overlap": "pass01:c01", "reason": "Duplicate"},
+                {"candidate_ref": "pass02:c01", "disposition": "MERGE", "standalone_quality": "strong",
+                 "unique_residue": "Residue 2", "nearest_overlap": "pass01:c01", "reason": "Variant"},
+            ],
+            "bundles": [],
+            "perspectives": {"P1": "pass01:c01"},
+            "high_upside": [],
+            "next_reasoning_move": None,
+            "next_reasoning_rationale": None,
+            "information_request": None,
+            "rival_shadow": None,
+            "auto_target": None,
+        })
+
+        acc_file = tmp_path / "acc_pack_exhausted.json"
+        acc_file.write_text(json.dumps({
+            "host_inference_count": 4, "model_repair_count": 0,
+            "checkpoint_retry_count": 0, "semantic_stage_count": 4,
+        }), encoding="utf-8")
+
+        r = run_bundle(
+            "create",
+            "--output-root", str(workspace["output"]),
+            "--slug", "pack-exhausted",
+            "--skill-root", str(workspace["skill"]),
+            "--stage", f"pass-01-normal={run_dir}",
+            "--stage", f"pass-02-residual={run_dir}",
+            "--stage", f"pass-03-rift={run_dir}",
+            "--stage", f"search-field={run_dir}",
+            "--stage", f"portfolio={run_dir}",
+            "--accounting", str(acc_file),
+        )
+        assert r.returncode == 0, r.stderr
+        bundle = workspace["output"] / "session-pack-exhausted"
+        manifest = json.loads((bundle / "manifest.json").read_text(encoding="utf-8"))
+        assert manifest["accounting"]["semantic_stage_count"] == 4
+        assert (bundle / "pass-03-rift" / "candidates-pass03.json").is_file()
+        archived_field = json.loads(
+            (bundle / "search-field" / "search-field-pass03.json").read_text(encoding="utf-8")
+        )
+        assert archived_field["entries"] == field_entries
+
+        out_md = tmp_path / "research-pack-exhausted.md"
+        render = run_bundle(
+            "render", "--run-dir", str(run_dir),
+            "--task", "Exhausted three-pass task", "--output", str(out_md),
+        )
+        assert render.returncode == 0, render.stderr
+        text = out_md.read_text(encoding="utf-8")
+        assert "### P1 — Initial One (`pass01:c01`)" in text
+        assert "Pass 3 — rift" in text
 
     def test_pack_bundle_pass_isolation_no_cross_leakage(self, workspace, tmp_path):
         """PACK shared run-dir archive isolates pass01, pass02, pass03 without cross-pass leakage."""
@@ -2912,8 +3091,8 @@ class TestBonkV3ArchiveAndRenderer:
             "new_consequence_or_prediction": f"Prediction {bid}",
         }
 
-    def _v3_development(self, target_id, thesis):
-        refs = ["pass01:c01", "pass03:c01"]
+    def _v3_development(self, target_id, thesis, refs):
+        refs = list(refs)
         return {
             "schema_version": "pizm-development-v2",
             "stage": "development-v2",
@@ -2952,7 +3131,7 @@ class TestBonkV3ArchiveAndRenderer:
                           targets_developed=None):
         """Shared v3 run dir: 3 search passes, final field, v3 portfolio, developments."""
         run_dir.mkdir(parents=True, exist_ok=True)
-        for i, m in ((1, "NORMAL"), (2, "RESIDUAL"), (3, "RIFT")):
+        for i, m in ((1, "NORMAL"), (2, "360"), (3, "RIFT")):
             self._write_artifact(run_dir, f"candidates-pass0{i}.json", {
                 "schema_version": "pizm-candidates-v1", "stage": "explore", "mode": m,
                 "candidates": [
@@ -2979,6 +3158,9 @@ class TestBonkV3ArchiveAndRenderer:
             ]
             material_difference = None
 
+        v3_bundles = [self._v3_bundle("B1", ["pass01:c01", "pass02:c01"]),
+                      self._v3_bundle("B2", ["pass03:c01", "pass02:c01"])]
+        refs_by_id = {b["bundle_id"]: b["member_refs"] for b in v3_bundles}
         self._write_artifact(run_dir, "portfolio.json", {
             "schema_version": "pizm-portfolio-selection-v3", "stage": "portfolio", "route": "BONK",
             "field_ref": "search-field-pass03.json", "field_hash": field_hash,
@@ -2990,8 +3172,7 @@ class TestBonkV3ArchiveAndRenderer:
                 {"candidate_ref": "pass03:c01", "disposition": "KEEP", "standalone_quality": "strong",
                  "unique_residue": "res3", "nearest_overlap": None, "reason": "rift novelty"},
             ],
-            "bundles": [self._v3_bundle("B1", ["pass01:c01", "pass02:c01"]),
-                        self._v3_bundle("B2", ["pass03:c01", "pass02:c01"])],
+            "bundles": v3_bundles,
             "perspectives": {"P1": "pass01:c01", "P2": "pass02:c01", "P3": "pass03:c01"},
             "high_upside": [],
             "development_mode": mode,
@@ -3004,7 +3185,10 @@ class TestBonkV3ArchiveAndRenderer:
         for t_id in developed:
             self._write_artifact(
                 run_dir, f"development-v2-{t_id}.json",
-                self._v3_development(t_id, f"Developed thesis for {t_id}"),
+                self._v3_development(
+                    t_id, f"Developed thesis for {t_id}",
+                    refs_by_id.get(t_id, ["pass01:c01", "pass02:c01"]),
+                ),
             )
 
     def _accounting(self, tmp_path: Path, count: int) -> Path:
@@ -3226,11 +3410,106 @@ class TestBonkV3ArchiveAndRenderer:
         run_dir = tmp_path / "v3_wrong_content_run"
         self._setup_v3_run_dir(run_dir)
         self._write_artifact(
-            run_dir, "development-v2-B1.json", self._v3_development("B2", "Mislabelled thesis")
+            run_dir, "development-v2-B1.json",
+            self._v3_development("B2", "Mislabelled thesis", ["pass03:c01", "pass02:c01"])
         )
         r = self._v3_create(workspace, tmp_path, run_dir, "v3-wrong-content", ("B1", "B2"))
         assert r.returncode != 0
         assert "declares target 'B2', expected 'B1'" in r.stderr
+
+    def _v3_stage_args(self, run_dir, labels):
+        argv = []
+        for label in labels:
+            argv += ["--stage", f"{label}={run_dir}"]
+        return argv
+
+    _V3_BASE_LABELS = (
+        "pass-01-normal",
+        "pass-02-residual",
+        "pass-03-rift",
+        "search-field",
+        "portfolio",
+    )
+
+    @pytest.mark.parametrize(
+        "missing",
+        ["pass-02-residual", "pass-03-rift", "search-field", "pass-01-normal", "portfolio"],
+    )
+    def test_v3_archive_requires_every_base_stage(self, workspace, tmp_path, missing):
+        """The v3 base topology is mandatory, not implied by the pinned Deep targets."""
+        run_dir = tmp_path / f"v3_base_missing_{missing}"
+        run_dir.mkdir()
+        self._setup_v3_run_dir(run_dir)
+        acc = self._accounting(tmp_path, 6)
+        labels = [l for l in self._V3_BASE_LABELS if l != missing] + ["deep-B1", "deep-B2"]
+        r = run_bundle(
+            "create",
+            "--output-root", str(workspace["output"]),
+            "--slug", f"v3-missing-{missing}",
+            "--skill-root", str(workspace["skill"]),
+            *self._v3_stage_args(run_dir, labels),
+            "--accounting", str(acc),
+        )
+        assert r.returncode != 0
+        assert f"missing: {missing}" in r.stderr
+
+    def test_v3_archive_rejects_a_fourth_search_pass(self, workspace, tmp_path):
+        """pass-04 is not part of the three-pass v3 route and fails closed."""
+        run_dir = tmp_path / "v3_fourth_pass_run"
+        run_dir.mkdir()
+        self._setup_v3_run_dir(run_dir)
+        acc = self._accounting(tmp_path, 6)
+        labels = list(self._V3_BASE_LABELS) + ["pass-04-normal", "deep-B1", "deep-B2"]
+        r = run_bundle(
+            "create",
+            "--output-root", str(workspace["output"]),
+            "--slug", "v3-fourth-pass",
+            "--skill-root", str(workspace["skill"]),
+            *self._v3_stage_args(run_dir, labels),
+            "--accounting", str(acc),
+        )
+        assert r.returncode != 0
+        assert "non-v3 stages: pass-04-normal" in r.stderr
+
+    def test_v3_archive_rejects_development_frozen_against_a_stale_bundle_identity(
+        self, workspace, tmp_path
+    ):
+        """A Deep artifact frozen before the portfolio existed (or against another
+        bundle's members) carries member_refs the frozen bundle does not; the
+        archive must fail closed even though the checkpoint never saw it."""
+        run_dir = tmp_path / "v3_stale_identity_run"
+        run_dir.mkdir()
+        self._setup_v3_run_dir(run_dir)
+        self._write_artifact(
+            run_dir, "development-v2-B1.json",
+            self._v3_development("B1", "Thesis against a stale identity",
+                                 ["pass03:c01", "pass02:c01"]),
+        )
+        r = self._v3_create(workspace, tmp_path, run_dir, "v3-stale-identity", ("B1", "B2"))
+        assert r.returncode != 0
+        assert "the frozen bundle B1 carries" in r.stderr
+
+    def test_v3_archive_rejects_comparative_standing_in_a_development(
+        self, workspace, tmp_path
+    ):
+        """BONK v3 never compares its targets: a bundled Deep that opened a
+        comparative channel fails the archive closed."""
+        run_dir = tmp_path / "v3_comparative_run"
+        run_dir.mkdir()
+        self._setup_v3_run_dir(run_dir)
+        dev = self._v3_development("B1", "Thesis with a rival",
+                                   ["pass01:c01", "pass02:c01"])
+        dev["developed_model"]["comparative_standing"] = {
+            "rival_ref": "B2",
+            "material_difference": "other mechanism",
+            "selected_target_advantage": "cheaper",
+            "rival_advantage_or_parity": "broader scope",
+            "unresolved_competition": "unresolved",
+        }
+        self._write_artifact(run_dir, "development-v2-B1.json", dev)
+        r = self._v3_create(workspace, tmp_path, run_dir, "v3-comparative", ("B1", "B2"))
+        assert r.returncode != 0
+        assert "BONK v3 never compares its targets" in r.stderr
 
     def test_v3_renderer_order_determinism_and_contract(self, tmp_path):
         """Plan tests 8, 9, 11 + delta: renderer order follows development_targets."""
@@ -3373,7 +3652,8 @@ class TestBonkV3ArchiveAndRenderer:
             _sha256_hex((run_dir / "portfolio.json").read_bytes()), encoding="utf-8")
 
         for t_id in ("B1", "B2"):
-            dev = self._v3_development(t_id, f"Legacy thesis {t_id}")
+            dev = self._v3_development(t_id, f"Legacy thesis {t_id}",
+                                       ["pass01:c01", "pass01:c02"])
             (run_dir / f"development-v2-{t_id}.json").write_text(json.dumps(dev), encoding="utf-8")
             (run_dir / f"development-v2-{t_id}.sha256").write_text(
                 _sha256_hex((run_dir / f"development-v2-{t_id}.json").read_bytes()), encoding="utf-8")
