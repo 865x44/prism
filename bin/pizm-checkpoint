@@ -2317,15 +2317,6 @@ def _durable_exclusive_write(target: Path, data: bytes) -> None:
     _durable_write(target, data, exclusive=True)
 
 
-def _durable_replace(target: Path, data: bytes) -> None:
-    """Atomically replace/create target (``os.replace``).
-
-    Used only to complete a hash sidecar for already-confirmed content; it is
-    never used to replace a confirmed JSON artifact.
-    """
-    _durable_write(target, data, exclusive=False)
-
-
 def _cleanup_created(created: list[Path]) -> None:
     """Remove ONLY the files this invocation created.
 
@@ -2411,6 +2402,116 @@ def _print_search_field_ok(field_hash: str, artifact_path: Path, sha_path: Path,
     print(f"META {meta_path}")
 
 
+_SEARCH_FIELD_STAGE = "search-field"
+
+
+def _search_field_meta_error(meta_path: Path, expected_hash: str, run_id: str) -> str | None:
+    """Diagnostic for a PRESENT search-field ``.meta.json``; ``None`` == consistent.
+
+    Validates the full provenance record legacy ``freeze()`` writes (``sha256``,
+    ``run_id``, ``stage``, ``schema_version``), not just the hash, so a foreign
+    or stale record can never be endorsed by a confirm/publish success. Never
+    writes. Every diagnostic contains ``mismatch``.
+    """
+    try:
+        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as e:
+        return (
+            f"meta hash mismatch: {meta_path.name} is not a readable "
+            f"consistency record ({e}); manual review; refusing to touch files"
+        )
+    stored = meta.get("sha256") if isinstance(meta, dict) else None
+    if not isinstance(meta, dict) or stored != expected_hash:
+        return (
+            f"meta hash mismatch: expected {expected_hash}, found {stored}; "
+            f"manual review; refusing to touch files"
+        )
+    if meta.get("run_id") != run_id:
+        return (
+            f"meta run_id mismatch: expected {run_id!r}, found {meta.get('run_id')!r}; "
+            f"manual review; refusing to touch files"
+        )
+    if meta.get("stage") != _SEARCH_FIELD_STAGE:
+        return (
+            f"meta stage mismatch: expected {_SEARCH_FIELD_STAGE!r}, "
+            f"found {meta.get('stage')!r}; manual review; refusing to touch files"
+        )
+    expected_schema = _SCHEMA_VERSIONS["search-field"]
+    if meta.get("schema_version") != expected_schema:
+        return (
+            f"meta schema_version mismatch: expected {expected_schema!r}, "
+            f"found {meta.get('schema_version')!r}; manual review; refusing to touch files"
+        )
+    return None
+
+
+def _search_field_sha_error(sha_path: Path, expected_hash: str) -> str | None:
+    """Diagnostic for a PRESENT ``.sha256`` sidecar; ``None`` == consistent."""
+    try:
+        found = sha_path.read_text(encoding="utf-8").strip()
+    except OSError as e:
+        return f"failed to read sha256 sidecar: {e}"
+    if found != expected_hash:
+        return (
+            f"sidecar hash mismatch: expected {expected_hash}, found {found}; "
+            f"manual review; refusing to touch files"
+        )
+    return None
+
+
+def _check_search_field_sidecars(
+    sha_path: Path, meta_path: Path, expected_hash: str, run_id: str
+) -> str | None:
+    """Validate any PRESENT sidecar without writing; ``None`` == consistent."""
+    if sha_path.is_file():
+        err = _search_field_sha_error(sha_path, expected_hash)
+        if err:
+            return err
+    if meta_path.is_file():
+        return _search_field_meta_error(meta_path, expected_hash, run_id)
+    return None
+
+
+def _complete_search_field_sidecars(
+    sha_path: Path,
+    meta_path: Path,
+    expected_hash: str,
+    run_id: str,
+    created: list[Path],
+) -> str | None:
+    """Check-first-then-complete the search-field trio's sidecars.
+
+    Validates every PRESENT sidecar before writing anything; completes only an
+    ABSENT ``.sha256``/``.meta.json`` via exclusive create. A concurrent creator
+    that wins the race is re-read and accepted only on a full match, never
+    clobbered. A non-``None`` return means the caller must clean up ``created``.
+    """
+    err = _check_search_field_sidecars(sha_path, meta_path, expected_hash, run_id)
+    if err:
+        return err
+    if not sha_path.is_file():
+        try:
+            _durable_exclusive_write(sha_path, expected_hash.encode("utf-8"))
+            created.append(sha_path)
+        except FileExistsError:
+            err = _search_field_sha_error(sha_path, expected_hash)
+            if err:
+                return err
+        except OSError as e:
+            return f"failed to complete sha256 sidecar: {e}"
+    if not meta_path.is_file():
+        try:
+            _durable_exclusive_write(meta_path, _search_field_meta(run_id, expected_hash))
+            created.append(meta_path)
+        except FileExistsError:
+            err = _search_field_meta_error(meta_path, expected_hash, run_id)
+            if err:
+                return err
+        except OSError as e:
+            return f"failed to complete metadata: {e}"
+    return None
+
+
 def _confirm_search_field(
     artifact_path: Path,
     sha_path: Path,
@@ -2421,10 +2522,11 @@ def _confirm_search_field(
 ) -> int:
     """Retry/confirm for an already-present field artifact. Never rewrites JSON.
 
-    * semantically equivalent (bytes equal OR legacy byte-differing) -> confirm;
-      complete ONLY an ABSENT hash sidecar and an ABSENT meta file. A PRESENT
-      sidecar/meta that disagrees with the confirmed content fails closed.
-    * present but semantically different -> fail closed, name both hashes.
+    CHECK-FIRST: JSON equivalence, a present ``.sha256``, and a present
+    ``.meta.json`` (incl. provenance fields) are all validated before any write.
+    Only then are ABSENT sidecars completed. A failure anywhere leaves the
+    on-disk state untouched (any own-sidecar written before a late failure is
+    removed via ``_cleanup_created``).
     """
     try:
         raw = artifact_path.read_bytes()
@@ -2445,47 +2547,13 @@ def _confirm_search_field(
             f"refusing to overwrite; remove {artifact_path.name} and its sidecars after "
             f"manual review (or freeze a different pass suffix)"
         )
-    # Content confirmed: complete ONLY an ABSENT hash sidecar, never the JSON.
-    # A PRESENT sidecar that disagrees with the confirmed bytes is a lying
-    # (corrupt / foreign-modified) record: fail closed and touch nothing.
-    if sha_path.is_file():
-        if not _sidecar_matches(sha_path, actual_hash):
-            try:
-                found = sha_path.read_text(encoding="utf-8").strip()
-            except OSError as e:
-                return _die(f"failed to read sha256 sidecar: {e}")
-            return _die(
-                f"sidecar hash mismatch: expected {actual_hash}, found {found}; "
-                f"manual review; refusing to touch files"
-            )
-    else:
-        try:
-            _durable_replace(sha_path, actual_hash.encode("utf-8"))
-        except OSError as e:
-            return _die(f"failed to complete sha256 sidecar: {e}")
-    # Metadata: complete only when ABSENT; a present-but-inconsistent record is
-    # never silently kept alongside a confirm-success.
-    if meta_path.is_file():
-        try:
-            meta = json.loads(meta_path.read_text(encoding="utf-8"))
-        except (OSError, ValueError) as e:
-            return _die(
-                f"meta hash mismatch: {meta_path.name} is not a readable "
-                f"consistency record ({e}); manual review; refusing to touch files"
-            )
-        stored = meta.get("sha256") if isinstance(meta, dict) else None
-        if not isinstance(meta, dict) or stored != actual_hash:
-            return _die(
-                f"meta hash mismatch: expected {actual_hash}, found {stored}; "
-                f"manual review; refusing to touch files"
-            )
-    else:
-        try:
-            _durable_exclusive_write(meta_path, _search_field_meta(run_id, actual_hash))
-        except FileExistsError:
-            pass
-        except OSError as e:
-            return _die(f"failed to complete metadata: {e}")
+    created: list[Path] = []
+    err = _complete_search_field_sidecars(
+        sha_path, meta_path, actual_hash, run_id, created
+    )
+    if err:
+        _cleanup_created(created)
+        return _die(err)
     _print_search_field_ok(actual_hash, artifact_path, sha_path, meta_path)
     return 0
 
@@ -2501,6 +2569,13 @@ def _publish_search_field(
 ) -> int:
     """Exclusive publish of one field 3-file set; cleanup touches only own files."""
     created: list[Path] = []
+    # P1-1: validate any PRE-EXISTING sidecar before writing the JSON. A lying
+    # meta/sha beside an absent JSON must fail closed without any write, so it
+    # can never be endorsed by a later SEARCH_FIELD_OK (parity with legacy
+    # freeze(), which fails closed on a pre-existing record).
+    err = _check_search_field_sidecars(sha_path, meta_path, canonical_hash, run_id)
+    if err:
+        return _die(err)
     try:
         try:
             _durable_exclusive_write(artifact_path, payload)
@@ -2512,31 +2587,13 @@ def _publish_search_field(
             )
         except OSError as e:
             return _die(f"failed to write field artifact: {e}")
-        # We own the JSON. Complete the sidecars.
-        if not _sidecar_matches(sha_path, canonical_hash):
-            try:
-                _durable_exclusive_write(sha_path, canonical_hash.encode("utf-8"))
-                created.append(sha_path)
-            except FileExistsError:
-                # A concurrent confirm may have completed it; accept only a match.
-                if not _sidecar_matches(sha_path, canonical_hash):
-                    _cleanup_created(created)
-                    return _die(
-                        "sha256 sidecar conflict: existing sidecar does not match the "
-                        "written artifact; refusing to clobber"
-                    )
-            except OSError as e:
-                _cleanup_created(created)
-                return _die(f"failed to write sha256: {e}")
-        if not meta_path.is_file():
-            try:
-                _durable_exclusive_write(meta_path, _search_field_meta(run_id, canonical_hash))
-                created.append(meta_path)
-            except FileExistsError:
-                pass
-            except OSError as e:
-                _cleanup_created(created)
-                return _die(f"failed to write metadata: {e}")
+        # We own the JSON. Complete the sidecars via the shared check-first path.
+        err = _complete_search_field_sidecars(
+            sha_path, meta_path, canonical_hash, run_id, created
+        )
+        if err:
+            _cleanup_created(created)
+            return _die(err)
         try:
             readback = artifact_path.read_bytes()
         except OSError as e:

@@ -507,3 +507,147 @@ def test_concurrent_double_invoke_one_wins_other_confirms(workspace):
     assert (run_dir / "search-field-pass01.sha256").read_text(
         encoding="utf-8"
     ).strip() == _sha256(artifact)
+
+
+# ── Wave 2A.3b partial-state hardening ─────────────────────────────────
+
+
+def test_preexisting_wrong_meta_blocks_json_creation(workspace):
+    """P1-1: JSON absent + pre-planted wrong-hash meta fails BEFORE any write.
+
+    The builder must be at least as strict as legacy ``freeze()``: a lying
+    provenance record beside an absent JSON can never be endorsed by
+    ``SEARCH_FIELD_OK``, and the foreign meta must be left byte-untouched.
+    """
+    project, skill = workspace
+    run_id = "sf3b-meta-orphan"
+    _freeze_explore(project, skill, run_id, ("c01", "c02"), "pass01")
+    run_dir = _run_dir(project, run_id)
+    meta = run_dir / "search-field-pass01.meta.json"
+    meta.write_text(
+        json.dumps(
+            {
+                "sha256": "0" * 64,
+                "timestamp": "2026-01-01T00:00:00+00:00",
+                "run_id": run_id,
+                "stage": "search-field",
+                "schema_version": "pizm-search-field-v1",
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    meta_before = meta.read_bytes()
+
+    res = _build(project, skill, run_id, "pass01")
+    assert res.returncode != 0
+    assert "mismatch" in res.stderr
+    assert not (run_dir / "search-field-pass01.json").exists()
+    assert not (run_dir / "search-field-pass01.sha256").exists()
+    assert meta.read_bytes() == meta_before
+
+
+def test_wrong_meta_with_absent_sha_writes_nothing(workspace):
+    """P1-2: correct JSON + ABSENT sha + wrong meta -> zero writes (no sha)."""
+    project, skill = workspace
+    run_id = "sf3b-confirm-nosha"
+    h1 = _freeze_explore(project, skill, run_id, ("c01", "c02"), "pass01")
+    legacy = _field(
+        [_pass("pass01", "candidates-pass01.json", h1)],
+        ["pass01:c01", "pass01:c02"],
+    )
+    assert _freeze_field(project, skill, run_id, legacy, "pass01").returncode == 0
+    run_dir = _run_dir(project, run_id)
+    (run_dir / "search-field-pass01.sha256").unlink()
+    meta = run_dir / "search-field-pass01.meta.json"
+    meta.write_text(
+        json.dumps(
+            {
+                "sha256": "0" * 64,
+                "timestamp": "2026-01-01T00:00:00+00:00",
+                "run_id": run_id,
+                "stage": "search-field",
+                "schema_version": "pizm-search-field-v1",
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    before = _snapshot(run_dir, "search-field-pass01")
+
+    res = _build(project, skill, run_id, "pass01")
+    assert res.returncode != 0
+    assert "mismatch" in res.stderr
+    assert not (run_dir / "search-field-pass01.sha256").exists()
+    assert _snapshot(run_dir, "search-field-pass01") == before
+
+
+def test_concurrent_sidecar_completion_one_winner_no_clobber(workspace):
+    """P2-3: two racers completing a MISSING sha sidecar never clobber it.
+
+    Exclusive create makes exactly one process the creator; the loser re-reads
+    and confirms. JSON and meta must stay byte-stable.
+    """
+    project, skill = workspace
+    run_id = "sf3b-sidecar-race"
+    _freeze_explore(project, skill, run_id, ("c01", "c02"), "pass01")
+    assert _build(project, skill, run_id, "pass01").returncode == 0
+    run_dir = _run_dir(project, run_id)
+    artifact = run_dir / "search-field-pass01.json"
+    sidecar = run_dir / "search-field-pass01.sha256"
+    meta = run_dir / "search-field-pass01.meta.json"
+    sidecar.unlink()
+    assert not sidecar.exists()
+    json_before = artifact.read_bytes()
+    meta_before = meta.read_bytes()
+
+    cmd = [
+        sys.executable, CHECKPOINT, "freeze-search-field", "--run-id", run_id,
+        "--artifact-suffix", "pass01", "--project-root", str(project),
+        "--skill-root", str(skill),
+    ]
+
+    def _invoke():
+        return subprocess.run(cmd, capture_output=True, text=True)
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(lambda _: _invoke(), range(2)))
+
+    assert all(r.returncode == 0 for r in results), [r.stderr for r in results]
+    assert sidecar.read_text(encoding="utf-8").strip() == _sha256(artifact)
+    assert artifact.read_bytes() == json_before
+    assert meta.read_bytes() == meta_before
+
+
+def test_legacy_shaped_meta_with_correct_values_accepted(workspace):
+    """Compat: the 5-key meta legacy ``freeze()`` writes is accepted unchanged."""
+    project, skill = workspace
+    run_id = "sf3b-legacy-meta"
+    h1 = _freeze_explore(project, skill, run_id, ("c01", "c02"), "pass01")
+    legacy = _field(
+        [_pass("pass01", "candidates-pass01.json", h1)],
+        ["pass01:c01", "pass01:c02"],
+    )
+    assert _freeze_field(project, skill, run_id, legacy, "pass01").returncode == 0
+    run_dir = _run_dir(project, run_id)
+    artifact = run_dir / "search-field-pass01.json"
+    meta = run_dir / "search-field-pass01.meta.json"
+    meta.write_text(
+        json.dumps(
+            {
+                "sha256": _sha256(artifact),
+                "timestamp": "2026-01-01T00:00:00+00:00",
+                "run_id": run_id,
+                "stage": "search-field",
+                "schema_version": "pizm-search-field-v1",
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    before = _snapshot(run_dir, "search-field-pass01")
+
+    res = _build(project, skill, run_id, "pass01")
+    assert res.returncode == 0, res.stderr
+    assert "SEARCH_FIELD_OK" in res.stdout
+    assert _snapshot(run_dir, "search-field-pass01") == before
