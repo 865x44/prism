@@ -163,7 +163,11 @@ def search_field_payload(candidates_sha1: str, candidates_sha2: str = None):
     }
 
 
-def portfolio_v2_payload(competition_status="TWO_DEFENSIBLE_BUNDLES", field_hash="abc123", field_ref="search-field.json"):
+def portfolio_v2_payload(competition_status="TWO_DEFENSIBLE_BUNDLES", field_hash="abc123", field_ref="search-field.json", two_pass=True):
+    # A BONK v2 portfolio normally covers an accumulated two-pass field; the
+    # single-pass compatibility fixtures pass two_pass=False so the manifest
+    # stays exactly consistent with the field they actually freeze.
+    b2_members = ["pass01:c02", "pass02:c01"] if two_pass else ["pass01:c02", "pass01:c01"]
     bundles = [
         {
             "bundle_id": "B1",
@@ -190,16 +194,16 @@ def portfolio_v2_payload(competition_status="TWO_DEFENSIBLE_BUNDLES", field_hash
         bundles.append(
             {
                 "bundle_id": "B2",
-                "member_refs": ["pass01:c02", "pass02:c01"],
+                "member_refs": b2_members,
                 "bundle_thesis": "Ownership boundary diffusion drives coordination tax",
                 "composition_gain": "Connects multi-repo architectural silos with meeting proliferation",
                 "member_roles": {
-                    "pass01:c02": "Symptom of boundary coordination",
-                    "pass02:c01": "Root architectural cause",
+                    b2_members[0]: "Symptom of boundary coordination",
+                    b2_members[1]: "Root architectural cause",
                 },
                 "member_ablation": {
-                    "pass01:c02": "Loses the concrete calendar manifestation",
-                    "pass02:c01": "Reduces to generic calendar overload",
+                    b2_members[0]: "Loses the concrete calendar manifestation",
+                    b2_members[1]: "Reduces to generic calendar overload",
                 },
                 "internal_tension": "Clear ownership reduces coordination meetings but may silo subteams",
                 "weakest_link": "Service boundaries are hard to redraw quickly",
@@ -242,6 +246,7 @@ def portfolio_v2_payload(competition_status="TWO_DEFENSIBLE_BUNDLES", field_hash
                 "nearest_overlap": None,
                 "reason": "Empirical meeting load",
             },
+        ] + ([
             {
                 "candidate_ref": "pass02:c01",
                 "disposition": "KEEP",
@@ -250,7 +255,7 @@ def portfolio_v2_payload(competition_status="TWO_DEFENSIBLE_BUNDLES", field_hash
                 "nearest_overlap": None,
                 "reason": "Cross-repo boundary insight",
             },
-        ],
+        ] if two_pass else []),
         "bundles": bundles,
     }
     if single_target:
@@ -490,7 +495,7 @@ class TestForgePortfolioContracts:
         res_sf = freeze_stage(tmp_path, "search-field", run_id, search_field_payload(sha1))
         sha_sf = res_sf.stdout.split()[1]
 
-        p_v2 = portfolio_v2_payload(competition_status="TWO_DEFENSIBLE_BUNDLES", field_hash=sha_sf, field_ref="search-field.json")
+        p_v2 = portfolio_v2_payload(competition_status="TWO_DEFENSIBLE_BUNDLES", field_hash=sha_sf, field_ref="search-field.json", two_pass=False)
         res = freeze_stage(tmp_path, "portfolio", run_id, p_v2)
         assert res.returncode == 0
         assert "FREEZE_OK" in res.stdout
@@ -503,7 +508,7 @@ class TestForgePortfolioContracts:
         res_sf = freeze_stage(tmp_path, "search-field", run_id, search_field_payload(sha1))
         sha_sf = res_sf.stdout.split()[1]
 
-        p_v2 = portfolio_v2_payload(competition_status="NO_SECOND_DEFENSIBLE_BUNDLE", field_hash=sha_sf, field_ref="search-field.json")
+        p_v2 = portfolio_v2_payload(competition_status="NO_SECOND_DEFENSIBLE_BUNDLE", field_hash=sha_sf, field_ref="search-field.json", two_pass=False)
         res = freeze_stage(tmp_path, "portfolio", run_id, p_v2)
         assert res.returncode == 0
         assert "FREEZE_OK" in res.stdout
@@ -516,12 +521,12 @@ class TestForgePortfolioContracts:
         res_sf = freeze_stage(tmp_path, "search-field", run_id, search_field_payload(sha1))
         sha_sf = res_sf.stdout.split()[1]
 
-        p_v1 = portfolio_v2_payload(competition_status="TWO_DEFENSIBLE_BUNDLES", field_hash=sha_sf, field_ref="search-field.json")
+        p_v1 = portfolio_v2_payload(competition_status="TWO_DEFENSIBLE_BUNDLES", field_hash=sha_sf, field_ref="search-field.json", two_pass=False)
         p_v1["schema_version"] = "pizm-portfolio-selection-v1"
         p_v1["route"] = "MANUAL"
         if "competition_status" in p_v1:
             del p_v1["competition_status"]
-        p_v1["perspectives"] = {"P1": "pass01:c01", "P2": "pass01:c02", "P3": "pass02:c01"}
+        p_v1["perspectives"] = {"P1": "pass01:c01", "P2": "pass01:c02"}
         if "single_target" in p_v1:
             del p_v1["single_target"]
         del p_v1["recommended_competition"]

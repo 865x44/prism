@@ -673,7 +673,15 @@ def test_auto_render_accepts_v1_auto_layout(tmp_path):
                 "unique_residue": "Latency residue",
                 "nearest_overlap": None,
                 "reason": "Causal mechanism",
-            }
+            },
+            {
+                "candidate_ref": "pass01:c02",
+                "disposition": "DROP",
+                "standalone_quality": "weak",
+                "unique_residue": "",
+                "nearest_overlap": "pass01:c01",
+                "reason": "Exact-coverage manifest row for the accumulated field",
+            },
         ],
         "bundles": [],
         "next_reasoning_move": "DEEP",
@@ -794,7 +802,15 @@ def test_exact_pass02_lookup_on_local_id_collision(tmp_path):
                 "unique_residue": "Pass 2 residue",
                 "nearest_overlap": None,
                 "reason": "Pass 2 selected",
-            }
+            },
+            {
+                "candidate_ref": "pass01:c01",
+                "disposition": "DROP",
+                "standalone_quality": "weak",
+                "unique_residue": "",
+                "nearest_overlap": "pass02:c01",
+                "reason": "Superseded by the pass02 collision lookup (exact coverage row)",
+            },
         ],
         "bundles": [],
     }
@@ -816,8 +832,12 @@ def test_exact_pass02_lookup_on_local_id_collision(tmp_path):
     assert res.returncode == 0, res.stderr
     content = out.read_text(encoding="utf-8")
     # Must render Pass 2 Title under Portfolio for P1
-    assert "### P1 — Pass 2 Title (`pass02:c01`)" in content
-    assert "Pass 1 Title" not in content.split("## Portfolio")[1].split("## Machine artifacts")[0]
+    portfolio_section = content.split("## Portfolio")[1].split("## Machine artifacts")[0]
+    assert "### P1 — Pass 2 Title (`pass02:c01`)" in portfolio_section
+    # P1 must NOT fall back to pass01's same-local-id candidate. The drop row
+    # for pass01:c01 is expected now that exact coverage requires an
+    # assessment for every field candidate.
+    assert "### P1 — Pass 1 Title" not in portfolio_section
 
 
 def test_duplicate_composite_candidate_keys_fails_closed(tmp_path):

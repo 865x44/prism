@@ -153,6 +153,11 @@ _RUN_ID_RE = re.compile(r"[a-z0-9-]+\Z")
 _P_ID_RE = re.compile(r"P[1-9][0-9]*\Z")
 _B_ID_RE = re.compile(r"B[1-9][0-9]*\Z")
 _PASS_ID_RE = re.compile(r"pass[0-9]{2,}\Z")
+# Candidate local-ID grammar, aligned character-for-character with the suffix
+# class of _COMPOSITE_REF_RE: every freezable candidate_id must be
+# referenceable as passNN:<candidate_id>. No cNN numeric shape is imposed —
+# any [A-Za-z0-9_-]+ id is legal. The colon is excluded (composite separator).
+_CANDIDATE_ID_RE = re.compile(r"[A-Za-z0-9_-]+\Z")
 _COMPOSITE_REF_RE = re.compile(r"pass[0-9]{2,}:[A-Za-z0-9_-]+\Z")
 
 def _die(msg: str, code: int = 1) -> int:
@@ -229,8 +234,11 @@ def _validate_explore(data: dict, raw_bytes_len: int = 0) -> None:
         if not isinstance(c, dict):
             raise ValueError(f"candidates[{i}] must be an object")
         cid = c.get("candidate_id")
-        if not isinstance(cid, str) or not cid:
-            raise ValueError(f"candidates[{i}].candidate_id must be non-empty string")
+        if not isinstance(cid, str) or not _CANDIDATE_ID_RE.fullmatch(cid):
+            raise ValueError(
+                f"candidates[{i}].candidate_id must match [A-Za-z0-9_-]+ "
+                f"(every freezable id must be referenceable as passNN:<id>), got {cid!r}"
+            )
         if cid in seen:
             raise ValueError(f"duplicate candidate_id: {cid!r}")
         seen.add(cid)
@@ -1231,6 +1239,10 @@ def _validate_search_field(
 
     known_passes = set()
     last_pass_num = -1
+    # Hash-verified raw candidates payloads, kept to derive the real
+    # composite-ref set below (referential integrity: entries must name
+    # exactly the candidates that were actually frozen).
+    verified_candidates = []
     for i, p in enumerate(passes):
         if not isinstance(p, dict):
             raise ValueError(f"passes[{i}] must be an object")
@@ -1254,11 +1266,12 @@ def _validate_search_field(
 
         if project_root is not None:
             cand_path = _resolve_pizm_artifact(candidates_ref, project_root, run_dir)
-            _verify_artifact_and_sidecar(
+            raw_cand, _ = _verify_artifact_and_sidecar(
                 cand_path,
                 expected_hash=frozen_hash,
                 field_name=f"passes[{i}].candidates_ref",
             )
+            verified_candidates.append((pass_id, raw_cand))
 
     entries = data.get("entries")
     if not isinstance(entries, list) or len(entries) == 0:
@@ -1284,6 +1297,60 @@ def _validate_search_field(
                 f"({pass_id} appears after its later pass)"
             )
         last_pass_n = pass_n
+
+    # Referential integrity: entries must name EXACTLY the candidates frozen
+    # in the hash-verified per-pass artifacts — no missing real candidates,
+    # no invented refs (pass02:c99-style), no refs to foreign passes. Shape,
+    # duplicate, registered-pass, and append-only ordering are enforced by
+    # the loop above; this compares as a SET against ground truth. An empty
+    # candidates pool (honest 360/RIFT exhaustion, already gated by
+    # _validate_explore) simply contributes no refs; the accumulated field
+    # still carries prior passes' candidates. Without project_root the real
+    # artifacts are unreachable, so only the structural checks above apply
+    # (freeze always supplies project_root, so freeze-time enforcement holds).
+    if project_root is not None:
+        real_refs = set()
+        for pass_id, raw_cand in verified_candidates:
+            try:
+                cand_data = json.loads(raw_cand)
+            except json.JSONDecodeError:
+                raise ValueError(
+                    f"candidates artifact for {pass_id} is not valid JSON"
+                )
+            cand_list = cand_data.get("candidates") if isinstance(cand_data, dict) else None
+            if not isinstance(cand_list, list):
+                raise ValueError(
+                    f"candidates artifact for {pass_id} must carry a candidates list"
+                )
+            seen_ids = set()
+            for c in cand_list:
+                cid = c.get("candidate_id") if isinstance(c, dict) else None
+                if not isinstance(cid, str) or not cid:
+                    raise ValueError(
+                        f"candidates artifact for {pass_id} carries a malformed candidate_id"
+                    )
+                if cid in seen_ids:
+                    raise ValueError(
+                        f"candidates artifact for {pass_id} has duplicate candidate_id: {cid!r}"
+                    )
+                seen_ids.add(cid)
+                real_refs.add(f"{pass_id}:{cid}")
+        entry_set = set(entries)
+        missing = sorted(real_refs - entry_set)
+        if missing:
+            raise ValueError(
+                f"entries omit {len(missing)} frozen candidate(s): "
+                + ", ".join(missing[:8])
+                + (" ..." if len(missing) > 8 else "")
+            )
+        invented = sorted(entry_set - real_refs)
+        if invented:
+            raise ValueError(
+                f"entries reference {len(invented)} unknown candidate(s) "
+                f"absent from the frozen passes: "
+                + ", ".join(invented[:8])
+                + (" ..." if len(invented) > 8 else "")
+            )
 
     prior_ref = data.get("prior_ref")
     prior_hash = data.get("prior_hash")
@@ -1460,6 +1527,25 @@ def _validate_v3_development_targets(data, seen_bundle_ids, seen_p_ids):
         )
 
 
+def _frozen_field_ref_index(raw_field: bytes, field_name: str) -> set:
+    """Real candidate-ref index from an already hash-verified search field.
+
+    The field artifact was frozen (and shape-validated) by its own freeze;
+    this only extracts its entries list as the ground-truth ref set the
+    portfolio must cover exactly. Fail-closed on malformed content.
+    """
+    try:
+        field_data = json.loads(raw_field)
+    except json.JSONDecodeError:
+        raise ValueError(f"{field_name} artifact is not valid JSON")
+    field_entries = field_data.get("entries") if isinstance(field_data, dict) else None
+    if not isinstance(field_entries, list) or not all(
+        isinstance(e, str) for e in field_entries
+    ):
+        raise ValueError(f"{field_name} artifact must carry an entries string list")
+    return set(field_entries)
+
+
 def _validate_portfolio(
     data: dict,
     raw_bytes_len: int = 0,
@@ -1572,21 +1658,30 @@ def _validate_portfolio(
     if field_ref:
         if project_root is not None:
             field_path = _resolve_pizm_artifact(field_ref, project_root, run_dir)
-            _verify_artifact_and_sidecar(
+            raw_field, _ = _verify_artifact_and_sidecar(
                 field_path,
                 expected_hash=field_hash,
                 field_name="field_ref",
             )
+            field_index = _frozen_field_ref_index(raw_field, "field_ref")
+        else:
+            field_index = None
     else:
         # v1 compatibility single-pass without field_ref
+        field_index = None
         if run_dir is not None:
             legacy_field = run_dir / "search-field.json"
             if legacy_field.is_file():
-                _verify_artifact_and_sidecar(
+                raw_field, _ = _verify_artifact_and_sidecar(
                     legacy_field,
                     expected_hash=field_hash,
                     field_name="search-field.json",
                 )
+                field_index = _frozen_field_ref_index(raw_field, "search-field.json")
+    # field_index is the real-ref set of the already-frozen input field
+    # (None when no verified field is reachable: structural checks only).
+    # The portfolio is validated ONLY against this frozen input — never
+    # against later unfrozen outputs — so there is no circular dependency.
     assessments = data.get("candidate_assessments")
     if not isinstance(assessments, list) or len(assessments) == 0:
         raise ValueError("candidate_assessments must be a non-empty list")
@@ -1623,6 +1718,11 @@ def _validate_portfolio(
                 f"candidate_assessments[{i}].nearest_overlap must be null or a "
                 f"composite ref passNN:cNN, got {overlap!r}"
             )
+        if overlap is not None and field_index is not None and overlap not in field_index:
+            raise ValueError(
+                f"candidate_assessments[{i}].nearest_overlap {overlap!r} is not "
+                "a candidate of the frozen input field"
+            )
         reason = a.get("reason")
         if not isinstance(reason, str) or not reason.strip():
             raise ValueError(f"candidate_assessments[{i}].reason must be non-empty string")
@@ -1637,6 +1737,30 @@ def _validate_portfolio(
                     f"candidate_assessments[{i}].plain_explanation exceeds {_PLAIN_EXPLANATION_MAX_CHARS} chars "
                     f"(got {len(explanation)})"
                 )
+
+    # Exact coverage: candidate_assessments must assess EVERY candidate of
+    # the frozen input field exactly once — no missing, no invented, no
+    # duplicates (duplicates are rejected in the loop above). This matches
+    # the confirmed selector contract (unique residue + one disposition per
+    # candidate). References and topology only: never truth or quality.
+    # Skipped when no verified field is reachable (e.g. field-less v1
+    # MANUAL): then only the structural checks above apply.
+    if field_index is not None:
+        uncovered = sorted(field_index - seen_refs)
+        if uncovered:
+            raise ValueError(
+                f"candidate_assessments miss {len(uncovered)} field candidate(s): "
+                + ", ".join(uncovered[:8])
+                + (" ..." if len(uncovered) > 8 else "")
+            )
+        foreign = sorted(seen_refs - field_index)
+        if foreign:
+            raise ValueError(
+                f"candidate_assessments reference {len(foreign)} unknown candidate(s) "
+                f"absent from the frozen input field: "
+                + ", ".join(foreign[:8])
+                + (" ..." if len(foreign) > 8 else "")
+            )
 
     bundles = data.get("bundles")
     if not isinstance(bundles, list):
@@ -1669,6 +1793,11 @@ def _validate_portfolio(
             if m in seen_members:
                 raise ValueError(f"bundles[{i}] duplicate member_ref: {m!r}")
             seen_members.add(m)
+            if field_index is not None and m not in field_index:
+                raise ValueError(
+                    f"bundles[{i}].member_refs[{j}] {m!r} is not a candidate "
+                    "of the frozen input field"
+                )
 
         for field_name in ("bundle_thesis", "composition_gain", "new_consequence_or_prediction"):
             v = b.get(field_name)
@@ -1684,6 +1813,11 @@ def _validate_portfolio(
         for k, v in roles.items():
             if k not in seen_members:
                 raise ValueError(f"bundles[{i}].member_roles key {k!r} is not a member_ref")
+            if field_index is not None and k not in field_index:
+                raise ValueError(
+                    f"bundles[{i}].member_roles key {k!r} is not a candidate "
+                    "of the frozen input field"
+                )
             if not isinstance(v, str):
                 raise ValueError(f"bundles[{i}].member_roles[{k!r}] must be a string")
 
@@ -1697,6 +1831,11 @@ def _validate_portfolio(
         for k, v in ablation.items():
             if not isinstance(v, str) or not v.strip():
                 raise ValueError(f"bundles[{i}].member_ablation[{k!r}] must be non-empty string")
+            if field_index is not None and k not in field_index:
+                raise ValueError(
+                    f"bundles[{i}].member_ablation key {k!r} is not a candidate "
+                    "of the frozen input field"
+                )
 
     if schema_version == "pizm-portfolio-selection-v1" and "perspectives" not in data:
         raise ValueError(
@@ -1705,6 +1844,16 @@ def _validate_portfolio(
         )
     if schema_version == "pizm-portfolio-selection-v1":
         _validate_v1_perspectives_mapping(data, kept_refs)
+    # Every candidate-linking perspectives value must resolve to the frozen
+    # input field (schema-specific maps additionally tie values to KEEP /
+    # assessed refs, which exact coverage already binds to the field).
+    if field_index is not None and isinstance(data.get("perspectives"), dict):
+        for p_id, c_ref in data["perspectives"].items():
+            if isinstance(c_ref, str) and c_ref not in field_index:
+                raise ValueError(
+                    f"perspectives[{p_id!r}] {c_ref!r} is not a candidate "
+                    "of the frozen input field"
+                )
     perspectives_raw = data.get("perspectives")
     if isinstance(perspectives_raw, dict):
         eligible_refs = {v for v in perspectives_raw.values() if isinstance(v, str)}
@@ -1726,6 +1875,11 @@ def _validate_portfolio(
             if hu_ref not in eligible_refs:
                 raise ValueError(
                     f"high_upside[{j}].ref {hu_ref!r} does not resolve to an eligible visible Perspective ref"
+                )
+            if field_index is not None and hu_ref not in field_index:
+                raise ValueError(
+                    f"high_upside[{j}].ref {hu_ref!r} is not a candidate "
+                    "of the frozen input field"
                 )
             if hu_ref in seen_hu_refs:
                 raise ValueError(f"high_upside[{j}] duplicate ref: {hu_ref!r}")

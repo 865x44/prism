@@ -67,6 +67,24 @@ def valid_explore():
     }
 
 
+def valid_explore_c01():
+    """Same shape as valid_explore(), but with the two-digit local ids the
+    search-field/portfolio fixtures in this module reference (c01/c02).
+
+    Search-field entries were never compared against the frozen candidates
+    before the Wave 1 referential-integrity fix, so these fixtures freely
+    mixed the valid_explore() ids (c1/c2) with c01/c02 refs. Making the
+    candidates match the refs keeps the fixtures honest without weakening
+    the validator.
+    """
+    data = valid_explore()
+    data["candidates"] = [
+        {"candidate_id": "c01", "content": "idea one"},
+        {"candidate_id": "c02", "content": "idea two"},
+    ]
+    return data
+
+
 def valid_deep():
     return {
         "schema_version": "pizm-development-v1",
@@ -1416,7 +1434,7 @@ def test_real_two_pass_cli_chain(workspace):
     run_id = "real-two-pass"
 
     # 1. Pass 01 explore freeze (unfrozen payload input only)
-    p1 = valid_explore()
+    p1 = valid_explore_c01()
     inp_p1 = write_json(project / "input_p1.json", p1)
     res_p1 = run_ck(
         "freeze", "--stage", "explore", "--run-id", run_id,
@@ -1451,7 +1469,7 @@ def test_real_two_pass_cli_chain(workspace):
     sha_sf1 = res_sf1.stdout.split()[1]
 
     # 3. Pass 02 explore freeze
-    p2 = valid_explore()
+    p2 = valid_explore_c01()
     inp_p2 = write_json(project / "input_p2.json", p2)
     res_p2 = run_ck(
         "freeze", "--stage", "explore", "--run-id", run_id,
@@ -1519,6 +1537,22 @@ def test_real_two_pass_cli_chain(workspace):
                 "nearest_overlap": None,
                 "reason": "good",
             },
+            {
+                "candidate_ref": "pass01:c02",
+                "disposition": "DROP",
+                "standalone_quality": "weak",
+                "unique_residue": "",
+                "nearest_overlap": None,
+                "reason": "covered by pass01:c01 (exact-coverage manifest)",
+            },
+            {
+                "candidate_ref": "pass02:c02",
+                "disposition": "DROP",
+                "standalone_quality": "weak",
+                "unique_residue": "",
+                "nearest_overlap": None,
+                "reason": "covered by pass02:c01 (exact-coverage manifest)",
+            },
         ],
         "bundles": [
             {
@@ -1560,7 +1594,7 @@ def test_real_two_pass_cli_chain(workspace):
 
 def test_search_field_freeze_success(workspace):
     project, skill = workspace
-    inp_cand = write_json(project / "cand.json", valid_explore())
+    inp_cand = write_json(project / "cand.json", valid_explore_c01())
     res_cand = run_ck(
         "freeze", "--stage", "explore", "--run-id", "field-run-1",
         "--input", inp_cand, "--project-root", str(project), "--skill-root", str(skill),
@@ -1673,14 +1707,14 @@ def test_search_field_unregistered_pass_rejected(workspace):
 def test_two_passes_reuse_local_c_ids_without_collision(workspace):
     """Same local id c01 under two passes yields distinct composite refs."""
     project, skill = workspace
-    inp_cand1 = write_json(project / "cand1.json", valid_explore())
+    inp_cand1 = write_json(project / "cand1.json", valid_explore_c01())
     res1 = run_ck("freeze", "--stage", "explore", "--run-id", "field-reuse",
                   "--artifact-suffix", "pass01",
                   "--input", inp_cand1, "--project-root", str(project), "--skill-root", str(skill))
     assert res1.returncode == 0
     sha1 = res1.stdout.split()[1]
 
-    inp_cand2 = write_json(project / "cand2.json", valid_explore())
+    inp_cand2 = write_json(project / "cand2.json", valid_explore_c01())
     res2 = run_ck("freeze", "--stage", "explore", "--run-id", "field-reuse",
                   "--artifact-suffix", "pass02",
                   "--input", inp_cand2, "--project-root", str(project), "--skill-root", str(skill))
@@ -1694,7 +1728,7 @@ def test_two_passes_reuse_local_c_ids_without_collision(workspace):
             {"pass_id": "pass01", "candidates_ref": "candidates-pass01.json", "frozen_hash": sha1},
             {"pass_id": "pass02", "candidates_ref": "candidates-pass02.json", "frozen_hash": sha2},
         ],
-        "entries": ["pass01:c01", "pass02:c01"],
+        "entries": ["pass01:c01", "pass01:c02", "pass02:c01", "pass02:c02"],
     }
     inp = write_json(project / "field_reuse.json", data)
     result = run_ck(
@@ -1933,7 +1967,8 @@ def test_portfolio_pack_rejects_non_final_pass_field_ref(workspace):
     for pass_num in ("01", "02", "03"):
         sf = {
             "schema_version": "pizm-search-field-v1", "stage": "search-field",
-            "field_id": f"sf{pass_num}", "passes": [], "entries": [],
+            "field_id": f"sf{pass_num}", "passes": [],
+            "entries": ["pass01:c01", "pass01:c02"],
         }
         raw = json.dumps(sf).encode("utf-8")
         hashes[pass_num] = hashlib.sha256(raw).hexdigest()
@@ -3175,7 +3210,7 @@ class TestForgeRoute:
 
     def _make_search_field(self, workspace, run_id):
         project, skill = workspace
-        cand = valid_explore()
+        cand = valid_explore_c01()
         inp_cand = write_json(project / f"cand_{run_id}.json", cand)
         res_cand = run_ck("freeze", "--stage", "explore", "--run-id", run_id, "--input", inp_cand,
                           "--project-root", str(project), "--skill-root", str(skill))
@@ -3469,7 +3504,7 @@ class TestPolishingWaveInvariants:
                 {"pass_id": "pass01", "candidates_ref": "candidates-pass01.json", "frozen_hash": "a" * 64},
                 {"pass_id": "pass02", "candidates_ref": "candidates-pass02.json", "frozen_hash": "b" * 64},
             ],
-            "entries": ["pass01:c01", "pass02:c01"],
+            "entries": ["pass01:c01", "pass01:c02"],
         }
         sf2_raw = json.dumps(sf2_data, indent=2).encode("utf-8")
         (run_dir / "search-field-pass02.json").write_bytes(sf2_raw)
@@ -3665,7 +3700,7 @@ def _v3_run_with_fields(project, run_id, passes=(3,)):
                 }
                 for j in range(1, i + 1)
             ],
-            "entries": [f"pass0{j}:c01" for j in range(1, i + 1)],
+            "entries": ["pass01:c01", "pass01:c02"],
         }
         raw = json.dumps(data, indent=2).encode("utf-8")
         (run_dir / f"search-field-pass0{i}.json").write_bytes(raw)
