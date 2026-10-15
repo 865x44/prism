@@ -49,7 +49,8 @@ For normal successful PACK execution, follow the commands and artifact schemas i
 3. Do not load `references/deep.md`, `references/deep-reviewer.md`, `references/deep-compare.md`, or `references/lever*.md`. PACK terminates after Portfolio curation and research pack assembly.
 
 ### Freeze Success and Repair Rules
-- `FREEZE_OK` from the prescribed checkpoint command is authoritative for that freeze. After `FREEZE_OK`, do not reopen validator source/tests or re-read the just-frozen artifact solely to verify the successful freeze.
+- `FREEZE_OK` (or `SEARCH_FIELD_OK` from `freeze-search-field`) from the prescribed checkpoint command is authoritative for that freeze. After it, do not reopen validator source/tests or re-read the just-frozen artifact solely to verify the successful freeze.
+- A `freeze-search-field` builder failure is repaired under the same bounded budget as any other freeze rejection (surfaced error → current stage contract → existing bounded repair budget); it introduces no new loop.
 - Validator rejection is not permission for unrestricted repository archaeology. First repair directly from: (1) the surfaced validation error, (2) the current stage contract, and (3) the existing bounded repair budget. Inspect implementation files only if these are genuinely insufficient to continue.
 
 ---
@@ -82,19 +83,20 @@ PACK TASK
      ```bash
      "$PIZM_CHECKPOINT" freeze --stage explore --run-id "$RUN_ID" --artifact-suffix pass01 --input "$CANDIDATES_PASS01_JSON"
      ```
-   - Freeze search-field manifest:
+   - Build and freeze the search-field manifest deterministically from the frozen candidates (never hand-assemble the JSON):
      ```bash
-     "$PIZM_CHECKPOINT" freeze --stage search-field --run-id "$RUN_ID" --artifact-suffix pass01 --input "$SEARCH_FIELD_PASS01_JSON"
+     "$PIZM_CHECKPOINT" freeze-search-field --run-id "$RUN_ID" --artifact-suffix pass01 --project-root .
      ```
+     → `SEARCH_FIELD_OK <hash>`; an exact re-run confirms with zero writes, a conflicting existing field fails closed.
 
 3. **Search Pass 2 (residual)**: Consume accumulated field from Pass 1; search for missing mechanisms, variables, boundaries, and countermodels under `residual` policy. Freeze the artifact with the accepted residual mode string `360` (the accepted `mode` enum is `NORMAL|360|RIFT`); an exhausted pass freezes `candidates: []` with a non-empty `exhaustion_reason` instead of padding the pool.
    - Freeze candidates:
      ```bash
      "$PIZM_CHECKPOINT" freeze --stage explore --run-id "$RUN_ID" --artifact-suffix pass02 --input "$CANDIDATES_PASS02_JSON"
      ```
-   - Freeze search-field manifest:
+   - Build and freeze the search-field manifest deterministically from the frozen pass02 candidates (prior pass linked automatically, never hand-assembled):
      ```bash
-     "$PIZM_CHECKPOINT" freeze --stage search-field --run-id "$RUN_ID" --artifact-suffix pass02 --input "$SEARCH_FIELD_PASS02_JSON"
+     "$PIZM_CHECKPOINT" freeze-search-field --run-id "$RUN_ID" --artifact-suffix pass02 --project-root .
      ```
 
 4. **Search Pass 3 (rift)**: Consume accumulated field from Passes 1 and 2; search for distant structural shifts, reframing unit of analysis, causality, boundary, agency, or time scales under `rift` policy. An exhausted rift pass freezes `candidates: []` with a non-empty `exhaustion_reason` (mode `RIFT`) rather than inventing a decorative analogy.
@@ -102,9 +104,9 @@ PACK TASK
      ```bash
      "$PIZM_CHECKPOINT" freeze --stage explore --run-id "$RUN_ID" --artifact-suffix pass03 --input "$CANDIDATES_PASS03_JSON"
      ```
-   - Freeze search-field manifest:
+   - Build and freeze the search-field manifest deterministically from the frozen pass03 candidates (prior pass linked automatically, never hand-assembled):
      ```bash
-     "$PIZM_CHECKPOINT" freeze --stage search-field --run-id "$RUN_ID" --artifact-suffix pass03 --input "$SEARCH_FIELD_PASS03_JSON"
+     "$PIZM_CHECKPOINT" freeze-search-field --run-id "$RUN_ID" --artifact-suffix pass03 --project-root .
      ```
 
 5. **PORTFOLIO CURATION**: Only after `search-field-pass03.json` is frozen, reveal `references/explore-selector.md`.

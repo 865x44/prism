@@ -61,7 +61,8 @@ For normal successful BONK execution, follow the commands and artifact schemas i
 - Never load `references/deep-compare.md`, `references/deep-reviewer.md`, `references/lever.md`, or `references/lever-reviewer.md` during a BONK run. BONK v3 has no Critic, Compare, or LEVER stage.
 
 ### Freeze success and repair rules
-- `FREEZE_OK` from the prescribed checkpoint command is authoritative for that freeze. After `FREEZE_OK`, do not reopen validator source/tests or re-read the just-frozen artifact solely to verify the successful freeze.
+- `FREEZE_OK` (or `SEARCH_FIELD_OK` from `freeze-search-field`) from the prescribed checkpoint command is authoritative for that freeze. After it, do not reopen validator source/tests or re-read the just-frozen artifact solely to verify the successful freeze.
+- A `freeze-search-field` builder failure is repaired under the same bounded budget as any other freeze rejection (surfaced error → current stage contract → existing bounded repair budget); it introduces no new loop.
 - Validator rejection is not permission for unrestricted repository archaeology. First repair directly from: (1) the surfaced validation error, (2) the current stage contract, and (3) the existing bounded repair budget. Inspect implementation files only if these are genuinely insufficient to continue.
 
 ---
@@ -93,7 +94,11 @@ No automatic Critic. No automatic Compare. No automatic LEVER. No winner. No syn
 ### Stage 1: Search Pass 1 (initial)
 - Run broad initial Search adhering to `references/explore.md` (soft target 12–16 candidates when supported; hard bounds 1..20 candidates, ≤ 192 KiB payload, ≤ 12 KiB per candidate).
 - Freeze the raw pass as `pass01` via `"$PIZM_CHECKPOINT" freeze --stage explore --run-id <slug> --artifact-suffix pass01 --input <path>` → creates `candidates-pass01.{json,sha256,meta.json}` (or unsuffixed `candidates.{json,sha256,meta.json}`).
-- Register `pass01` in the append-only search-field manifest conforming to `pizm-search-field-v1` and freeze via `"$PIZM_CHECKPOINT" freeze --stage search-field --run-id <slug> --artifact-suffix pass01 --input <path>` → creates `search-field-pass01.{json,sha256,meta.json}`.
+- Build and freeze the append-only search-field manifest (`pizm-search-field-v1`) deterministically from the verified frozen candidates — never hand-assemble the JSON:
+  ```bash
+  "$PIZM_CHECKPOINT" freeze-search-field --run-id <slug> --artifact-suffix pass01 --project-root .
+  ```
+  → `SEARCH_FIELD_OK <hash>` + `search-field-pass01.{json,sha256,meta.json}`; registers `pass01` with its `candidates_ref` and `frozen_hash` in frozen candidate order.
 - **No judging after Pass 1.** Do not filter, rank, or evaluate candidates at this stage.
 
 ### Stage 2: Search Pass 2 (residual)
@@ -105,12 +110,15 @@ No automatic Critic. No automatic Compare. No automatic LEVER. No winner. No syn
   - Allow honest exhaustion if no new structural territory exists (do not pad): freeze `candidates: []` with a non-empty `exhaustion_reason`.
   - Freeze with the accepted residual mode string `360` (the accepted `mode` enum is `NORMAL|360|RIFT`; `RESIDUAL` is not accepted).
 - Freeze raw `pass02` via `"$PIZM_CHECKPOINT" freeze --stage explore --run-id <slug> --artifact-suffix pass02 --input <path>`.
-- Update the append-only search-field manifest naming `search-field-pass01.json` as `prior_ref` with its verified `prior_hash`, and freeze with `--artifact-suffix pass02`.
+- Build and freeze the pass02 manifest with the builder — it copies the prior pass and entries verbatim and links `search-field-pass01.json` as `prior_ref` with its verified `prior_hash` (never hand-assembled):
+  ```bash
+  "$PIZM_CHECKPOINT" freeze-search-field --run-id <slug> --artifact-suffix pass02 --project-root .
+  ```
 
 ### Stage 3: Search Pass 3 (rift)
 - Pass 3 consumes the accumulated field from Passes 1 and 2 and searches under the `rift` policy: distant structural shifts, reframed unit of analysis, different causal direction, system boundary, agency location, or time scale. An exhausted rift pass freezes `candidates: []` with a non-empty `exhaustion_reason` (mode `RIFT`) instead of a decorative analogy.
 - Freeze raw `pass03` via `"$PIZM_CHECKPOINT" freeze --stage explore --run-id <slug> --artifact-suffix pass03 --input <path>`.
-- Update the append-only search-field manifest naming `search-field-pass02.json` as `prior_ref` with its verified `prior_hash`, and freeze with `--artifact-suffix pass03` → creates `search-field-pass03.json`. This is the **final** search field.
+- Build and freeze the pass03 manifest the same way — prior `search-field-pass02.json` linked as `prior_ref` with its verified `prior_hash` → creates `search-field-pass03.json`. This is the **final** search field.
 - BONK v3 executes exactly three automatic Search passes. There is no fourth pass and no re-search after the portfolio.
 
 ### Stage 4: Portfolio Dual-Development Selection

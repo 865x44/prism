@@ -2260,14 +2260,15 @@ def _verify_artifact_and_sidecar(
 
     return raw_bytes, actual_hash
 
-def _durable_exclusive_write(target: Path, data: bytes) -> None:
-    """Write data to target with durable exclusive creation.
+def _durable_write(target: Path, data: bytes, *, exclusive: bool) -> None:
+    """Write data to target durably.
 
-    Flow: mkstemp in target dir → fdopen write → flush → fsync →
-    os.link(tmp, target) [fails if target exists] → unlink tmp →
-    fsync parent dir.
+    Flow: mkstemp in target dir → fdopen write → flush → fsync → publish →
+    fsync parent dir. ``exclusive`` publishes with ``os.link`` (fails with
+    FileExistsError if target exists, concurrent-safe); otherwise publishes
+    with ``os.replace`` (atomic overwrite for sidecar completion).
 
-    Raises OSError on any failure; cleans up temp file.
+    Raises OSError on any failure; cleans up the temp file.
     """
     fd = None
     tmp_path = None
@@ -2286,18 +2287,18 @@ def _durable_exclusive_write(target: Path, data: bytes) -> None:
             os.fsync(fh.fileno())
         finally:
             fh.close()
-        # Exclusive publish: link fails if target exists (concurrent-safe)
-        os.link(tmp_path, target)
-        os.unlink(tmp_path)
+        if exclusive:
+            os.link(tmp_path, target)
+            os.unlink(tmp_path)
+        else:
+            os.replace(tmp_path, target)
         tmp_path = None
-        # Fsync parent directory for durability
         parent_fd = os.open(str(target.parent), os.O_RDONLY)
         try:
             os.fsync(parent_fd)
         finally:
             os.close(parent_fd)
     except BaseException:
-        # Clean up temp file on any failure
         if fd is not None:
             try:
                 os.close(fd)
@@ -2309,6 +2310,217 @@ def _durable_exclusive_write(target: Path, data: bytes) -> None:
             except OSError:
                 pass
         raise
+
+
+def _durable_exclusive_write(target: Path, data: bytes) -> None:
+    """Durable exclusive creation (``os.link``; FileExistsError if target exists)."""
+    _durable_write(target, data, exclusive=True)
+
+
+def _durable_replace(target: Path, data: bytes) -> None:
+    """Atomically replace/create target (``os.replace``).
+
+    Used only to complete a hash sidecar for already-confirmed content; it is
+    never used to replace a confirmed JSON artifact.
+    """
+    _durable_write(target, data, exclusive=False)
+
+
+def _cleanup_created(created: list[Path]) -> None:
+    """Remove ONLY the files this invocation created.
+
+    The caller appends a path to ``created`` only after its own exclusive
+    ``os.link``/write succeeded, so foreign files are never touched.
+    """
+    for p in created:
+        try:
+            p.unlink()
+        except FileNotFoundError:
+            pass
+
+
+def _sidecar_matches(sha_path: Path, actual_hash: str) -> bool:
+    """True when the hash sidecar exists and equals ``actual_hash``."""
+    if not sha_path.is_file():
+        return False
+    try:
+        return sha_path.read_text(encoding="utf-8").strip() == actual_hash
+    except OSError:
+        return False
+
+
+def _search_field_semantically_equal(existing: dict, canonical: dict) -> bool:
+    """Semantic equivalence for the ``freeze-search-field`` retry/confirm path.
+
+    Compares ONLY the fields consumed by the frozen search-field contract:
+    ``schema_version``, ``stage``, ``passes`` (pass_id/candidates_ref/
+    frozen_hash, in list order), ``entries`` (exact list order, i.e. the
+    append-only rule), and prior linkage. Byte layout, key order, indentation,
+    and unknown keys are intentionally ignored: existing ``freeze()`` stores
+    raw input bytes, so a byte-only compare would falsely conflict on
+    semantically identical hand-built legacy fields.
+    """
+    if not isinstance(existing, dict) or not isinstance(canonical, dict):
+        return False
+    for key in ("schema_version", "stage"):
+        if existing.get(key) != canonical.get(key):
+            return False
+
+    def _norm_passes(d):
+        passes = d.get("passes")
+        if not isinstance(passes, list):
+            return None
+        out = []
+        for p in passes:
+            if not isinstance(p, dict):
+                return None
+            out.append((p.get("pass_id"), p.get("candidates_ref"), p.get("frozen_hash")))
+        return out
+
+    if _norm_passes(existing) != _norm_passes(canonical):
+        return False
+    e_entries = existing.get("entries")
+    c_entries = canonical.get("entries")
+    if not isinstance(e_entries, list) or not isinstance(c_entries, list):
+        return False
+    if list(e_entries) != list(c_entries):
+        return False
+    if (existing.get("prior_ref"), existing.get("prior_hash")) != (
+        canonical.get("prior_ref"),
+        canonical.get("prior_hash"),
+    ):
+        return False
+    return True
+
+
+def _search_field_meta(run_id: str, field_hash: str) -> bytes:
+    meta = {
+        "sha256": field_hash,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "run_id": run_id,
+        "stage": "search-field",
+        "schema_version": _SCHEMA_VERSIONS["search-field"],
+    }
+    return json.dumps(meta, indent=2).encode("utf-8")
+
+
+def _print_search_field_ok(field_hash: str, artifact_path: Path, sha_path: Path, meta_path: Path) -> None:
+    print(f"SEARCH_FIELD_OK {field_hash}")
+    print(f"ARTIFACT {artifact_path}")
+    print(f"SHA256 {sha_path}")
+    print(f"META {meta_path}")
+
+
+def _confirm_search_field(
+    artifact_path: Path,
+    sha_path: Path,
+    meta_path: Path,
+    canonical: dict,
+    canonical_hash: str,
+    run_id: str,
+) -> int:
+    """Retry/confirm for an already-present field artifact. Never rewrites JSON.
+
+    * semantically equivalent (bytes equal OR legacy byte-differing) -> confirm;
+      complete ONLY a missing/invalid hash sidecar and a missing meta file.
+    * present but semantically different -> fail closed, name both hashes.
+    """
+    try:
+        raw = artifact_path.read_bytes()
+    except OSError as e:
+        return _die(f"failed to read existing field artifact: {e}")
+    actual_hash = _sha256_hex(raw)
+    try:
+        existing = json.loads(raw)
+    except (json.JSONDecodeError, ValueError):
+        return _die(
+            f"conflict: existing {artifact_path.name} is not valid JSON "
+            f"(sha256 {actual_hash}); refusing to overwrite; manual review and removal required"
+        )
+    if not _search_field_semantically_equal(existing, canonical):
+        return _die(
+            f"conflict: {artifact_path.name} exists with different content "
+            f"(existing sha256 {actual_hash}, canonical sha256 {canonical_hash}); "
+            f"refusing to overwrite; remove {artifact_path.name} and its sidecars after "
+            f"manual review (or freeze a different pass suffix)"
+        )
+    # Content confirmed: complete ONLY missing/invalid sidecars, never the JSON.
+    if not _sidecar_matches(sha_path, actual_hash):
+        try:
+            _durable_replace(sha_path, actual_hash.encode("utf-8"))
+        except OSError as e:
+            return _die(f"failed to complete sha256 sidecar: {e}")
+    if not meta_path.is_file():
+        try:
+            _durable_exclusive_write(meta_path, _search_field_meta(run_id, actual_hash))
+        except FileExistsError:
+            pass
+        except OSError as e:
+            return _die(f"failed to complete metadata: {e}")
+    _print_search_field_ok(actual_hash, artifact_path, sha_path, meta_path)
+    return 0
+
+
+def _publish_search_field(
+    artifact_path: Path,
+    sha_path: Path,
+    meta_path: Path,
+    payload: bytes,
+    canonical: dict,
+    canonical_hash: str,
+    run_id: str,
+) -> int:
+    """Exclusive publish of one field 3-file set; cleanup touches only own files."""
+    created: list[Path] = []
+    try:
+        try:
+            _durable_exclusive_write(artifact_path, payload)
+            created.append(artifact_path)
+        except FileExistsError:
+            # Concurrent writer won the os.link race: re-read and confirm/fail.
+            return _confirm_search_field(
+                artifact_path, sha_path, meta_path, canonical, canonical_hash, run_id
+            )
+        except OSError as e:
+            return _die(f"failed to write field artifact: {e}")
+        # We own the JSON. Complete the sidecars.
+        if not _sidecar_matches(sha_path, canonical_hash):
+            try:
+                _durable_exclusive_write(sha_path, canonical_hash.encode("utf-8"))
+                created.append(sha_path)
+            except FileExistsError:
+                # A concurrent confirm may have completed it; accept only a match.
+                if not _sidecar_matches(sha_path, canonical_hash):
+                    _cleanup_created(created)
+                    return _die(
+                        "sha256 sidecar conflict: existing sidecar does not match the "
+                        "written artifact; refusing to clobber"
+                    )
+            except OSError as e:
+                _cleanup_created(created)
+                return _die(f"failed to write sha256: {e}")
+        if not meta_path.is_file():
+            try:
+                _durable_exclusive_write(meta_path, _search_field_meta(run_id, canonical_hash))
+                created.append(meta_path)
+            except FileExistsError:
+                pass
+            except OSError as e:
+                _cleanup_created(created)
+                return _die(f"failed to write metadata: {e}")
+        try:
+            readback = artifact_path.read_bytes()
+        except OSError as e:
+            _cleanup_created(created)
+            return _die(f"failed to read back artifact: {e}")
+        if _sha256_hex(readback) != canonical_hash:
+            _cleanup_created(created)
+            return _die("hash mismatch after write")
+    except BaseException:
+        _cleanup_created(created)
+        raise
+    _print_search_field_ok(canonical_hash, artifact_path, sha_path, meta_path)
+    return 0
 
 
 def _check_skill_roots_divergence(claude_root: Path, opencode_root: Path) -> list[str]:
@@ -2680,6 +2892,139 @@ def freeze(
         print(contract_text)
     return 0
 
+def freeze_search_field(
+    run_id: str,
+    artifact_suffix: str,
+    project_root: Path,
+    skill_root: Path | None = None,
+    candidates_ref: str | None = None,
+) -> int:
+    """Deterministically build ``search-field-passNN.json`` from frozen inputs.
+
+    Reads ONLY the verified frozen ``candidates-passNN.json`` artifact (never
+    pending bytes), derives the canonical field bytes, validates them with the
+    existing ``_validate_search_field``, then exclusively publishes the
+    3-file set. Retry/confirm is semantic (see ``_confirm_search_field``).
+    """
+    # skill_root accepted for CLI symmetry; search-field is terminal (no reveal).
+    del skill_root
+    try:
+        _validate_run_id(run_id)
+    except ValueError as e:
+        return _die(str(e))
+    if not isinstance(artifact_suffix, str) or not _PASS_ID_RE.fullmatch(artifact_suffix):
+        return _die(
+            f"invalid artifact-suffix format: {artifact_suffix!r} (expected passNN; "
+            "the unsuffixed search-field.json stays on 'freeze --stage search-field')"
+        )
+    pass_num = int(artifact_suffix[4:])
+    if pass_num < 1:
+        return _die(f"invalid artifact-suffix: {artifact_suffix!r} (pass numbering starts at pass01)")
+
+    run_dir = project_root / ".ai" / "pizm" / f"run-{run_id}"
+
+    # 1. Resolve + sidecar-verify the frozen candidates artifact.
+    ref = candidates_ref if candidates_ref else f"candidates-{artifact_suffix}.json"
+    try:
+        cand_path = _resolve_pizm_artifact(ref, project_root, run_dir)
+        raw_cand, cand_hash = _verify_artifact_and_sidecar(
+            cand_path, field_name=f"--candidates-ref {ref!r}"
+        )
+    except ValueError as e:
+        return _die(f"cannot freeze {artifact_suffix}: {e}")
+
+    try:
+        cand_data = json.loads(raw_cand)
+    except (json.JSONDecodeError, ValueError):
+        return _die(f"candidates artifact {ref!r} is not valid JSON")
+    cand_list = cand_data.get("candidates") if isinstance(cand_data, dict) else None
+    if not isinstance(cand_list, list):
+        return _die(f"candidates artifact {ref!r} must carry a candidates list")
+
+    # 2. Extract candidate_ids in frozen list order (append-only entries).
+    new_ids: list[str] = []
+    seen_ids: set[str] = set()
+    for i, c in enumerate(cand_list):
+        cid = c.get("candidate_id") if isinstance(c, dict) else None
+        if not isinstance(cid, str) or not _CANDIDATE_ID_RE.fullmatch(cid):
+            return _die(
+                f"candidates artifact {ref!r} carries an invalid candidate_id at index {i}: {cid!r}"
+            )
+        if cid in seen_ids:
+            return _die(f"candidates artifact {ref!r} has duplicate candidate_id: {cid!r}")
+        seen_ids.add(cid)
+        new_ids.append(cid)
+
+    # 3. For NN>1, copy prior passes/entries verbatim and link the prior.
+    passes: list = []
+    entries: list = []
+    prior_ref = None
+    prior_hash = None
+    if pass_num > 1:
+        prior_name = f"search-field-pass{pass_num - 1:02d}.json"
+        prior_path = run_dir / prior_name
+        try:
+            raw_prior, prior_hash = _verify_artifact_and_sidecar(
+                prior_path, field_name=f"prior field {prior_name}"
+            )
+        except ValueError as e:
+            return _die(f"cannot freeze {artifact_suffix}: {e}")
+        try:
+            prior_data = json.loads(raw_prior)
+        except (json.JSONDecodeError, ValueError):
+            return _die(f"prior field {prior_name} is not valid JSON")
+        if not isinstance(prior_data, dict):
+            return _die(f"prior field {prior_name} root must be a JSON object")
+        passes = list(prior_data.get("passes") or [])
+        entries = list(prior_data.get("entries") or [])
+        prior_ref = prior_name
+
+    # 4. Append the new pass and its refs in candidate order.
+    passes.append(
+        {"pass_id": artifact_suffix, "candidates_ref": ref, "frozen_hash": cand_hash}
+    )
+    entries.extend(f"{artifact_suffix}:{cid}" for cid in new_ids)
+
+    canonical: dict = {
+        "schema_version": _SCHEMA_VERSIONS["search-field"],
+        "stage": "search-field",
+        "passes": passes,
+        "entries": entries,
+    }
+    if prior_ref is not None:
+        canonical["prior_ref"] = prior_ref
+        canonical["prior_hash"] = prior_hash
+
+    payload = (
+        json.dumps(canonical, indent=2, ensure_ascii=False, sort_keys=False) + "\n"
+    ).encode("utf-8")
+
+    # 5. Validate the built bytes with the EXISTING validator (no weakening).
+    try:
+        _validate_search_field(json.loads(payload), len(payload), project_root, run_dir)
+    except ValueError as e:
+        msg = str(e)
+        if msg.startswith("PAYLOAD_TOO_LARGE"):
+            return _die(msg)
+        return _die(f"schema validation failed: {e}")
+
+    canonical_hash = _sha256_hex(payload)
+    prefix = f"search-field-{artifact_suffix}"
+    artifact_path = run_dir / f"{prefix}.json"
+    sha_path = run_dir / f"{prefix}.sha256"
+    meta_path = run_dir / f"{prefix}.meta.json"
+
+    run_dir.mkdir(parents=True, exist_ok=True)
+
+    if artifact_path.is_file():
+        return _confirm_search_field(
+            artifact_path, sha_path, meta_path, canonical, canonical_hash, run_id
+        )
+    return _publish_search_field(
+        artifact_path, sha_path, meta_path, payload, canonical, canonical_hash, run_id
+    )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Freeze checkpoint for Prism staged reasoning"
@@ -2707,6 +3052,24 @@ def main() -> int:
         help="Path to pizm skill root (defaults dynamically to PIZM_SKILL_ROOT, local checkout, ~/.claude, or ~/.config/opencode)",
     )
 
+    fs = sub.add_parser(
+        "freeze-search-field",
+        help="Build a canonical frozen search-field passNN from a verified candidates artifact",
+    )
+    fs.add_argument("--run-id", required=True)
+    fs.add_argument(
+        "--artifact-suffix",
+        required=True,
+        help="passNN suffix for the PACK/BONK three-pass route (e.g. pass01)",
+    )
+    fs.add_argument(
+        "--candidates-ref",
+        default=None,
+        help="Frozen candidates artifact ref (default candidates-passNN.json)",
+    )
+    fs.add_argument("--project-root", default=".")
+    fs.add_argument("--skill-root", default=None)
+
     args = parser.parse_args()
 
     if args.command == "freeze":
@@ -2719,6 +3082,15 @@ def main() -> int:
             skill_root=skill_root,
             target=args.target,
             artifact_suffix=args.artifact_suffix,
+        )
+
+    if args.command == "freeze-search-field":
+        return freeze_search_field(
+            run_id=args.run_id,
+            artifact_suffix=args.artifact_suffix,
+            project_root=Path(args.project_root).resolve(),
+            skill_root=Path(args.skill_root).resolve() if args.skill_root else None,
+            candidates_ref=args.candidates_ref,
         )
 
 
