@@ -414,6 +414,67 @@ def test_orphan_sidecar_without_json_fails_closed_preserving_foreign(workspace):
     assert not (run_dir / "search-field-pass01.json").exists()
 
 
+# ── Wave 2A.3: lying sidecar / bad meta must fail closed ──────────────
+
+
+def test_equivalent_field_with_wrong_sidecar_hash_fails_closed(workspace):
+    """A present-but-wrong .sha256 is a lying record: never repaired."""
+    project, skill = workspace
+    run_id = "sf3-sidecar-lie"
+    h1 = _freeze_explore(project, skill, run_id, ("c01", "c02"), "pass01")
+    legacy = _field(
+        [_pass("pass01", "candidates-pass01.json", h1)],
+        ["pass01:c01", "pass01:c02"],
+    )
+    res = _freeze_field(project, skill, run_id, legacy, "pass01",
+                        dump_kwargs={"indent": 4, "sort_keys": True})
+    assert res.returncode == 0, res.stderr
+    run_dir = _run_dir(project, run_id)
+    artifact = run_dir / "search-field-pass01.json"
+    sidecar = run_dir / "search-field-pass01.sha256"
+    json_bytes = artifact.read_bytes()
+    sidecar.write_text("f" * 64, encoding="utf-8")
+    before = _snapshot(run_dir, "search-field-pass01")
+
+    res2 = _build(project, skill, run_id, "pass01")
+    assert res2.returncode != 0
+    assert "mismatch" in res2.stderr
+    assert artifact.read_bytes() == json_bytes  # JSON never rewritten
+    assert sidecar.read_text(encoding="utf-8") == "f" * 64  # not repaired
+    assert _snapshot(run_dir, "search-field-pass01") == before
+
+
+def test_equivalent_field_with_corrupt_meta_fails_closed(workspace):
+    """A present-but-bad .meta.json must fail closed, not confirm."""
+    project, skill = workspace
+    run_id = "sf3-meta-bad"
+    h1 = _freeze_explore(project, skill, run_id, ("c01", "c02"), "pass01")
+    legacy = _field(
+        [_pass("pass01", "candidates-pass01.json", h1)],
+        ["pass01:c01", "pass01:c02"],
+    )
+    res = _freeze_field(project, skill, run_id, legacy, "pass01",
+                        dump_kwargs={"indent": 4, "sort_keys": True})
+    assert res.returncode == 0, res.stderr
+    run_dir = _run_dir(project, run_id)
+    meta = run_dir / "search-field-pass01.meta.json"
+
+    meta.write_text("{ not valid json", encoding="utf-8")
+    before = _snapshot(run_dir, "search-field-pass01")
+    res2 = _build(project, skill, run_id, "pass01")
+    assert res2.returncode != 0
+    assert "mismatch" in res2.stderr
+    assert _snapshot(run_dir, "search-field-pass01") == before
+
+    # Valid JSON but inconsistent sha256 is equally fail-closed.
+    meta.write_text(json.dumps({"sha256": "0" * 64}), encoding="utf-8")
+    before2 = _snapshot(run_dir, "search-field-pass01")
+    res3 = _build(project, skill, run_id, "pass01")
+    assert res3.returncode != 0
+    assert "mismatch" in res3.stderr
+    assert _snapshot(run_dir, "search-field-pass01") == before2
+
+
 # ── concurrency ───────────────────────────────────────────────────────
 
 

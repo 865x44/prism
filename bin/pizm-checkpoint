@@ -2422,7 +2422,8 @@ def _confirm_search_field(
     """Retry/confirm for an already-present field artifact. Never rewrites JSON.
 
     * semantically equivalent (bytes equal OR legacy byte-differing) -> confirm;
-      complete ONLY a missing/invalid hash sidecar and a missing meta file.
+      complete ONLY an ABSENT hash sidecar and an ABSENT meta file. A PRESENT
+      sidecar/meta that disagrees with the confirmed content fails closed.
     * present but semantically different -> fail closed, name both hashes.
     """
     try:
@@ -2444,13 +2445,41 @@ def _confirm_search_field(
             f"refusing to overwrite; remove {artifact_path.name} and its sidecars after "
             f"manual review (or freeze a different pass suffix)"
         )
-    # Content confirmed: complete ONLY missing/invalid sidecars, never the JSON.
-    if not _sidecar_matches(sha_path, actual_hash):
+    # Content confirmed: complete ONLY an ABSENT hash sidecar, never the JSON.
+    # A PRESENT sidecar that disagrees with the confirmed bytes is a lying
+    # (corrupt / foreign-modified) record: fail closed and touch nothing.
+    if sha_path.is_file():
+        if not _sidecar_matches(sha_path, actual_hash):
+            try:
+                found = sha_path.read_text(encoding="utf-8").strip()
+            except OSError as e:
+                return _die(f"failed to read sha256 sidecar: {e}")
+            return _die(
+                f"sidecar hash mismatch: expected {actual_hash}, found {found}; "
+                f"manual review; refusing to touch files"
+            )
+    else:
         try:
             _durable_replace(sha_path, actual_hash.encode("utf-8"))
         except OSError as e:
             return _die(f"failed to complete sha256 sidecar: {e}")
-    if not meta_path.is_file():
+    # Metadata: complete only when ABSENT; a present-but-inconsistent record is
+    # never silently kept alongside a confirm-success.
+    if meta_path.is_file():
+        try:
+            meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as e:
+            return _die(
+                f"meta hash mismatch: {meta_path.name} is not a readable "
+                f"consistency record ({e}); manual review; refusing to touch files"
+            )
+        stored = meta.get("sha256") if isinstance(meta, dict) else None
+        if not isinstance(meta, dict) or stored != actual_hash:
+            return _die(
+                f"meta hash mismatch: expected {actual_hash}, found {stored}; "
+                f"manual review; refusing to touch files"
+            )
+    else:
         try:
             _durable_exclusive_write(meta_path, _search_field_meta(run_id, actual_hash))
         except FileExistsError:
