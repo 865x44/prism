@@ -20,6 +20,7 @@ from pathlib import Path
 HELPERS = [
     "pizm-checkpoint",
     "pizm-session-bundle",
+    "pizmz-bundle",
     "pizm-reader-server",
     "pizm_render_html.py",
     "pizm_run_state.py",

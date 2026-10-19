@@ -1,0 +1,306 @@
+#!/usr/bin/env python3
+"""
+pizmz-bundle: deterministically assemble one portable Markdown bundle from the
+final packet files of a finished pizmz parallel fan-out.
+
+Zero model calls. Stdlib only. Byte-verbatim packet embedding: the script never
+rewrites, summarizes, or reorders packet content; it only prepends a manifest
+header and wraps each packet in marker comments carrying lane/run-id/sha256.
+
+Layout (created under --out-dir):
+    pizmz-<slug>-bundle.md       # manifest + verbatim packets
+    pizmz-<slug>-synthesis.md    # skeleton with mandatory synthesis sections
+                                  # (filled later by the ordering parent session;
+                                  #  skipped with --no-synthesis-skel)
+"""
+from __future__ import annotations
+
+import argparse
+import hashlib
+import re
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+
+_SCHEMA_VERSION = "pizmz-bundle-v1"
+_SLUG_RE = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*\Z")
+_LANE_RE = re.compile(r"[A-Za-z0-9]+(?:[-_][A-Za-z0-9]+)*\Z")
+_PACKET_BASENAME_RE = re.compile(r"(?:research-pack-.*\.md|run.*\.md)\Z")
+_COUNT_RE = re.compile(r"^-\s+(KEEP|MERGE|BORDERLINE|DROP|Bundles):\s+(\d+)\s*$", re.M)
+_SYNTHESIS_SECTIONS = (
+    "Coverage map",
+    "Agreements",
+    "Conflicts",
+    "Solo gems",
+    "Short-list and next step",
+)
+
+
+def _fail(msg: str) -> int:
+    print(f"ERROR: {msg}", file=sys.stderr)
+    return 1
+
+
+def _utc_now_stamp() -> str:
+    return datetime.now(timezone.utc).strftime("%Y%m%dt%H%M%Sz")
+
+
+def _parse_packet_spec(spec: str) -> tuple[str, Path, str | None]:
+    """Parse --packet lane=path[:run-id]; run-id may itself contain '=' so split once."""
+    if "=" not in spec:
+        raise ValueError(f"packet spec must be lane=path[:run-id], got {spec!r}")
+    lane, rest = spec.split("=", 1)
+    lane = lane.strip()
+    if not _LANE_RE.fullmatch(lane):
+        raise ValueError(f"bad lane name {lane!r} (alnum plus -/_ separators)")
+    if ":" in rest:
+        path_s, run_id = rest.rsplit(":", 1)
+        run_id = run_id.strip() or None
+    else:
+        path_s, run_id = rest, None
+    path = Path(path_s.strip())
+    if run_id is not None and not _SLUG_RE.fullmatch(run_id):
+        raise ValueError(f"bad run-id {run_id!r} (lowercase alnum-hyphens only)")
+    return lane, path, run_id
+
+
+def _parse_missing_spec(spec: str) -> tuple[str, str]:
+    if ":" not in spec:
+        raise ValueError(f"missing spec must be lane:reason, got {spec!r}")
+    lane, reason = spec.split(":", 1)
+    lane = lane.strip()
+    if not _LANE_RE.fullmatch(lane):
+        raise ValueError(f"bad lane name {lane!r}")
+    reason = reason.strip() or "no reason recorded"
+    return lane, reason
+
+
+def _packet_counts(text: str) -> dict[str, str]:
+    found = dict(_COUNT_RE.findall(text))
+    return {k: found.get(k, "n/a") for k in ("KEEP", "MERGE", "BORDERLINE", "DROP", "Bundles")}
+
+
+def _synthesis_skeleton(slug: str, task: str, lanes: list[str]) -> str:
+    lane_list = ", ".join(lanes) if lanes else "(no lanes landed)"
+    lines = [
+        f"# Pizmz Synthesis — {slug}",
+        "",
+        "## Source task",
+        task,
+        "",
+        f"Lanes landed: {lane_list}",
+        "",
+        "Rules: every claim cites `lane/P-ID` (or `lane/B-ID`); a synthesis",
+        "with uncited claims or without a Conflicts section is rejected.",
+        "Never average contradictions — adjudicate and keep dissent explicit.",
+        "",
+        "## 1. Coverage map",
+        "Theme x lane table: which lane covered what, where all lanes are thin.",
+        "",
+        "## 2. Agreements",
+        "Only with evidence: theme + lanes + concrete P-IDs (minimum 2 lanes).",
+        "",
+        "## 3. Conflicts",
+        "Direct P-vs-P contradictions with adjudication: accept/reject and why.",
+        "",
+        "## 4. Solo gems",
+        "Strong insight from a single lane that the others missed.",
+        "",
+        "## 5. Short-list and next step",
+        "What to deepen (Deep target) / what to close with one follow-up question,",
+        "each item pointing back to sections 2-4.",
+        "",
+    ]
+    return "\n".join(lines)
+
+
+def build_bundle(
+    *,
+    slug: str,
+    task: str,
+    packets: list[tuple[str, Path, str | None]],
+    missing: list[tuple[str, str]],
+    created: str,
+    out_dir: Path,
+    write_synthesis_skel: bool,
+) -> tuple[Path, Path | None, str]:
+    lanes = [lane for lane, _, _ in packets]
+    if len(set(lanes)) != len(lanes):
+        raise ValueError(f"duplicate lane names: {lanes}")
+    for lane, _ in missing:
+        if lane in lanes:
+            raise ValueError(f"lane {lane!r} both landed and missing")
+    if len(set(lanes) | {lane for lane, _ in missing}) != len(lanes) + len(missing):
+        raise ValueError("duplicate lane names across landed and missing")
+
+    entries: list[dict] = []
+    for lane, path, run_id in packets:
+        if not path.is_file():
+            raise ValueError(f"packet not found: {path}")
+        if not _PACKET_BASENAME_RE.fullmatch(path.name):
+            raise ValueError(
+                f"packet basename {path.name!r} is not a final packet "
+                "(expected research-pack-*.md or run*.md)"
+            )
+        raw = path.read_bytes()
+        if not raw:
+            raise ValueError(f"packet is empty: {path}")
+        try:
+            text = raw.decode("utf-8")
+        except UnicodeDecodeError as e:
+            raise ValueError(f"packet is not valid UTF-8: {path} ({e})")
+        entries.append(
+            {
+                "lane": lane,
+                "path": path,
+                "run_id": run_id or "n/a",
+                "sha256": hashlib.sha256(raw).hexdigest(),
+                "bytes": len(raw),
+                "counts": _packet_counts(text),
+                "text": text,
+            }
+        )
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+    bundle_path = out_dir / f"pizmz-{slug}-bundle.md"
+    if bundle_path.exists():
+        raise ValueError(f"refusing to overwrite existing bundle: {bundle_path}")
+
+    total_keep = sum(int(e["counts"]["KEEP"]) for e in entries if e["counts"]["KEEP"] != "n/a")
+    header = [
+        f"# Pizmz Bundle — {slug}",
+        "",
+        f"schema: {_SCHEMA_VERSION}",
+        f"created_utc: {created}",
+        "",
+        "## Source task",
+        task,
+        "",
+        "## Packets",
+    ]
+    for e in entries:
+        c = e["counts"]
+        header.append(
+            f"- lane `{e['lane']}` run-id `{e['run_id']}` "
+            f"sha256 `{e['sha256']}` bytes {e['bytes']} "
+            f"KEEP {c['KEEP']} MERGE {c['MERGE']} BORDERLINE {c['BORDERLINE']} "
+            f"DROP {c['DROP']} bundles {c['Bundles']} source `{e['path'].name}`"
+        )
+    if missing:
+        header.append("")
+        header.append("## Missing lanes (reported, not hidden)")
+        for lane, reason in missing:
+            header.append(f"- lane `{lane}`: {reason}")
+    header += [
+        "",
+        "## Totals",
+        f"- packets: {len(entries)}",
+        f"- KEEP perspectives (summed over packets with counts): {total_keep}",
+        "",
+        "Packets below are embedded byte-verbatim between markers; "
+        "sha256 in each marker covers the original packet file bytes.",
+        "",
+    ]
+
+    parts = ["\n".join(header)]
+    for e in entries:
+        parts.append(
+            f"<!-- pizmz-packet-begin lane=\"{e['lane']}\" "
+            f"run-id=\"{e['run_id']}\" sha256=\"{e['sha256']}\" -->"
+        )
+        parts.append(e["text"].rstrip("\n"))
+        parts.append(
+            f"<!-- pizmz-packet-end lane=\"{e['lane']}\" sha256=\"{e['sha256']}\" -->"
+        )
+        parts.append("")
+    bundle_path.write_text("\n".join(parts), encoding="utf-8")
+
+    synthesis_path: Path | None = None
+    if write_synthesis_skel:
+        synthesis_path = out_dir / f"pizmz-{slug}-synthesis.md"
+        if synthesis_path.exists():
+            raise ValueError(f"refusing to overwrite existing synthesis: {synthesis_path}")
+        synthesis_path.write_text(
+            _synthesis_skeleton(slug, task, lanes), encoding="utf-8"
+        )
+
+    digest = hashlib.sha256(bundle_path.read_bytes()).hexdigest()
+    return bundle_path, synthesis_path, digest
+
+
+def main(argv: list[str] | None = None) -> int:
+    ap = argparse.ArgumentParser(
+        description="Assemble a portable pizmz bundle from finished lane packets."
+    )
+    ap.add_argument("--slug", required=True, help="fan-out slug (lowercase alnum-hyphens)")
+    ap.add_argument("--task", required=True, help="original user task text (verbatim)")
+    ap.add_argument(
+        "--packet",
+        action="append",
+        default=[],
+        help="lane packet: lane=path[:run-id]; repeatable, CLI order preserved",
+    )
+    ap.add_argument(
+        "--missing",
+        action="append",
+        default=[],
+        help="failed lane: lane:reason; repeatable, reported not hidden",
+    )
+    ap.add_argument("--out-dir", required=True, help="output directory for bundle + synthesis")
+    ap.add_argument("--created", default=None, help="UTC stamp override (default: now)")
+    ap.add_argument(
+        "--allow-single",
+        action="store_true",
+        help="permit a 1-packet bundle (default requires quorum of 2+)",
+    )
+    ap.add_argument(
+        "--no-synthesis-skel",
+        action="store_true",
+        help="do not write the synthesis skeleton file",
+    )
+    args = ap.parse_args(argv)
+
+    if not _SLUG_RE.fullmatch(args.slug):
+        return _fail(f"bad slug {args.slug!r} (lowercase alnum-hyphens only)")
+    if not args.task.strip():
+        return _fail("empty --task")
+
+    try:
+        packets = [_parse_packet_spec(s) for s in args.packet]
+    except ValueError as e:
+        return _fail(str(e))
+    try:
+        missing = [_parse_missing_spec(s) for s in args.missing]
+    except ValueError as e:
+        return _fail(str(e))
+    if len(packets) < 2 and not args.allow_single:
+        return _fail(
+            f"quorum not met: {len(packets)} packet(s), need 2+ "
+            "(or pass --allow-single for an explicit single-lane bundle)"
+        )
+    if not packets and not missing:
+        return _fail("nothing to bundle: no --packet and no --missing")
+
+    try:
+        bundle_path, synthesis_path, digest = build_bundle(
+            slug=args.slug,
+            task=args.task,
+            packets=packets,
+            missing=missing,
+            created=args.created or _utc_now_stamp(),
+            out_dir=Path(args.out_dir),
+            write_synthesis_skel=not args.no_synthesis_skel,
+        )
+    except ValueError as e:
+        return _fail(str(e))
+    except OSError as e:
+        return _fail(f" filesystem: {e}")
+
+    print(f"BUNDLE_OK {bundle_path} sha256:{digest}")
+    if synthesis_path is not None:
+        print(f"SYNTHESIS_SKEL_OK {synthesis_path}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
