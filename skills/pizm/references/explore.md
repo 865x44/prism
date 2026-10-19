@@ -123,6 +123,12 @@ For each candidate RIFT, provide:
 - break point where the model stops working (`break_condition`, required for RIFT);
 - `rift_extras` (`source_structure`, `functional_mapping`, `return_path`, `break_condition`).
 
+Operator discipline (inside this same RIFT inference; no new fields, no schema change): carry each candidate's existing `functional_mapping`, `return_path`, and `break_condition` text through four moves, without new keys:
+1. **Under-explained mechanism first**: name which mechanism or limitation in the task/source is currently under-explained — and why the prior passes leave it so — before reaching for any far domain.
+2. **Import an operator, not a name**: borrow one functional operator from the far domain (feedback, invariant, boundary, threshold, custody, delayed flow) and state the work it does; a domain name, image, or vocabulary swap without functional transfer is decorative analogy, not a RIFT.
+3. **Map and return concrete**: make the functional mapping explicit and return to one concrete implication — a decision it changes, a risk or condition it adds, a form-shift it requires, or an experiment it proposes. Abstract completeness ("covers the topic") is insufficient.
+4. **State the break**: state where the mapping stops working (`break_condition`); if the operator adds nothing beyond renaming an old requirement, say so instead — honest emptiness stays allowed (freeze `candidates: []` with `exhaustion_reason`), never a pretty new name for an old requirement.
+
 If the material cannot support a meaningful RIFT, return a short honest limit rather than forcing novelty. Freeze `candidates: []` together with a non-empty `exhaustion_reason` string (see Honest Exhaustion below); never invent a decorative analogy to avoid it.
 
 ## Search Field (accumulated candidates across passes)

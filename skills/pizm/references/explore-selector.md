@@ -116,6 +116,13 @@ Valid material structures include:
 
 **Non-sufficient rhetorical changes**: Mere restatement, re-phrasing, naming or labeling things without functional transfer, poetic analogies without structural difference, or vocabulary swaps do NOT provide unique residue or justify separate promotion. A candidate that merely summarizes, re-labels, or paraphrases source observations carries no material delta.
 
+**Incremental portfolio checks (inside this same Portfolio inference; no new fields, no schema change)**: apply checks 1–4 per candidate and check 5 per bundle, recording the outcome in the existing `reason` / `composition_gain` / `member_ablation` / `new_consequence_or_prediction` text without new keys:
+1. **Nearest-source-idea**: name the closest given thesis/invariant already present in the source/task (section-anchored where possible), not a neighboring candidate. Candidate-vs-candidate overlap stays in `nearest_overlap`; this check is candidate-vs-source.
+2. **Incremental-consequence**: state what new decision, risk, condition, causal step, experiment, or creative opportunity appears beyond that source idea. Abstract completeness ("covers the topic") is insufficient; the consequence must change a downstream choice, test, or causal expectation.
+3. **Counterfactual-subtraction**: if this card is removed but the reader keeps the source, what is truly lost? If nothing material is lost — the source already decides, predicts, or constrains the same thing — the candidate carries no marginal delta (`DROP`, or `MERGE` under its primary survivor).
+4. **Preservation-check**: if the card is a mandatory downstream invariant with no other packing path (the task/source requires it downstream and no sibling carries it), keep it and flag the interface limit in `reason` instead of laundering it via `BORDERLINE`. `BORDERLINE` MUST NOT be a trashbin for mandatory source requirements: a required invariant with weak novelty stays visible as a requirement, never as ambiguous territory.
+5. **No-confidence-promotion**: `new_consequence_or_prediction` MUST NOT contain bare %, timelines, or zero/all/never-across-years guarantees unless a member claim already carries the same figure with derivation. Testable hypotheses with explicit limits and failure conditions are allowed and preferred.
+
 ### Separate-Survivor Test
 For candidates close to an already selected survivor, ask what materially useful thing the user loses if the candidate is not shown separately.
 
@@ -145,7 +152,7 @@ A bundle groups members whose combination produces something beyond any listing 
 1. **Composition gain is mandatory**: A bundle is valid only when it asserts, explains, predicts, or reveals something not recoverable by listing members with "and". State the gain explicitly in `composition_gain`.
 2. **Not a topic cluster**: Bundles are not tag groups, shared-subject collections, or "similar ideas" bins. Similarity is grounds for MERGE or DROP, never for bundling.
 3. **Membership**: At least 2 members; soft preference for 2–4. Larger bundles must justify their size through the composition gain itself.
-4. **Member ablation is required**: `member_ablation` states what breaks or disappears when each member is removed. If removing a member loses nothing, that member is a passenger: remove the passenger or dissolve the bundle.
+4. **Member ablation is required**: `member_ablation` states what breaks or disappears when each member is removed. If removing a member loses nothing, that member is a passenger: remove the passenger or dissolve the bundle. Apply composition gain and member ablation to the concrete new consequence: state what the combination explains or predicts that the best single member does not; abstract completeness ("covers all aspects") is insufficient.
 5. **Productive tension**: `internal_tension` names the live contradiction or trade-off between members that keeps the bundle honest rather than decorative.
 6. **Consequence**: `new_consequence_or_prediction` states one testable consequence the bundle implies and no lone member does.
 7. **Do not force bundles**: Zero bundles is a valid outcome. A field of independent perspectives with no composition gains needs no bundles.
