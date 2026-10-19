@@ -308,14 +308,15 @@ def test_installer_helper_file_exists_and_executable():
     import os
     assert os.access(helper, os.X_OK)
 
-
-MANAGED_SKILL = Path.home() / ".omp" / "agent" / "managed-skills" / "pizmz" / "SKILL.md"
-MANAGED_SKILL_PRESENT = MANAGED_SKILL.is_file()
+REPO_SKILL = REPO_ROOT / "skills" / "pizmz" / "SKILL.md"
 
 
-@pytest.mark.skipif(not MANAGED_SKILL_PRESENT, reason="developer-machine managed skill ~/.omp/agent/managed-skills/pizmz not installed")
+def test_skill_canonical_in_repo():
+    assert REPO_SKILL.is_file(), "canonical skill skills/pizmz/SKILL.md must exist in repo"
+
+
 def test_skill_documents_bundle_and_synthesis():
-    text = MANAGED_SKILL.read_text(encoding="utf-8")
+    text = REPO_SKILL.read_text(encoding="utf-8")
     assert "pizmz-bundle" in text
     assert "Coverage map" in text
     assert "Conflicts" in text

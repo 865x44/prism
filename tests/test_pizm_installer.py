@@ -46,7 +46,7 @@ def test_install_claude_code(tmp_path, monkeypatch):
     assert (local_bin / "pizm-reader-server").exists()
     assert (local_bin / "pizm_render_html.py").exists()
     # Verify helpers are actual files, NOT symlinks (self-contained)
-    for helper_name in ["pizm-checkpoint", "pizm-session-bundle", "pizm-reader-server", "pizm_render_html.py", "pizm_run_state.py"]:
+    for helper_name in ["pizm-checkpoint", "pizm-session-bundle", "pizmz-bundle", "pizm-reader-server", "pizm_render_html.py", "pizm_run_state.py"]:
         h_path = local_bin / helper_name
         assert h_path.is_file(), f"{helper_name} is not a file"
         assert not h_path.is_symlink(), f"{helper_name} is unexpectedly a symlink"
@@ -97,6 +97,7 @@ def test_install_both(tmp_path, monkeypatch):
     local_bin = tmp_path / ".local" / "bin"
     assert (local_bin / "pizm-checkpoint").exists()
     assert (local_bin / "pizm-session-bundle").exists()
+    assert (local_bin / "pizmz-bundle").exists()
     assert (local_bin / "pizm-reader-server").exists()
     assert (local_bin / "pizm_render_html.py").exists()
 
