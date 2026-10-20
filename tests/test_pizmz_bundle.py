@@ -4,16 +4,17 @@ Contract tests for bin/pizmz-bundle.
 Covers:
 - B1: verbatim embedding (packet bytes preserved byte-for-byte inside bundle)
 - B2: quorum enforcement (1 packet refused; --allow-single passes)
-- B3: run-id/lane validation (bad lane names, bad run-ids, duplicates fail closed)
+- B3: run-id/lane validation (bad lane names, bad run-ids, duplicate lanes, same-source lanes, duplicate run-ids fail closed)
 - B4: final-packet basename gate (non-packet .md refused)
 - B5: missing lanes reported in manifest, not hidden
 - B6: determinism (same inputs + --created => byte-identical bundle)
-- B7: no-overwrite of existing bundle/synthesis
+- B7: no-overwrite of existing bundle/synthesis; atomic assembly (no partial writes)
 - B8: synthesis skeleton carries all five mandatory sections
 - B9: installer deploys the helper
 - B10: managed skill documents the bundle+synthesis pair
 """
 import hashlib
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -63,6 +64,18 @@ def two_packets(tmp_path):
 # ---------------------------------------------------------------------------
 
 
+def _extract_packet_body(bundle_text: str, lane: str) -> bytes:
+    """Bytes embedded between this lane's begin/end markers (verbatim contract)."""
+    m = re.search(
+        rf'<!-- pizmz-packet-begin lane="{re.escape(lane)}".*?-->\n(.*?)'
+        rf'\n<!-- pizmz-packet-end lane="{re.escape(lane)}".*?-->',
+        bundle_text,
+        re.DOTALL,
+    )
+    assert m is not None, f"markers for lane {lane!r} not found in bundle"
+    return m.group(1).encode("utf-8")
+
+
 def test_packets_embedded_byte_verbatim(tmp_path, two_packets):
     a, b = two_packets
     out = tmp_path / "out"
@@ -76,12 +89,38 @@ def test_packets_embedded_byte_verbatim(tmp_path, two_packets):
     )
     assert r.returncode == 0, r.stderr
     bundle = out / "pizmz-demo-20261019t000000z-bundle.md"
-    raw_a, raw_b = a.read_bytes(), b.read_bytes()
-    body = bundle.read_bytes()
-    assert raw_a.decode("utf-8").rstrip("\n").encode("utf-8") in body
-    assert raw_b.decode("utf-8").rstrip("\n").encode("utf-8") in body
-    assert hashlib.sha256(raw_a).hexdigest() in bundle.read_text(encoding="utf-8")
-    assert hashlib.sha256(raw_b).hexdigest() in bundle.read_text(encoding="utf-8")
+    text = bundle.read_text(encoding="utf-8")
+    assert _extract_packet_body(text, "agy") == a.read_bytes()
+    assert _extract_packet_body(text, "muse") == b.read_bytes()
+    assert hashlib.sha256(a.read_bytes()).hexdigest() in text
+    assert hashlib.sha256(b.read_bytes()).hexdigest() in text
+
+
+def test_packet_trailing_newlines_round_trip_byte_identical(tmp_path):
+    raw_extra = (
+        "# Pizm Research Pack\n\n## Curated Perspectives\n\n"
+        "- KEEP: 1\n- MERGE: 0\n- BORDERLINE: 0\n- DROP: 0\n- Bundles: 1\n"
+        "\n\n"
+    ).encode("utf-8")
+    p = tmp_path / "research-pack-trailing.md"
+    p.write_bytes(raw_extra)
+    q = tmp_path / "research-pack-bare.md"
+    q.write_bytes(
+        b"# bare packet\n- KEEP: 0\n- MERGE: 0\n- BORDERLINE: 0\n- DROP: 0\n- Bundles: 0"
+    )
+    out = tmp_path / "out"
+    r = run_pizmz_bundle(
+        "--slug", "trail-x",
+        "--task", "t",
+        "--packet", f"agy={p}",
+        "--packet", f"muse={q}",
+        "--out-dir", str(out),
+        "--created", "20261019t000000z",
+    )
+    assert r.returncode == 0, r.stderr
+    text = (out / "pizmz-trail-x-bundle.md").read_text(encoding="utf-8")
+    assert _extract_packet_body(text, "agy") == raw_extra
+    assert _extract_packet_body(text, "muse") == q.read_bytes()
 
 
 # ---------------------------------------------------------------------------
@@ -160,6 +199,65 @@ def test_missing_lane_also_landed_fails(tmp_path, two_packets):
         "--out-dir", str(tmp_path / "out"),
     )
     assert r.returncode != 0
+
+
+def test_same_source_file_under_two_lanes_refused(tmp_path, two_packets):
+    a, _ = two_packets
+    r = run_pizmz_bundle(
+        "--slug", "dupsrc-x",
+        "--task", "t",
+        "--packet", f"agy={a}",
+        "--packet", f"muse={a}",
+        "--out-dir", str(tmp_path / "out"),
+    )
+    assert r.returncode != 0
+    assert "duplicate" in r.stderr.lower()
+
+
+def test_same_source_via_symlink_refused(tmp_path, two_packets):
+    a, _ = two_packets
+    alias = tmp_path / "research-pack-alias.md"
+    alias.symlink_to(a)
+    r = run_pizmz_bundle(
+        "--slug", "dupsrc-link-x",
+        "--task", "t",
+        "--packet", f"agy={a}",
+        "--packet", f"muse={alias}",
+        "--out-dir", str(tmp_path / "out"),
+    )
+    assert r.returncode != 0
+    assert "duplicate" in r.stderr.lower()
+
+
+def test_duplicate_run_ids_refused(tmp_path, two_packets):
+    a, b = two_packets
+    r = run_pizmz_bundle(
+        "--slug", "duprun-x",
+        "--task", "t",
+        "--packet", f"agy={a}:run-20261020t000000z",
+        "--packet", f"muse={b}:run-20261020t000000z",
+        "--out-dir", str(tmp_path / "out"),
+    )
+    assert r.returncode != 0
+    assert "duplicate" in r.stderr.lower()
+
+
+def test_identical_content_distinct_files_allowed(tmp_path):
+    # Same substantive conclusions from different models stay allowed:
+    # only source duplication is refused, never content similarity.
+    a = _sample_packet(tmp_path, "research-pack-one.md", keep=2)
+    b = tmp_path / "research-pack-two.md"
+    b.write_bytes(a.read_bytes())
+    out = tmp_path / "out"
+    r = run_pizmz_bundle(
+        "--slug", "samecontent-x",
+        "--task", "t",
+        "--packet", f"agy={a}",
+        "--packet", f"muse={b}",
+        "--out-dir", str(out),
+        "--created", "20261019t000000z",
+    )
+    assert r.returncode == 0, r.stderr
 
 
 # ---------------------------------------------------------------------------
@@ -247,6 +345,26 @@ def test_refuses_to_overwrite(tmp_path, two_packets):
     r = run_pizmz_bundle(*args)
     assert r.returncode != 0
     assert "overwrite" in r.stderr.lower()
+
+
+def test_preexisting_synthesis_fails_without_bundle(tmp_path, two_packets):
+    a, b = two_packets
+    out = tmp_path / "out"
+    out.mkdir()
+    skel = out / "pizmz-atom-x-synthesis.md"
+    skel.write_text("# pre-existing synthesis\n", encoding="utf-8")
+    r = run_pizmz_bundle(
+        "--slug", "atom-x",
+        "--task", "t",
+        "--packet", f"agy={a}",
+        "--packet", f"muse={b}",
+        "--out-dir", str(out),
+        "--created", "20261019t000000z",
+    )
+    assert r.returncode != 0
+    assert "synthesis" in r.stderr.lower()
+    assert not (out / "pizmz-atom-x-bundle.md").exists()
+    assert skel.read_text(encoding="utf-8") == "# pre-existing synthesis\n"
 
 
 # ---------------------------------------------------------------------------

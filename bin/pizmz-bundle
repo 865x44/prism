@@ -133,6 +133,25 @@ def build_bundle(
     if len(set(lanes) | {lane for lane, _ in missing}) != len(lanes) + len(missing):
         raise ValueError("duplicate lane names across landed and missing")
 
+    seen_sources: dict[str, str] = {}
+    seen_runs: dict[str, str] = {}
+    for lane, path, run_id in packets:
+        canonical = str(path.resolve())
+        if canonical in seen_sources:
+            raise ValueError(
+                f"duplicate packet source: lanes {seen_sources[canonical]!r} and {lane!r} "
+                f"point at the same file {path} (canonical path {canonical}); "
+                "each lane must land its own packet file"
+            )
+        seen_sources[canonical] = lane
+        if run_id is not None:
+            if run_id in seen_runs:
+                raise ValueError(
+                    f"duplicate run-id {run_id!r} under lanes {seen_runs[run_id]!r} and "
+                    f"{lane!r}; each lane must come from its own run"
+                )
+            seen_runs[run_id] = lane
+
     entries: list[dict] = []
     for lane, path, run_id in packets:
         if not path.is_file():
@@ -165,6 +184,11 @@ def build_bundle(
     bundle_path = out_dir / f"pizmz-{slug}-bundle.md"
     if bundle_path.exists():
         raise ValueError(f"refusing to overwrite existing bundle: {bundle_path}")
+    synthesis_path: Path | None = (
+        out_dir / f"pizmz-{slug}-synthesis.md" if write_synthesis_skel else None
+    )
+    if synthesis_path is not None and synthesis_path.exists():
+        raise ValueError(f"refusing to overwrite existing synthesis: {synthesis_path}")
 
     total_keep = sum(int(e["counts"]["KEEP"]) for e in entries if e["counts"]["KEEP"] != "n/a")
     header = [
@@ -208,18 +232,14 @@ def build_bundle(
             f"<!-- pizmz-packet-begin lane=\"{e['lane']}\" "
             f"run-id=\"{e['run_id']}\" sha256=\"{e['sha256']}\" -->"
         )
-        parts.append(e["text"].rstrip("\n"))
+        parts.append(e["text"])
         parts.append(
             f"<!-- pizmz-packet-end lane=\"{e['lane']}\" sha256=\"{e['sha256']}\" -->"
         )
         parts.append("")
     bundle_path.write_text("\n".join(parts), encoding="utf-8")
 
-    synthesis_path: Path | None = None
-    if write_synthesis_skel:
-        synthesis_path = out_dir / f"pizmz-{slug}-synthesis.md"
-        if synthesis_path.exists():
-            raise ValueError(f"refusing to overwrite existing synthesis: {synthesis_path}")
+    if synthesis_path is not None:
         synthesis_path.write_text(
             _synthesis_skeleton(slug, task, lanes), encoding="utf-8"
         )
