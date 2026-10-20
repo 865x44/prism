@@ -132,6 +132,10 @@ Name the cheapest observation, check, or probe that would discriminate between t
 - Central unsupported specificity requires recorded `evidence_debt` and usually forces `NEED_EVIDENCE` or a revision demand; never launder it into accepted support.
 - Identity or composition collapse — the target itself not defensible — forces `RETURN_TO_EXPLORE`.
 - A consequential bridge with `WARRANT: NONE` is incompatible with a final status of `SUPPORTED` or `INFERRED` for that claim — there is no automatic one-step demotion; narrow the claim to its supported residue or set it to `SPECULATIVE`/`UNKNOWN`, then apply the existing B1 rule if the bridge stays task-relevant and load-bearing for the identity/thesis.
+- **Readiness is not testability (central SPECULATIVE forbids `MODEL_READY`)**: when any claim the central thesis depends on is independently reassessed as `SPECULATIVE` or `UNKNOWN`, `MODEL_READY` is forbidden — even alongside a good discriminating test. A good test yields `NEED_EVIDENCE` with that test recorded in `evidence_debt` (plus `cheapest_discriminating_test` and a non-null `inquiry_program`), never readiness. `MODEL_READY` requires the central chain to stand on `SUPPORTED`/`INFERRED` residue alone.
+- **Protocol-identity exception (narrow)**: when the locked identity genuinely IS the protocol/procedure itself — not a causal effect the protocol is claimed to produce — `MODEL_READY` is allowed only with an explicit statement that readiness targets the protocol as such AND null `findings.identity_drift`. Silently swapping the thesis (protocol for effect, or effect for protocol) is drift: the honest outcome is a different terminal (`RETURN_TO_EXPLORE` on drift, or `NEED_EVIDENCE` narrowed to what was actually shown), never `MODEL_READY` on the swapped thesis.
+- **Normative source is not empirical support**: a source requirement, design rule, prohibition, or procedure NEVER counts as empirical support for a causal-effect claim. `SUPPORTED` needs claim-content evidence (the effect observed, measured, or directly attested in the cited anchor) — not mere phrase presence. A rule-cited causal bridge caps at `INFERRED` with the gap named, and where that gap stays load-bearing for the identity/thesis the existing B1 rule applies.
+- **Peripheral SPECULATIVE stays non-blocking**: a `SPECULATIVE`/`UNKNOWN` reassessment on a claim the central thesis does not depend on stays a soft warning under the existing Soft Warnings semantics and does not by itself forbid `MODEL_READY`. Centrality is decided at the use site: if removing the claim leaves thesis, bottom line, and locked identity intact, it is peripheral; otherwise the B1 rule governs. The 1–3 `use_site_warrant` cap and B1–B4 meanings are unchanged.
 
 ### Blocker-closure order
 
@@ -178,6 +182,7 @@ Use when:
 - Your independent reassessment did not surface an unresolved load-bearing contradiction (none of B1–B4 blockers apply).
 - Unsupported specificity has been flagged and debt recorded where found.
 - Remaining uncertainty is confined to soft warnings (peripheral uncertainty, non-central debt) that do not block the user's current purpose.
+- No central load-bearing claim reassessed as `SPECULATIVE`/`UNKNOWN` carries the thesis (readiness-is-not-testability rule above); any protocol-identity readiness meets the narrow exception above.
 ### NEED_EVIDENCE
 
 Use when:
